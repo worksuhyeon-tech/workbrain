@@ -1,0 +1,88 @@
+{
+  "version": "2.0",
+  "lastUpdated": "2026-10-16T12:53:19.160Z",
+  "activeFeatures": [
+    "workbrain"
+  ],
+  "primaryFeature": "workbrain",
+  "features": {
+    "workbrain": {
+      "phase": "plan",
+      "matchRate": null,
+      "iterationCount": 0,
+      "documents": {
+        "plan": "docs/01-plan/features/workbrain.plan.md",
+        "prd": "docs/01-PRD.md",
+        "architecturePlan": "docs/02-ARCHITECTURE-PLAN.md",
+        "dataModelPlan": "docs/03-DATA-MODEL-PLAN.md",
+        "uxPlan": "docs/04-UX-PLAN.md",
+        "roadmap": "docs/05-ROADMAP.md",
+        "risks": "docs/06-RISK-AND-DECISIONS.md",
+        "traceability": "docs/REQUIREMENTS-TRACEABILITY.md",
+        "planReview": "docs/PLAN-REVIEW-v0.2.md"
+      },
+      "taskChain": [
+        {
+          "phase": "plan",
+          "status": "active",
+          "createdAt": "2026-10-16T12:40:23.925Z"
+        },
+        {
+          "phase": "design",
+          "status": "pending",
+          "createdAt": "2026-10-16T12:40:23.925Z"
+        },
+        {
+          "phase": "do",
+          "status": "pending",
+          "createdAt": "2026-10-16T12:40:23.925Z"
+        },
+        {
+          "phase": "check",
+          "status": "pending",
+          "createdAt": "2026-10-16T12:40:23.925Z"
+        },
+        {
+          "phase": "report",
+          "status": "pending",
+          "createdAt": "2026-10-16T12:40:23.925Z"
+        }
+      ],
+      "timestamps": {
+        "started": "2026-10-16T12:40:24.073Z",
+        "lastUpdated": "2026-10-16T12:40:24.073Z"
+      },
+      "planRevision": "0.2",
+      "planDocumentStatus": "draft_written_and_document_reviewed",
+      "designApproved": false,
+      "pendingGates": [
+        "G1: bkend official capabilities and price",
+        "G2: active model, provider terms and cost assumptions"
+      ],
+      "review": {
+        "issuesAddressedInDocuments": 8,
+        "externalGatesPending": 2,
+        "implementationTestsRun": false
+      }
+    }
+  },
+  "pipeline": {
+    "currentPhase": 1,
+    "level": "Dynamic",
+    "phaseHistory": []
+  },
+  "session": {
+    "startedAt": "2026-10-16T12:40:23.923Z",
+    "onboardingCompleted": false,
+    "lastActivity": "2026-10-16T12:53:19.160Z"
+  },
+  "history": [
+    {
+      "feature": "workbrain",
+      "action": "plan_revised",
+      "revision": "0.2",
+      "phase": "plan",
+      "timestamp": "2026-10-16T12:53:19.158Z"
+    }
+  ]
+}
