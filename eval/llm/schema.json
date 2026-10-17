@@ -1,0 +1,47 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["classification", "projects", "decisions", "open_questions", "actions"],
+  "properties": {
+    "classification": {"type": "string", "enum": ["work", "personal", "uncertain"]},
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "segments"],
+        "properties": {"id": {"type": "string"}, "segments": {"type": "array", "items": {"type": "integer"}}}
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["text", "segments"],
+        "properties": {"text": {"type": "string"}, "segments": {"type": "array", "items": {"type": "integer"}}}
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["text", "segments"],
+        "properties": {"text": {"type": "string"}, "segments": {"type": "array", "items": {"type": "integer"}}}
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["title", "owner_kind", "assignee", "due_kind", "due_date", "due_time", "due_text", "project_id", "segments"],
+        "properties": {
+          "title": {"type": "string"},
+          "owner_kind": {"type": "string", "enum": ["me", "other", "unknown"]},
+          "assignee": {"type": ["string", "null"]},
+          "due_kind": {"type": "string", "enum": ["none", "date", "datetime", "vague"]},
+          "due_date": {"type": ["string", "null"], "description": "YYYY-MM-DD"},
+          "due_time": {"type": ["string", "null"], "description": "HH:MM (Asia/Seoul)"},
+          "due_text": {"type": ["string", "null"], "description": "모호한 기한의 원문"},
+          "project_id": {"type": ["string", "null"]},
+          "segments": {"type": "array", "items": {"type": "integer"}}
+        }
+      }
+    }
+  }
+}

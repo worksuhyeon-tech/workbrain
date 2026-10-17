@@ -27,7 +27,7 @@ PARA는 별도의 복잡한 네 앱으로 나누지 않는다. 프로젝트 화�
 
 ## 3. 플랫폼 전략
 
-Android 접힌 화면은 한 패널에 기록·확인 행동을 우선한다. 펼친 화면은 목록/상세 두 패널, 충분한 폭에서 근거 패널을 추가한다. 고정 기종 해상도에 의존하지 않고 창 크기·힌지·회전·다중 창을 고려한다. 펼치면서 녹음이나 편집이 초기화되지 않아야 한다. [Compose 적응형 UI](https://developer.android.com/develop/ui/compose/layouts/adaptive/get-started-with-adaptive-apps)
+사용 기기는 업무폰 Galaxy S23 Ultra(일반 화면)와 개인폰 Galaxy Fold8(접힘/펼침), PC 웹이며 같은 Google 계정으로 쓴다(DEC-26). S23 Ultra와 접힌 Fold는 같은 한 패널 화면이다. Android 접힌 화면은 한 패널에 기록·확인 행동을 우선한다. 펼친 화면은 목록/상세 두 패널, 충분한 폭에서 근거 패널을 추가한다. 고정 기종 해상도에 의존하지 않고 창 크기·힌지·회전·다중 창을 고려한다. 펼치면서 녹음이나 편집이 초기화되지 않아야 한다. [Compose 적응형 UI](https://developer.android.com/develop/ui/compose/layouts/adaptive/get-started-with-adaptive-apps)
 
 PC는 탐색/목록/상세 패널을 제공하고 검토 시 전후 비교와 출처를 함께 보여준다. 키보드 이동과 명확한 포커스를 제공한다. 색만으로 승인/위험/실패를 표현하지 않는다.
 

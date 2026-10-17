@@ -1,0 +1,11 @@
+{
+  "workspace": "본업 · 보상시스템 기획",
+  "items": [
+    {"id": "claim", "kind": "project", "name": "자동차 사고접수 개편", "purpose": "모바일 사고접수 단계를 줄이고 접수부터 지급까지 고객 안내를 정리한다"},
+    {"id": "review", "kind": "project", "name": "장기보험 지급심사 자동화", "purpose": "단순 청구 건은 규칙 기반으로 자동 심사해 처리 기간을 줄인다"},
+    {"id": "chatbot", "kind": "project", "name": "보상 안내 챗봇 오픈", "purpose": "보상 진행 문의를 챗봇으로 응대해 콜 인입을 줄인다"},
+    {"id": "ops", "kind": "area", "name": "보상 프로세스 운영", "purpose": "접수·심사·지급 프로세스의 운영 기준을 계속 관리한다"},
+    {"id": "monthly", "kind": "area", "name": "월간 지급 현황 보고", "purpose": "매월 말 지급 건수·금액·지연 건을 집계해 보고한다"},
+    {"id": "silson", "kind": "project", "name": "실손보험 청구 간소화 대응", "purpose": "끝나서 아카이브됨", "archived": true}
+  ]
+}
