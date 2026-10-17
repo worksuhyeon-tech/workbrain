@@ -12,7 +12,7 @@
 | SourceProjectLink | P1 | 한 기록과 여러 프로젝트의 연결; 사용자 확인 전 제안 상태 |
 | TranscriptVersion | P1 | 원전사/수동 수정 구분, 원본·구간·수정 부모 버전 |
 | MeetingVersion | P1 | 원문 근거와 회의록 버전, 초안/사용자 수정/승인 상태 |
-| Task | P1 | 프로젝트, 내용, 상태, 우선순위, 미지정 가능한 담당자/기한, 현재 버전 |
+| Task | P1 | 프로젝트 또는 반복실행, 내용, 상태, 우선순위, 담당 구분(나/팔로업/확인 필요)과 팔로업 담당자 이름, 미지정 가능한 기한, 현재 버전 |
 | ProjectStateVersion | P1 | 요약·진행 상태, 적용 이력, 근거·변경 이유 |
 | AnalysisRun / ProcessingJob | P1 | 입력 버전, 모델/프롬프트, 상태, 재시도, 요청 ID, 사용량 |
 | ChangeProposal / ApprovalEvent | P1 | 대상/기준 버전, 변경 전후, 근거, 검토 결과, 중복 실행 키 |

@@ -3,7 +3,7 @@
 > **요약**: 음성 기록을 수집·전사하고 기존 프로젝트와 비교해 변경을 제안하며, 사용자가 승인하면 근거·이력과 함께 업무 지식이 축적되는 개인 AI 프로젝트 매니저의 기술 설계.
 >
 > **프로젝트**: WorkBrain
-> **버전**: 0.1.4 (Draft)
+> **버전**: 0.1.6 (Draft)
 > **작성자**: Claude Code (PDCA Design)
 > **작성일**: 2026-10-16 (Asia/Seoul)
 > **상태**: Draft — **G1/G2 문서 근거 충족(2026-10-17)**: 백엔드 Supabase Free(DEC-20), 모델 저가 후보 비교 방침(DEC-19). 실측(격리·동시성·복원·한국어 품질·비용)은 P0. 사용자 Design 승인 대기.
@@ -224,6 +224,8 @@ stateDiagram-v2
 - **승인 효과는 1회**(중복 승인 멱등). 일괄 승인은 항목별 성공/실패를 반환하고, 원자적 일괄을 보장하지 못하면 '전체 성공'으로 표시하지 않는다(아키텍처 계획 §4).
 - 승인 직전 **대상 최신 버전과 비교**해 다른 기기 편집/승인으로 달라졌으면 **충돌 상태**로 전환하고 새 차이를 보여준다(FR-10). 근거가 삭제되었으면 승인 차단·재검토(S06, TC-08).
 - AI 신뢰도 숫자를 사실성 보증처럼 강조하지 않고 **연결 이유·근거**를 우선 표시(UX 계획 §1).
+- **승인 위치(DEC-23)**: **새 할 일 후보**는 회의록을 본 자리인 기록 상세(S05)에서 골라 바로 추가한다. 제목·담당·기한을 고친 뒤 추가하면 검토함과 같은 `POST /proposals/approve`(수정값 포함)로 처리되어 같은 ApprovalEvent가 남고, 검토함 목록에서도 사라진다. 버린 후보는 `reject`와 같다. **상태 변경·기한 변경·충돌·근거 삭제 제안은 기록 상세에서 승인하지 않고** 검토함(S06)에서 전후를 비교한다. 오늘 화면(S02)에는 승인 버튼을 두지 않는다.
+- **담당 구분(DEC-23)**: 추출은 할 일마다 `owner_kind`를 제안한다. 말에서 다른 사람이 맡겠다고 한 일은 `other`(팔로업, 그 사람 이름), 담당자가 말에 없으면 `unknown`(확인 필요)이다. `unknown`을 '나'로 바꾸거나 이름을 추정하지 않는다(NFR-02). 팔로업은 내 할 일과 따로 모아 '챙길 일'로 보여 준다.
 
 ### 3.5 변경 이력 및 근거 추적
 
@@ -246,7 +248,7 @@ stateDiagram-v2
 - **근거 만료 상호작용(핵심, DEC-21)**: 미룸은 보관 수명을 연장하지 않는다(DEC-15). 미룸 중에도 음성(30일)·전사(6개월) 만료가 계속 진행된다. **음성만 만료되고 근거 전사가 남아 있으면** '원본 음성 만료' 경고만 표시하고 검토·승인을 허용한다. **제안이 인용한 전사 근거가 모두 만료·삭제되면** 승인을 차단하고 재검토로 보낸다. 미룬 항목 상세에는 두 만료 예정일을 따로 표시한다.
 - **재노출**: 지정일 도달 시 "오늘" 목록에 다시 노출한다. **푸시/인앱 리마인드 알림은 P4(FR-24)**와 연계하며, P1에서는 지정일 재노출·만료 경고까지만 보장한다(알림 미구현 상태에서도 기능이 성립해야 함).
 - **해제**: "지금 검토"로 미룸을 해제해 즉시 오늘 목록으로 되돌린다. 미룸 설정/해제는 ActivityLog에 기록한다(상태 변경이 아닌 검토 메타 변경으로 구분).
-- **승인 대기 집계**: 대시보드(S02) "승인 대기"와 검토함 배지는 미룬 항목을 포함하되, "오늘 검토" 수와 "미룬" 수를 구분해 표시한다(FR-12 확장).
+- **승인 대기 집계**: 오늘 화면(S02)의 "검토 대기"와 검토함 배지는 미룬 항목을 포함하되, "오늘 검토" 수와 "미룬" 수를 구분해 표시한다(FR-12 확장). 오늘 화면은 승인 버튼 없이 **기록별 대기 건수 요약과 이동**만 보여 준다(DEC-23).
 
 ### 3.8 회의록 지침·Word 다운로드·본인 메일 발송 — FR-30 / FR-29 / FR-22 (DEC-16)
 
@@ -355,7 +357,10 @@ erDiagram
 - **Project**(기한/목표 있는 활성 작업) ↔ **Area**(지속 책임 영역). Project는 0..1 Area에 연결.
 - **Resource**(자료)는 여러 Project/Area에 **N:M** 연결(`resource_link`).
 - **Archive**는 별도 저장소가 아니라 각 Project/Resource의 `archived_at` 상태다. 보관해도 ID·이력 유지(데이터 모델 계획 §1).
-- UX상 PARA를 4개 앱으로 분리하지 않고 "프로젝트 화면 + 필터"로 제공(UX 계획 §1).
+- **Workspace**(업무 공간)가 PARA 위에 있다. P1은 `본업(보상시스템 기획)` 공간 하나만 쓰고, 부업 공간 추가 UI는 P4(DEC-22). 데이터는 P1부터 `workspace_id`를 가져 공간을 늘려도 이전 작업이 없다. 공간이 다르면 AI 연결 후보·제안·검색 범위가 섞이지 않는다.
+- 화면 이름은 사용자 PARA 폴더와 같게 **1. 프로젝트 / 2. 반복실행(Areas) / 3. 관심영역(Resources) / 4. 아카이브**로 쓴다.
+- UX상 PARA를 4개 앱으로 나누지 않고, 프로젝트 화면 왼쪽의 **페이지 트리** 하나로 보여 준다(UX 계획 §1, DEC-22). 프로젝트 아래에는 연결된 기록이 하위 페이지로 펼쳐진다.
+- 할 일은 Project 또는 Area(반복 할 일)에 속한다. 트리 맨 위 **'모든 할 일'**은 공간 전체 할 일을 프로젝트·반복실행별로 묶어 보여 준다(S07).
 
 ### 4.3 P1 참조 스키마 (PostgreSQL DDL · 조건부)
 
@@ -399,9 +404,18 @@ create table settings (
   check (cardinality(mail_recipients) <= 3)
 );
 
+create table workspace (                      -- 업무 공간(DEC-22). P1은 '본업' 1개, 부업 추가 UI는 P4
+  id          uuid primary key default gen_random_uuid(),
+  owner_id    uuid not null references app_user(id),
+  name        text not null,                   -- 예: '본업'
+  description text,                            -- 예: '보상시스템 기획'
+  created_at  timestamptz not null default now()
+);
+
 create table area (
   id          uuid primary key default gen_random_uuid(),
   owner_id    uuid not null references app_user(id),
+  workspace_id uuid not null references workspace(id),
   name        text not null,
   archived_at timestamptz,
   created_at  timestamptz not null default now()
@@ -410,6 +424,7 @@ create table area (
 create table project (
   id          uuid primary key default gen_random_uuid(),
   owner_id    uuid not null references app_user(id),
+  workspace_id uuid not null references workspace(id), -- area와 같은 공간이어야 함(트리거 검사)
   area_id     uuid references area(id),
   name        text not null,
   purpose     text,
@@ -435,6 +450,7 @@ create table project_state_version (
 create table resource (                       -- P1 자료는 최소 표현만(M15): 링크·짧은 메모·기존 기록 참조
   id          uuid primary key default gen_random_uuid(),
   owner_id    uuid not null references app_user(id),
+  workspace_id uuid not null references workspace(id),
   kind        text not null,                   -- 'link' | 'note' | 'record-ref'
   title       text not null,
   url         text,                            -- kind='link'
@@ -456,6 +472,7 @@ create table resource_link (                   -- Resource ↔ Project/Area N:M
 create table source_record (
   id            uuid primary key default gen_random_uuid(),
   owner_id      uuid not null references app_user(id),
+  workspace_id  uuid not null references workspace(id), -- 녹음·업로드 때 고른 공간(기본 본업). AI 연결 후보는 같은 공간 안에서만
   channel       text not null,                 -- 'recording' | 'upload' | 'call-share'
   occurred_at   timestamptz,                   -- 업무 발생 시각(불명 가능)
   occurred_unknown boolean not null default false,
@@ -545,15 +562,20 @@ create table task (
   id            uuid primary key default gen_random_uuid(),
   owner_id      uuid not null references app_user(id),
   project_id    uuid references project(id),
+  area_id       uuid references area(id),      -- 반복실행의 반복 할 일(DEC-22)
   title         text not null,
   status        text not null default 'open',  -- open/doing/done
   priority      int,
-  assignee      text,                          -- 미지정 가능(NFR-02)
+  owner_kind    text not null default 'me'     -- 'me' | 'other'(팔로업) | 'unknown'(말에 담당자 없음·확인 필요) (DEC-23)
+                check (owner_kind in ('me','other','unknown')),
+  assignee      text,                          -- owner_kind='other'일 때 말한 이름 그대로. 실명 추정 금지(NFR-02)
   due_date      date,                          -- 날짜만 보존
   due_time      timestamptz,                   -- 시각 포함 시
   due_ambiguous boolean not null default false,-- '다음 주' 등 확인 필요
   version       int not null default 0,
-  created_at    timestamptz not null default now()
+  created_at    timestamptz not null default now(),
+  check (project_id is null or area_id is null), -- 한 곳에만 속함
+  check (owner_kind <> 'other' or assignee is not null)
 );
 
 create table task_revision (                   -- 할 일 수정 전후 보존(M18). 덮어쓰지 않고 쌓음
@@ -786,7 +808,7 @@ create table tombstone (
 | 프로젝트 | GET/POST `/projects`, GET/PATCH `/projects/:id`, POST `/projects/:id/archive`·`/restore` | PARA 포함 CRUD·보관 | 소유자 검사, `baseVersion` 일치 수정 (FR-02) |
 | 영역/자료 | GET/POST `/areas`, PATCH `/areas/:id`, POST `/areas/:id/archive`·`/restore`; GET/POST `/resources`, PATCH `/resources/:id`, POST `/resources/:id/archive`·`/restore`, POST·DELETE `/resources/:id/links` | 영역·자료(링크/메모/기록 참조) CRUD·보관·연결/해제 | 소유자·연결 양끝 소유자 검사, `baseVersion` (FR-02, M15) |
 | 업로드 | POST `/records/upload-url`, POST `/records/:id/complete` | 서명 업로드 준비/완료 | **`storagePermission` 필수(개인/샘플/회사 승인)** — 금지·모름이면 400·URL 미발급(M11). 크기·형식·소유자·해시, 완료 확인 전 분석 금지 (FR-04/17) |
-| 기록 | GET `/records`, GET `/records/:id` | 조회 | 소유자 검사 |
+| 기록 | GET `/records?status=&project=`, GET `/records/:id` | 웹 기록 목록(정리 필요·처리 중·정리 끝, 프로젝트 연결 없음)/조회 | 소유자 검사 (DEC-23) |
 | 항목 연결 | GET `/records/:id/links`, POST `/records/:id/links`(항목→프로젝트), PATCH `/links/:id`(확인·재배정·거절) | 항목 단위 프로젝트 연결 | 전사 버전·항목 참조·근거 필수, `baseVersion` (FR-06, M16) |
 | 삭제·휴지통 | POST `/deletions/preview`(영향 집합), POST `/deletions`(scope 3종), GET `/trash`, POST `/deletions/:id/restore`, GET `/deletions/:id` | 영향 미리보기·삭제·7일 복구·진행 상태 | 기록 외 회의록·자료·프로젝트에도 적용, 실행 중 작업·메일 대기·검색 즉시 차단 (FR-15, M17) |
 | 작업 | POST `/jobs`, POST `/jobs/:id/retry`·`/cancel`, GET `/jobs/:id` | 처리 시작/재시도/취소/조회 | 멱등 실행 키, 재시도 3회, 예산 재검사 (FR-05/14/16) |
@@ -797,10 +819,10 @@ create table tombstone (
 | 메일 | POST `/meeting-versions/:vid/mail`, GET `/meetings/:id/mail`, POST `/mail/:dispatchId/confirm`(받음/못 받음) | 본인 주소 발송/이력/결과 불명 확인 | `Idempotency-Key` 필수, 버전·수신처 스냅샷 고정, 수신자 임의 입력 불가, 결과 불명은 자동 재전송 없음 (FR-22, M21) |
 | 회의록 지침 | GET `/settings/minutes-guideline`, POST `/settings/minutes-guideline/import/preview`(후보·글자 수), POST `/settings/minutes-guideline/import`(선택한 후보 적용), DELETE `/settings/minutes-guideline/refs/:name` | 현재 지침 조회/가져오기 후보 확인·적용/참고 파일 빼기(새 rev) | SKILL.md 필수·.md·UTF-8·앞머리 제거·SKILL 8,000자/합계 12,000자, 전체 교체, 실패 시 기존 유지 (FR-30) |
 | 메일 설정 | PATCH `/settings`(mail_recipients), POST `/settings/mail/test` | 수신 주소 관리/연결 테스트 | 최대 3개·형식 검사, 비밀값은 응답에 포함 안 함 (FR-22) |
-| 제안/승인 | GET `/proposals`, PATCH `/proposals/:id`, POST `/proposals/approve`(배치)·`/proposals/:id/reject` | 검토함 | 근거 존재, 대상 최신 버전, 승인 1회, 항목별 결과 (FR-10/11) |
+| 제안/승인 | GET `/proposals?record=`, PATCH `/proposals/:id`, POST `/proposals/approve`(배치, 새 할 일 제안은 항목별 `edits`: 제목·담당·기한·위치)·`/proposals/:id/reject` | 검토함(S06)·기록 상세 할 일 후보(S05) 공용 | 근거 존재, 대상 최신 버전, 승인 1회, 항목별 결과. 기록 상세에서는 새 할 일 제안만 승인 가능(DEC-23) (FR-10/11) |
 | 검토 미루기 | POST `/proposals/:id/snooze`·`/proposals/:id/unsnooze` | 미루기/해제 | `snoozed_until` 설정/해제, 운영 상태 무변경, 지정일 재노출·근거 만료 경고 (FR-28) |
-| 할 일 | GET/POST `/tasks`, PATCH `/tasks/:id`, POST `/tasks/:id/complete` | 수동 CRUD | AI 변경은 제안 승인 경유 (FR-08) |
-| 대시보드 | GET `/dashboard/today` | 오늘/주간/지연/승인대기/최근변경 | 확정 상태 기준 (FR-12) |
+| 할 일 | GET `/tasks?range=next7\|late\|all&owner=mine\|follow`, POST `/tasks`, PATCH `/tasks/:id`, POST `/tasks/:id/complete` | 수동 CRUD·빠른 입력 | 빠른 입력은 클라이언트가 규칙으로 해석한 필드를 보낸다(AI 호출 없음). AI 변경은 제안 승인 경유 (FR-08, DEC-23) |
+| 대시보드 | GET `/dashboard/today` | 오늘 마감·지연(내 할 일/팔로업 구분)·기록별 검토 대기 요약·처리 중 기록 | 확정 상태 기준, 비용은 경고선(₩20,000) 넘을 때만 포함 (FR-12, DEC-23) |
 | 검색 | GET `/search` | 프로젝트/기간/키워드 | 삭제·만료 제외, 소유 필터 해제 불가 (FR-13) |
 | 설정/비용 | GET/PATCH `/settings`, GET `/cost` | 보관·예산·사용량 | 예상/실제/예약 구분 (FR-16) |
 | 동의 | GET `/consents`, POST `/consents`(목적·공급자·안내 버전), POST `/consents/:id/revoke` | 외부 전송 동의 관리 | 철회 시 대기 작업 재검사, 공급자·안내 변경 시 재동의 (FR-17, M19) |
@@ -816,21 +838,37 @@ create table tombstone (
 
 ### 6.1 정보 구조 / 주 탐색
 
-`오늘 / 프로젝트 / 기록 / 검토함 / 검색` + 설정. Android는 **녹음**을 상시 주요 행동, 웹은 같은 위치 계층에 **업로드**(UX 계획 §1). 초안/확정은 상태 라벨로 구분. S07 할 일은 주 탐색에 따로 두지 않고 **프로젝트 화면의 '전체 할 일'**과 오늘 화면에서 들어간다(주 탐색 5개 유지).
+`오늘 / 프로젝트 / 기록 / 검토함 / 검색` + 설정. Android는 **녹음**을 상시 주요 행동으로 둔다. 웹에는 녹음이 없고, 웹의 **기록**은 지난 기록 목록과 **파일 올리기**다(UX 계획 §1, DEC-23). 초안/확정은 상태 라벨로 구분. S07 할 일은 별도 페이지가 아니라 **프로젝트 화면 PARA 트리의 '모든 할 일'**(프로젝트별 묶음)과 각 프로젝트·반복실행 상세에 있다(주 탐색 5개 유지, DEC-22).
 
-목업: `mockups/` — S01 login · S02 dashboard · S03 project · S04 capture-android · S05 record/record-detail · S06 review-inbox · S07 tasks · S08 search · S09 settings.
+화면마다 맡는 일을 하나로 정해 중복을 없앤다(DEC-23).
+
+| 정보 | 맡는 화면 | 다른 화면 |
+|---|---|---|
+| 오늘 마감·지연 할 일 | S02 오늘 | 모든 할 일은 다음 7일·지연·전체만 |
+| 프로젝트 상태·요약 | S03 프로젝트 | S02에는 없음 |
+| 새 할 일 후보 승인 | S05 기록 상세(바로 추가), S06(모아 처리) | S02는 건수 요약·이동만 |
+| 상태·기한 변경, 충돌 승인 | S06 검토함 | S05는 건수와 이동만 |
+| 비용 | 상단 칩·S09 설정 | S02는 경고선 넘을 때만 배너 |
+| 녹음 | S04(Android, 접힘/펼침 한 화면) | 웹은 S05 기록 목록에서 파일 올리기 |
+
+**핵심 동선**: 녹음(S04) → 업로드 → 전사·회의록 요약 → 기록 상세(S05)에서 회의록을 보고 **할 일 후보를 골라 바로 추가** → 프로젝트·모든 할 일·오늘에 나타남. 상태·기한을 바꾸자는 제안만 검토함(S06)에서 비교 후 승인한다. 화면 이동은 기록 상세 1곳으로 끝난다.
+
+**TickTick에서 가져온 것(FR-08/23~25)**: 목록·폴더 → PARA 트리, 오늘 보기 → S02, 우선순위·필터 → S07, **빠른 입력**(한 줄에 `내일 3시`, `10/24`, `금요일`, `다음 주 월요일`, `!높음`, `#프로젝트`, `@사람`) → P1, 규칙 해석·AI 비용 0, 못 알아본 말은 제목에 남김. 캘린더·**아이젠하워 매트릭스**는 P4이며 S07에 `목록 · 캘린더 · 매트릭스` 보기 전환 자리만 둔다. 매트릭스는 기존 `priority`(중요)와 기한(급함: 지연·오늘·다음 7일)으로 계산하므로 데이터 추가가 없다. 반복·하위 작업·태그·알림·뽀모도로·습관·통계는 P4 그대로.
+
+목업: `mockups/` — S01 login · S02 dashboard(오늘) · S03 project(PARA 트리) · S04 capture-android(녹음 화면 하나, 접힘/펼침) · S05 record(웹 기록 목록·파일 올리기)/record-detail(회의록·할 일 후보·전사) · S06 review-inbox · S07 tasks(= S03의 '모든 할 일' 선택 상태) · S08 search · S09 settings. 오늘·프로젝트·모든 할 일 목업은 같은 할 일 데이터와 빠른 입력 해석기를 쓴다.
 
 ### 6.2 화면 ↔ 컴포넌트 (shadcn/ui + Tailwind, Compose 대응)
 
 | 화면 | 책임 | 핵심 컴포넌트 | 빈 상태 | 오류/대기 |
 |---|---|---|---|---|
 | S01 로그인·시작 | 로그인·동의 범위 | AuthForm, ConsentPanel(음성/텍스트 분리) | 샘플 시작 | 만료→재로그인, 동의 거부→수동 기능 |
-| S02 오늘 | 당장 할 일·검토 | TodayList, ReviewBadge, LastSync | 프로젝트/기록 추가 유도 | 마지막 갱신 시각·오프라인 표시 |
-| S03 프로젝트 | 상태·할 일·맥락 | ProjectHeader, StateCard, TaskList, RelatedRecords, CandidatePanel | 목적 입력 유도 | 충돌/원본 만료 배지 |
-| S04 녹음·가져오기 | 최소 조작 수집 | Recorder(진행시간·저장상태), FilePicker/ShareReceiver | 권한·파일 안내 | 권한 거부·공간 부족·중단 구간 |
-| S05 기록·처리 상세 | 원본·전사·회의록 | ProcessingTimeline, TranscriptView, MeetingDraft(추출 항목=기본 / 회의록 문서=선택 시 표시), MinutesActions(Word 다운받기·메일발송·적용 지침 표시) | 업로드/샘플 | 실패 단계만 재시도, 예산 대기 재개 조건, 메일 인증 오류→설정 재연결 |
+| S02 오늘 | 오늘 할 일·검토 대기 요약·처리 중 기록 | QuickAdd(날짜 없으면 오늘), TodayList(지연/오늘/챙길 팔로업, 프로젝트 표시), PendingByRecord(승인 버튼 없음), ProcessingRecords, CostWarnBanner(경고선 초과 시만), LastSync | '오늘 할 일 끝' + 다음 7일 이동 | 마지막 갱신 시각·오프라인 표시, 전사 실패 기록은 '다시 시도' |
+| S03 프로젝트(PARA 트리) | 공간 전환·PARA 탐색·상태·할 일·맥락 | WorkspaceSwitcher, ParaTree(펼침/접힘, 하위 기록), ProjectHeader, StateCard, TaskList, RelatedRecords, CandidatePanel, AreaView, ResourceView | 목적 입력 유도 | 충돌/원본 만료 배지, 아카이브 읽기 전용 |
+| S04 녹음·가져오기(Android) | 최소 조작 수집 | TitleField(녹음 중 수정), ProjectPicker(나중에 가능), Attendees, Recorder(진행시간·저장상태), Bookmark, FilePicker/ShareReceiver, UploadList, StoragePermissionSheet. 접힘=한 칸, 펼침=오른쪽에 참석자·북마크·업로드 | 권한·파일 안내 | 권한 거부·공간 부족·중단 구간 |
+| S05 기록(웹 목록) | 지난 기록 찾기·PC 파일 올리기 | RecordList(날짜별, 정리 필요/처리 중/정리 끝, 프로젝트 연결 필요 표시), UploadPanel(저장 허용 선택 필수) | 첫 업로드 안내 | 업로드 실패·전사 실패 다시 시도 |
+| S05 기록·처리 상세 | 회의록 확인 → 할 일 고르기 | ProcessingTimeline, MeetingDraft(회의록·할 일 탭이 기본, 추출 항목=기본 / 회의록 문서=선택 시 표시), **TaskCandidates(체크·제목/담당/기한 수정·추가할 곳·바로 추가·버리기)**, ChangeProposalLink(상태·기한 변경은 검토함으로), TranscriptView, MinutesActions(Word 다운받기·메일발송·적용 지침 표시) | 업로드/샘플 | 실패 단계만 재시도, 예산 대기 재개 조건, 메일 인증 오류→설정 재연결 |
 | **S06 검토함·차이 비교** | **AI 결과 이해·승인** | **ProposalInbox, DiffView(전후), EvidencePanel, BatchApproveBar** | 미처리 0건 | 오래된 버전/삭제 근거→승인 차단·재검토 |
-| S07 할 일 | 수동 관리 | TaskEditor, DueBadge(날짜만/시각/모호) | 첫 할 일 | 저장 실패→입력 보존·미저장 표시 |
+| S07 모든 할 일(S03 안) | 공간 전체 할 일을 프로젝트·반복실행별로 관리 | QuickAdd(규칙 해석 미리보기), RangeTabs(다음 7일·지연·전체), OwnerTabs(전체·내 할 일·팔로업), ViewSwitch(목록 / 캘린더·매트릭스 P4 자리), TaskGroup(프로젝트별), TaskEditor(어디에·담당·기한), DueBadge(날짜만/시각/모호) | 첫 할 일 | 저장 실패→입력 보존·미저장 표시, 해석 못 한 날짜·#프로젝트는 경고하고 제목에 남김 |
 | S08 검색 | 유효 지식·근거 | SearchBar, FilterChips, ResultList(출처) | 조건 완화 안내 | 권한/삭제 숨김, 만료 안내 |
 | S09 설정·사용량·휴지통 | 비용·동의·보관·회의록·메일 | UsageMeter(예상/예약), ConsentSettings, RetentionSettings, **MinutesGuidelineImport(SKILL.md 가져오기·미리보기)**, **MailSettings(발신·수신 주소·연결 테스트)**, Trash(복구) | 미사용 / 기본 지침 사용 중 / 메일 미연결 | 삭제 일부 실패·추정 불가 표시, 잘못된 지침 파일 거부 사유, 메일 테스트 실패 사유 |
 
@@ -965,4 +1003,6 @@ Plan 로드맵에 정렬(마감일 임의 설정 금지):
 | 0.1.1 | 2026-10-17 | FR-28 검토 미루기 반영: §3.7, `change_proposal.snoozed_until`, `/snooze` API, S06 탭. PRD·추적표·로드맵(TC-23)·결정(DEC-15) 동반 갱신 | Claude Code |
 | 0.1.4 | 2026-10-17 | Codex 교차 검토(G절) 반영: 단계별 비용 상태 기계(C7)·수명표(Q8)·백업/삭제 원장(C9)·RLS 계약(M13)·저장 암호화(M10)·업로드 전 허용 확인(M11)·확신 등급(M12)·회의록 버전 승인(M14)·자료 최소 표현(M15)·항목 연결(M16)·삭제 API(M17)·리비전(M18)·동의 테이블(M19/Q10)·지침 메타 고정(M20)·메일 결과 불명(M21/Q9)·가져오기 확인 화면(U6) | Claude Code |
 | 0.1.3 | 2026-10-17 | bkend 제외(DEC-18)·Supabase Free 채택(DEC-20)·저가 모델 비교 방침(DEC-19), S03/S04/S07/S08 목업 추가 | Claude Code |
+| 0.1.6 | 2026-10-17 | DEC-23: 동선·중복 점검 반영. 웹 '기록' = 기록 목록·파일 올리기(S05), Fold 녹음 목업을 S04 하나로 합침, 기록 상세에서 새 할 일 후보 바로 추가(§3.4), 오늘 화면을 오늘 할 일·검토 대기 요약·처리 중 기록으로 축소(승인 버튼·프로젝트 카드·비용 카드 제거), 모든 할 일 탭을 다음 7일·지연·전체로, 빠른 입력(규칙 해석), 캘린더·매트릭스 보기 자리(P4), `task.owner_kind`(내 할 일/팔로업/확인 필요). 목업 요일 오기 수정(10/16 금, 10/17 토) | Claude Code |
+| 0.1.5 | 2026-10-17 | DEC-22: PARA 페이지 트리(1. 프로젝트/2. 반복실행/3. 관심영역/4. 아카이브), 업무 공간 `workspace`(P1 본업만, 부업 P4), 할 일을 S03 트리 '모든 할 일'로 통합, `task.area_id`. 목업 예시를 보험 보상 업무 가상 데이터로 교체 | Claude Code |
 | 0.1.2 | 2026-10-17 | FR-29/30 신규, FR-22 본인 발송 P1: §3.8, `mail_dispatch`·`meeting_version.document/guideline_rev`·settings 지침/메일 컬럼. FR-30은 사용자 결정으로 앱 내 편집·버전 이력 대신 **SKILL.md 가져오기**로 단순화, B 경로(MCP+Claude 스킬)는 P3, 회의록 문서 실명 추정 허용(DEC-17, 참고 .md 인물 사전 가져오기), Mail/DocumentRender 포트, API 5종, S05/S09. PRD·추적표·로드맵(TC-24/25)·결정(DEC-16, R-13/14, G5) 동반 갱신 | Claude Code |

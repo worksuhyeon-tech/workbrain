@@ -9,17 +9,17 @@
 | ID | 원본 요구사항 묶음 | 배치 | 주요 데이터 | 화면 | 시험 |
 |---|---|---|---|---|---|
 | FR-01 | 사용자 인증·세션 | P1 | User | S01 | TC-01 |
-| FR-02 | 프로젝트·Areas·Resources·Archives | P1 | Project/Area/Resource | S03 | TC-02 |
+| FR-02 | 프로젝트·Areas·Resources·Archives·업무 공간 | P1 (부업 공간 추가 P4) | Workspace/Project/Area/Resource | S03(PARA 트리) | TC-02 |
 | FR-03 | 회의·음성메모 녹음, 중단 복구 | P1 | AudioAsset | S04 | TC-03 |
-| FR-04 | 기존 파일·삼성 통화 파일·재시도 | P1 | SourceRecord/ProcessingJob | S04/S05 | TC-04 |
+| FR-04 | 기존 파일·삼성 통화 파일·재시도 | P1 | SourceRecord/ProcessingJob | S04/S05(웹 기록 목록 업로드) | TC-04 |
 | FR-05 | STT·원문 수정 | P1 | TranscriptVersion | S05 | TC-05 |
 | FR-06 | 업무/개인/불확실·기존 프로젝트 연결·항목 단위·확신 등급 | P1 | SourceProjectLink(item_ref, confidence) | S05/S06 | TC-06 |
 | FR-07 | 회의록 모든 항목·편집·재생성·버전 승인 | P1 | MeetingVersion/ApprovalEvent | S05/S06 | TC-07/TC-08/TC-09 |
-| FR-08 | 기본 할 일·기한·우선순위 | P1 | Task | S07 | TC-07/TC-17 |
+| FR-08 | 기본 할 일·기한·우선순위·빠른 입력·담당 구분 | P1 | Task(project_id 또는 area_id, owner_kind) | S07(S03 트리 '모든 할 일')/S05(후보 바로 추가)/S02 | TC-07/TC-17/TC-26 |
 | FR-09 | 기존 프로젝트 상태·할 일 변경 | P1 | ProjectStateVersion/ChangeProposal | S03/S06 | TC-08 |
 | FR-10 | 중요 변경 승인·거절·일괄 확인 | P1 | ApprovalEvent | S06 | TC-08 |
 | FR-11 | 출처·변경 이력·덮어쓰기 방지 | P1 | EvidenceLink/ActivityLog | S05/S06 | TC-09 |
-| FR-12 | 오늘/주간/지연/승인 대기·최근 변경 | P1 | Task/ProjectStateVersion | S02 | TC-17 |
+| FR-12 | 오늘/지연/팔로업·기록별 승인 대기·처리 중 기록 | P1 | Task/ChangeProposal/ProcessingJob | S02 | TC-17 |
 | FR-13 | 프로젝트·기간·기본 필터·키워드 | P1 | Project/MeetingVersion | S08 | TC-17 |
 | FR-14 | PC/모바일 동기화·처리 상태 | P1 | ProcessingJob | S02/S05 | TC-13 |
 | FR-15 | 기간별 보관·삭제·복구·내보내기 | P1 | DeletionRequest/Tombstone | S09 | TC-10/TC-11/TC-12 |
@@ -31,8 +31,8 @@
 | FR-21 | REST·MCP·ChatGPT/Claude/Claude Code/Codex | P3 | ExternalConnection/AccessAudit | S09 확장 | TC-19 |
 | FR-22 | 회의록 이메일·수신 주소 설정 | P1 본인 발송 / P4 확장 | MeetingVersion/MailDispatch/Settings(mail_recipients) | S05/S09 | TC-24 / TC-20 |
 | FR-23 | 반복·하위 작업·태그·고급 필터 | P4 | Task 확장 | S07 확장 | TC-21 |
-| FR-24 | 알림·캘린더·Google 동기화 | P4 | 외부 일정 매핑 추가 | S02/S07/S09 확장 | TC-20/TC-21 |
-| FR-25 | 매트릭스·뽀모도로·습관·업무 통계 | P4 | 집중/습관 기록 추가 | P4 별도 화면 | TC-21 |
+| FR-24 | 알림·캘린더·Google 동기화 | P4 | 외부 일정 매핑 추가 | S02/S07(보기 전환 자리 P1)/S09 확장 | TC-20/TC-21 |
+| FR-25 | 매트릭스·뽀모도로·습관·업무 통계 | P4 | 매트릭스는 Task.priority·기한으로 계산(추가 없음), 집중/습관 기록 추가 | S07 보기 전환(매트릭스), 나머지 P4 별도 화면 | TC-21 |
 | FR-26 | 화자 분리 검토 | P2 선택 | TranscriptVersion 화자 매핑 | S05 확장 | TC-18 |
 | FR-27 | 복수 사용자·프로젝트 공유 권한 | P1 격리/P5 공유 | User/멤버십 추가 | S09 확장 | TC-01/TC-22 |
 | FR-28 | 검토 미루기·리마인드 | P1 미룸 / P4 알림 | ChangeProposal(snoozedUntil) | S06 | TC-08/TC-23 |
