@@ -773,7 +773,7 @@ create table tombstone (
 |---|---|---|
 | 소유자 격리 | Supabase Auth + RLS `owner_id = auth.uid()` 정책, 서비스 키는 서버 전용 | P0 TC-01 |
 | 조건부 갱신/고유성 | `unique` + 낙관적 `version` + 트랜잭션(승인은 DB 함수로 원자 처리) | P0 TC-08 |
-| 내보내기/복구 | 자동 백업 없음 → 일 1회 `pg_dump` 논리 백업을 암호화해 GCS에 7일 보관 | P0 TC-12 |
+| 내보내기/복구 | 자동 백업 없음 → 일 1회 내보내기 함수(`wb_backup_export`)를 GitHub Actions가 호출해 암호화 후 GCS에 7일 보관(DEC-29) | P0 TC-12 |
 | 휴면 | 1주 미사용 시 일시정지 → 대시보드에서 재개, 앱은 '서버 휴면' 안내 | 운영 |
 | 벡터(P2) | pgvector 후보(G6) | P2 |
 | 가격 | Free: DB 500MB·파일 1GB·이그레스 5GB, B=0원. Pro($25)는 예산 초과로 미채택 | 사용량 80% 경고(R-15) |

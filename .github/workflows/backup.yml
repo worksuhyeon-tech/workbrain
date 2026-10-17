@@ -1,0 +1,45 @@
+# 일일 백업 → Google Cloud Storage (Design §4.7, TC-12, DEC-29)
+# 저장소 변수 BACKUP_ENABLED=true 와 아래 비밀값을 넣기 전까지는 돌지 않는다.
+# 비밀값(Settings > Secrets and variables > Actions):
+#   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, BACKUP_PASSPHRASE, GCS_SA_KEY(서비스 계정 JSON), GCS_BUCKET
+# 공개 저장소라 Actions 로그가 공개된다: 스크립트는 크기·행 수만 출력하고 파일은 Actions 산출물로 남기지 않는다.
+name: daily-backup
+
+on:
+  schedule:
+    - cron: "10 18 * * *"   # 매일 03:10 (Asia/Seoul)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    if: vars.BACKUP_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: 내보내기·암호화
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: node scripts/backup/backup.mjs out
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCS_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: GCS 업로드(백업 7일·원장 35일은 버킷 수명 규칙이 지운다)
+        env:
+          BUCKET: ${{ secrets.GCS_BUCKET }}
+        # 서비스 계정은 '개체 생성자'(넣기만 가능)라 목록 조회 없이 올라가도록 대상 이름을 파일 단위로 정확히 준다
+        run: |
+          for f in out/backup-*.json.gz.enc; do gcloud storage cp "$f" "gs://${BUCKET}/backups/$(basename "$f")" --quiet; done
+          for f in out/tombstones-*.json.gz.enc; do gcloud storage cp "$f" "gs://${BUCKET}/tombstones/$(basename "$f")" --quiet; done
+      - name: 임시 파일 삭제
+        if: always()
+        run: rm -rf out

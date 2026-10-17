@@ -27,7 +27,9 @@
 - [x] TC-01/08 DB 계층 실측 56/56 통과(`docs/03-analysis/p0-verification.md`), 결함 2건 수정
 - [x] TC-08 REST 동시 승인 9/9 통과(같은 계정 두 세션)
 - [ ] TC-01 나머지: Google 로그인 연결 후 허용 목록 밖 가입 거부, 저장 암호화 문서 확인
-- [ ] TC-12 백업·복원 실측
+- [x] TC-12 백업·복원 DB 계층 11/11 통과, 암호화·GitHub Actions 백업 준비(DEC-29)
+- [ ] Google Cloud 프로젝트·GCS 버킷·서비스 계정 만들기(사용자) → 비밀값 등록 → 실제 백업·복원 1회
+- [ ] 전사 시험 녹음 4건(사용자, `eval/stt/scripts.md`) → `node eval/stt/run.mjs`
 - [x] 모델 비교 평가 세트(`eval/llm/`: 개선 12·보류 12·보안 10, 할 일 112·비행동 54)와 실행기·채점기
 - [x] gpt-6-luna vs Haiku 5.5 비교 → **gpt-6-luna 채택(DEC-28)**, 정밀도 90%는 P1 실사용으로 재측정
 - [ ] gpt-transcribe 한국어 전사 품질 — 시험용 녹음 필요(사용자)
