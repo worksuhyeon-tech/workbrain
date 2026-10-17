@@ -47,8 +47,16 @@ Design v0.1.7 승인(DEC-25) 뒤 실측 결과를 쌓는 문서다. 측정하지
 
 ### 아직 확인하지 않은 것 (TC-01/08 나머지)
 
-- **공개 가입 차단**: Google 로그인(DEC-26)이라 대시보드의 '새 가입 허용'을 끄면 본인 첫 로그인도 막힌다. 대신 계정 생성 전 DB 훅에서 본인 Gmail 외에는 거부하고, 다른 주소로 가입 시도 → 거부를 확인한다(Google OAuth 연결 후).
-- **저장 암호화(M10)**: Supabase 관리 저장소 암호화를 공식 문서로 확인해 기록한다.
+- **공개 가입 차단(Google OAuth 연결 후 실기 확인)**: 대시보드 '새 가입 허용'은 끄지 않고(본인 첫 Google 로그인도 막힘, DEC-26) 계정 생성 전 훅으로 막는다. 훅 함수·허용 목록·첫 로그인 준비는 아래 FR-01에서 DB 계층 검증 완료. 남은 것: Google OAuth 클라이언트 연결, 대시보드에서 훅 켜기, 허용 목록에 본인 주소 등록(저장소에는 적지 않음), 다른 Google 계정 로그인 거부 화면 확인.
+
+### FR-01 로그인 허용 목록·첫 로그인 준비 — DB 계층 (2026-10-18)
+
+마이그레이션 0800(`auth_allowlist`, `wb_before_user_created` 훅 함수, `auth.users` 생성 트리거 `wb_provision_user`). 시험 `tests/p0/fr01_allowlist_provisioning.sql` **7/7 통과**: 목록 주소 통과(대소문자·공백 무시), 목록 밖·이메일 없음 → 403 거부(어떤 주소가 허용되는지 알리지 않음), 첫 로그인 시 사용자·설정·'본업' 공간 자동 생성, 로그인 사용자의 허용 목록 읽기·훅 직접 호출 거부. 트리거 추가 뒤 TC-01/08 56건 재실행 **56/56 통과**(시험 시드는 `on conflict`로 트리거와 겹치지 않게 수정).
+
+### 저장 암호화(M10) — 문서 확인 (2026-10-18)
+
+- Supabase는 고객 데이터를 저장 시 AES-256으로, 전송 중 TLS로 암호화한다([Security at Supabase](https://supabase.com/security)). 디스크와 정기 백업 모두 AES-256이며 키는 FIPS 140-2 HSM으로 보호된다([DPA](https://supabase.com/downloads/docs/Supabase+DPA+250314.pdf)). 키는 프로젝트별로 만들어지고 프로젝트를 지우면 파기된다([데이터 위치 FAQ](https://supabase.com/legal/privacy-resources/data-residency-and-transfers-faq)).
+- 공동 책임: 저장 암호화는 Supabase, RLS 등 앱 보안은 우리 몫([Shared Responsibility Model](https://supabase.com/docs/guides/deployment/shared-responsibility-model)). WorkBrain은 RLS(TC-01) + 백업 파일 자체 암호화(DEC-29)로 보완한다. 열 단위 앱 암호화는 P1 범위 밖으로 둔다(필요 시 별도 결정).
 
 ## 2. TC-12 백업·복원 — DB 계층 통과, GCS 연결 전 (2026-10-18)
 
@@ -60,7 +68,8 @@ Design v0.1.7 승인(DEC-25) 뒤 실측 결과를 쌓는 문서다. 측정하지
 - 삭제 원장이 없거나 백업보다 오래되면 복원 거부. 로그인 사용자·anon은 내보내기·복원 함수 실행 불가(advisor 경고 없음).
 - 시험 중 발견해 고친 결함: 원장으로 부모만 지우면 자식 행(지운 할 일의 `task_revision`)에 제목이 남아 되살아남 → 0700에서 외래 키를 따라 연쇄 정리.
 - 암호화(`scripts/backup/crypto.mjs`): 왕복 일치, 암호문에 평문 없음, 틀린 암호·변조 파일·12자 미만 암호문 거부 확인.
-- **남은 것**: GCS 버킷·서비스 계정 생성(사용자, DEC-29) 후 `.github/workflows/backup.yml`을 켜고 실제 업로드 → 내려받기 → `scripts/backup/restore.mjs` 복원까지 한 번 돌린다. 한계: 백업 시점 이후에 생긴 '복구 대기' 요청은 그 백업에 반영되지 않는다(복구 대기는 아직 영구 삭제 전이라 원장에 없음).
+- **GCS 연결(2026-10-18)**: 사용자가 버킷 `workbrain-backup-26`(서울, 공개 차단, 소프트 삭제 끔, 수명 7일/35일)·넣기 전용 서비스 계정·GitHub 비밀값을 만들었다. 첫 실행은 `gcloud storage cp`가 넣기 전용 권한으로 실패 → JSON API 단순 업로드로 바꿔 **두 번째 실행 성공**(Actions run 39053862150). 파일 이름에 시각을 넣어 같은 날 재실행도 덮어쓰지 않는다.
+- **남은 것**: 버킷에서 받은 파일로 `scripts/backup/restore.mjs` 복원 1회(로컬 `.env`에 서비스 키·백업 암호 필요), 실제 데이터가 쌓인 뒤 백업 크기·시간 기록. 한계: 백업 시점 이후에 생긴 '복구 대기' 요청은 그 백업에 반영되지 않는다(복구 대기는 아직 영구 삭제 전이라 원장에 없음).
 
 ## 3. 모델 비교(DEC-19) — 평가 세트 준비 완료, 실행 전 (2026-10-18)
 

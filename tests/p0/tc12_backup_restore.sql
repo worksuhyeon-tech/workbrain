@@ -14,8 +14,8 @@ declare
 begin
   delete from auth.users where id = A;
   insert into auth.users (id, aud, role, email, created_at, updated_at) values (A, 'authenticated', 'authenticated', 'p0-backup@example.test', now(), now());
-  insert into public.app_user (id, email) values (A, 'p0-backup@example.test');
-  insert into public.settings (user_id) values (A);
+  insert into public.app_user (id, email) values (A, 'p0-backup@example.test') on conflict (id) do nothing;
+  insert into public.settings (user_id) values (A) on conflict (user_id) do nothing;
   insert into public.workspace (owner_id, name) values (A, '본업') returning id into ws;
   insert into public.project (owner_id, workspace_id, name) values (A, ws, '백업 시험 프로젝트') returning id into pj;
   insert into public.task (owner_id, project_id, title) values (A, pj, '남을 할 일') returning id into t1;

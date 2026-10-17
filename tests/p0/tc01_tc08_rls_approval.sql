@@ -20,8 +20,8 @@ begin
   insert into auth.users (id, aud, role, email, created_at, updated_at)
   values (A, 'authenticated', 'authenticated', 'p0-a@example.test', now(), now()),
          (B, 'authenticated', 'authenticated', 'p0-b@example.test', now(), now());
-  insert into public.app_user (id, email) values (A, 'p0-a@example.test'), (B, 'p0-b@example.test');
-  insert into public.settings (user_id) values (A), (B);
+  insert into public.app_user (id, email) values (A, 'p0-a@example.test'), (B, 'p0-b@example.test') on conflict (id) do nothing;
+  insert into public.settings (user_id) values (A), (B) on conflict (user_id) do nothing;
   insert into public.workspace (owner_id, name, description) values (A, '본업', '보상시스템 기획') returning id into wsA;
   insert into public.workspace (owner_id, name) values (B, '본업') returning id into wsB;
   insert into public.area (owner_id, workspace_id, name) values (A, wsA, '보상 프로세스 운영') returning id into arA;

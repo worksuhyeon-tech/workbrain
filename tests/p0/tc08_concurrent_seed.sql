@@ -16,8 +16,8 @@ begin
     '{"provider":"email","providers":["email"]}', '{}', now(), now(), '', '', '', '');
   insert into auth.identities (id, provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
   values (gen_random_uuid(), C::text, C, jsonb_build_object('sub', C::text, 'email', 'p0-concurrency@example.test', 'email_verified', true), 'email', now(), now(), now());
-  insert into public.app_user (id, email) values (C, 'p0-concurrency@example.test');
-  insert into public.settings (user_id) values (C);
+  insert into public.app_user (id, email) values (C, 'p0-concurrency@example.test') on conflict (id) do nothing;
+  insert into public.settings (user_id) values (C) on conflict (user_id) do nothing;
   insert into public.workspace (owner_id, name) values (C, '본업') returning id into ws;
   insert into public.project (owner_id, workspace_id, name) values (C, ws, '동시성 시험 프로젝트') returning id into pj;
   insert into public.source_record (owner_id, workspace_id, channel, storage_permission) values (C, ws, 'recording', 'sample') returning id into sr;
