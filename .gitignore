@@ -21,3 +21,10 @@ backups/
 # 모델 평가 실행 결과(합성 데이터지만 실행마다 바뀌어 커밋하지 않음, 요약은 docs/03-analysis에)
 eval/llm/runs/
 eval/stt/runs/
+
+# Android 빌드 산출물
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk

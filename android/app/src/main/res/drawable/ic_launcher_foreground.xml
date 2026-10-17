@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 마이크 + 파형: 녹음해서 기억하는 앱 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M54,30a9,9 0,0 1,9 9v16a9,9 0,0 1,-18 0V39a9,9 0,0 1,9 -9z" />
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="4" android:strokeLineCap="round"
+        android:pathData="M38,52a16,16 0,0 0,32 0M54,68v9M46,77h16" />
+    <path android:strokeColor="#9FD1FF" android:strokeWidth="3" android:strokeLineCap="round"
+        android:pathData="M30,48v8M24,45v14M78,48v8M84,45v14" />
+</vector>
