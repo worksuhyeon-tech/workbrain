@@ -29,12 +29,15 @@
 | FR-19 | 의미 검색·근거·프로젝트 간 비교 | P2/P3 | KnowledgeItem/SearchChunk | S08 확장 | TC-18/TC-19 |
 | FR-20 | AI 우선순위·브리핑·업무 부담 | P2 | KnowledgeItem/Task/Issue | S02 확장 | TC-18 |
 | FR-21 | REST·MCP·ChatGPT/Claude/Claude Code/Codex | P3 | ExternalConnection/AccessAudit | S09 확장 | TC-19 |
-| FR-22 | 회의록 이메일·수신 주소 설정 | P4 | MeetingVersion/발송 기록 추가 | S05/S09 확장 | TC-20 |
+| FR-22 | 회의록 이메일·수신 주소 설정 | P1 본인 발송 / P4 확장 | MeetingVersion/MailDispatch/Settings(mail_recipients) | S05/S09 | TC-24 / TC-20 |
 | FR-23 | 반복·하위 작업·태그·고급 필터 | P4 | Task 확장 | S07 확장 | TC-21 |
 | FR-24 | 알림·캘린더·Google 동기화 | P4 | 외부 일정 매핑 추가 | S02/S07/S09 확장 | TC-20/TC-21 |
 | FR-25 | 매트릭스·뽀모도로·습관·업무 통계 | P4 | 집중/습관 기록 추가 | P4 별도 화면 | TC-21 |
 | FR-26 | 화자 분리 검토 | P2 선택 | TranscriptVersion 화자 매핑 | S05 확장 | TC-18 |
 | FR-27 | 복수 사용자·프로젝트 공유 권한 | P1 격리/P5 공유 | User/멤버십 추가 | S09 확장 | TC-01/TC-22 |
+| FR-28 | 검토 미루기·리마인드 | P1 미룸 / P4 알림 | ChangeProposal(snoozedUntil) | S06 | TC-08/TC-23 |
+| FR-29 | 회의록 Word 다운로드 | P1 | MeetingVersion(document) | S05 | TC-24 |
+| FR-30 | 회의록 작성 지침 가져오기(SKILL.md) | P1 | Settings(minutesGuideline)/MeetingVersion(guidelineRev) | S09/S05 | TC-25 |
 
 ## 비기능
 

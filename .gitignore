@@ -16,3 +16,4 @@ backups/
 *.wav
 *.webm
 .bkit-codex/
+.bkit/
