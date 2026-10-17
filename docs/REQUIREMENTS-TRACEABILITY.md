@@ -9,7 +9,7 @@
 | ID | 원본 요구사항 묶음 | 배치 | 주요 데이터 | 화면 | 시험 |
 |---|---|---|---|---|---|
 | FR-01 | 사용자 인증·세션 | P1 | User | S01 | TC-01 |
-| FR-02 | 프로젝트·Areas·Resources·Archives·업무 공간 | P1 (부업 공간 추가 P4) | Workspace/Project/Area/Resource | S03(PARA 트리) | TC-02 |
+| FR-02 | 프로젝트·Areas·Resources·Archives·업무 공간·트리 정리 | P1 (부업 공간 추가 P4, AI 정리 제안 P2) | Workspace/Project/Area/Resource/TaskRevision | S03(PARA 트리, (+)·끌어서 옮기기) | TC-02 |
 | FR-03 | 회의·음성메모 녹음, 중단 복구 | P1 | AudioAsset | S04 | TC-03 |
 | FR-04 | 기존 파일·삼성 통화 파일·재시도 | P1 | SourceRecord/ProcessingJob | S04/S05(웹 기록 목록 업로드) | TC-04 |
 | FR-05 | STT·원문 수정 | P1 | TranscriptVersion | S05 | TC-05 |
