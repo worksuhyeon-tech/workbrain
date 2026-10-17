@@ -126,6 +126,15 @@
   .import-row .meta b{color:var(--ink);}
   .gl-preview{margin:0;max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-word;border:1px solid var(--border);border-radius:var(--r-lg);background:var(--card-2);color:var(--body);font-family:var(--font);font-size:13.5px;line-height:1.65;padding:var(--s-base);}
   .counter{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;margin-top:var(--s-sm);}
+  .cand-box{border:1px solid var(--primary);border-radius:var(--r-lg);padding:var(--s-base);margin-bottom:var(--s-base);background:color-mix(in srgb,var(--primary) 5%,transparent);}
+  .cand-box h4{margin:0 0 var(--s-sm);font-size:15px;color:var(--ink);}
+  .cand-row{display:flex;align-items:center;gap:var(--s-sm);padding:6px 0;font-size:14px;border-bottom:1px solid var(--border);}
+  .cand-row:last-of-type{border-bottom:0;}
+  .cand-row .len{margin-left:auto;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;}
+  .cand-total{font-size:13px;font-weight:700;margin:var(--s-sm) 0;font-variant-numeric:tabular-nums;}
+  .cand-total.over{color:var(--crit-fg);}
+  .consent{display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.5;padding:var(--s-sm) var(--s-md);background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);margin:var(--s-sm) 0;}
+  .cand-actions{display:flex;gap:var(--s-sm);justify-content:flex-end;}
   .side-h{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:0 0 var(--s-sm);}
   .locked + .side-h,.scope + .side-h{margin-top:var(--s-lg);}
   .link-btn{border:0;background:transparent;color:var(--link);font-size:12px;font-weight:700;padding:2px 4px;}
@@ -226,6 +235,7 @@
               </div>
               <p class="sec-desc" style="margin-top:-6px">보통은 <b>meeting-minutes 폴더 하나</b>만 고르면 돼요. 안에 있는 SKILL.md와 <code>references/</code>의 .md를 찾아서 가져와요.</p>
               <div class="field-err" id="glErr" role="alert"></div>
+              <div class="cand-box" id="glCandidate" hidden></div>
               <h3 class="side-h">현재 지침 (읽기 전용)</h3>
 <pre class="gl-preview" id="glPreview"># 실무형 회의록 작성
 
@@ -357,27 +367,54 @@
   }
   function renderRefs(){
     document.getElementById("glRefs").innerHTML = currentRefs.length
-      ? currentRefs.map(function(r,i){ return '<li><span>'+esc(r.name)+' <span style="color:var(--muted);font-size:12px">· '+r.length.toLocaleString()+'자</span></span><button class="link-btn" data-unref="'+i+'">빼기</button></li>'; }).join("")
+      ? currentRefs.map(function(r,i){ return '<li><span>'+esc(r.name)+' <span style="color:var(--muted);font-size:12px">· '+r.length.toLocaleString()+'자'+(r.send===false?' · AI에 보내지 않음':'')+'</span></span><button class="link-btn" data-unref="'+i+'">빼기</button></li>'; }).join("")
       : '<li><span style="color:var(--muted)">참고 자료 없음 · 실명 추정은 녹취 단서로만 해요</span></li>';
   }
   // 실패하면 기존 지침을 그대로 두고 이유만 알린다(부분 교체 없음)
   function rejectImport(msg){ glErr.textContent=msg+" 기존 지침은 그대로예요."; }
 
+  // 가져오기 후보: 바로 적용하지 않고 확인 화면을 먼저 보여 준다(U6). 적용 전까지 기존 지침 유지
+  var candidate=null, refsConsent=true;
   function importSkill(skill, refs, ignoredCount){
     Promise.all([skill].concat(refs).map(readText)).then(function(texts){
       var body=texts[0].replace(FRONTMATTER_RE,"").trim();
-      var refTexts=texts.slice(1).map(function(s){ return s.trim(); });
-      var total=body.length+refTexts.reduce(function(n,s){ return n+s.length; },0);
       if(!body){ rejectImport("SKILL.md 내용이 비어 있어요."); return; }
       if(body.length>GUIDELINE_LIMIT){ rejectImport("SKILL.md가 8,000자를 넘어요("+body.length.toLocaleString()+"자)."); return; }
-      if(total>GUIDELINE_TOTAL_LIMIT){ rejectImport("참고 자료까지 합쳐 12,000자를 넘어요("+total.toLocaleString()+"자). 아래 목록에서 필요 없는 참고 파일을 빼고 다시 가져와 주세요."); return; }
       glErr.textContent="";
-      glPreview.textContent=body; updateCount();
-      currentRefs=refs.map(function(f,i){ return {name:f.name, length:refTexts[i].length}; }); renderRefs();
-      document.getElementById("glMeta").innerHTML="<b>SKILL.md</b>"+(refs.length?" + 참고 "+refs.length+"개":"")+" · 방금 가져옴";
-      toast('지침을 바꿨어요'+(ignoredCount?' · .md 아닌 파일 '+ignoredCount+'개는 안 써요':'')+' · <span class="u">새로 만드는 회의록부터</span> 적용');
+      candidate={ body:body, ignored:ignoredCount,
+        refs:refs.map(function(f,i){ return {name:f.name, length:texts[i+1].trim().length, on:true}; }) };
+      renderCandidate();
     }, function(){ rejectImport("파일을 읽지 못했어요."); });
   }
+  function candidateTotal(){
+    return candidate.body.length + candidate.refs.reduce(function(n,r){ return n+(r.on?r.length:0); },0);
+  }
+  function renderCandidate(){
+    var box=document.getElementById("glCandidate"), total=candidateTotal(), over=total>GUIDELINE_TOTAL_LIMIT;
+    box.hidden=false;
+    box.innerHTML='<h4>가져올 파일 확인</h4>'+
+      '<div class="cand-row"><input type="checkbox" checked disabled> <b>SKILL.md</b> <span class="note">(필수)</span><span class="len">'+candidate.body.length.toLocaleString()+'자</span></div>'+
+      candidate.refs.map(function(r,i){ return '<label class="cand-row"><input type="checkbox" data-cand="'+i+'"'+(r.on?' checked':'')+'> '+esc(r.name)+'<span class="len">'+r.length.toLocaleString()+'자</span></label>'; }).join("")+
+      (candidate.ignored?'<div class="note">.md가 아닌 파일 '+candidate.ignored+'개는 쓰지 않아요.</div>':'')+
+      '<div class="cand-total'+(over?' over':'')+'">합계 '+total.toLocaleString()+' / '+GUIDELINE_TOTAL_LIMIT.toLocaleString()+'자'+(over?' — 참고 파일을 몇 개 빼 주세요':'')+'</div>'+
+      (candidate.refs.length?'<label class="consent"><input type="checkbox" id="refsConsent"'+(refsConsent?' checked':'')+'> <span>선택한 참고 파일(인물 사전 등)을 회의록을 만들 때 <b>AI 공급자(OpenAI 또는 Anthropic)에 함께 보내는 것</b>에 동의해요. 동의하지 않으면 참고 파일은 보내지 않고, 이름은 녹취 단서로만 추정해요.</span></label>':'')+
+      '<div class="cand-actions"><button class="btn" id="candCancel">취소</button><button class="btn primary" id="candApply"'+(over?' disabled':'')+'>적용</button></div>';
+  }
+  document.getElementById("glCandidate").addEventListener("change", function(e){
+    if(e.target.id==="refsConsent"){ refsConsent=e.target.checked; return; }
+    var i=e.target.dataset.cand; if(i===undefined) return;
+    candidate.refs[+i].on=e.target.checked; renderCandidate();
+  });
+  document.getElementById("glCandidate").addEventListener("click", function(e){
+    if(e.target.id==="candCancel"){ candidate=null; this.hidden=true; toast('가져오기를 취소했어요 · 기존 지침 그대로'); return; }
+    if(e.target.id!=="candApply" || candidateTotal()>GUIDELINE_TOTAL_LIMIT) return;
+    var picked=candidate.refs.filter(function(r){ return r.on; });
+    glPreview.textContent=candidate.body; updateCount();
+    currentRefs=picked.map(function(r){ return {name:r.name, length:r.length, send:refsConsent}; }); renderRefs();
+    document.getElementById("glMeta").innerHTML="<b>SKILL.md</b>"+(picked.length?" + 참고 "+picked.length+"개":"")+" · 방금 가져옴";
+    candidate=null; this.hidden=true;
+    toast('지침을 바꿨어요 · <span class="u">새로 만드는 회의록부터</span> 적용'+(picked.length&&!refsConsent?' · 참고 파일은 AI에 보내지 않아요':''));
+  });
 
   // 폴더 선택: 고른 폴더 안의 SKILL.md 1개 + 같은 위치 references/*.md
   document.getElementById("glFolderBtn").addEventListener("click", function(){ document.getElementById("glFolder").click(); });

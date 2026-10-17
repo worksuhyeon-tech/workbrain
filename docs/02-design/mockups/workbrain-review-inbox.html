@@ -442,7 +442,7 @@
     // 미룬 항목 보기
     if(p.snoozedUntil){
       d.innerHTML = '<div class="detail-in"><div class="dhead"><span class="sev-dot '+p.sev+'"></span><h2>'+esc(p.title)+'</h2><span class="ptag">'+esc(p.project)+'</span></div>'+
-        '<div class="banner snooze"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><div><b>'+fmt(p.snoozedUntil)+'까지 미뤄둠</b><br>그날 다시 알려드릴게요. 미뤄도 근거(음성)는 계속 만료 카운트됩니다 — <b>'+esc(p.evidence.expire)+'</b> 전에 검토하세요.</div></div>'+
+        '<div class="banner snooze"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><div><b>'+fmt(p.snoozedUntil)+'까지 미뤄둠</b><br>그날 <b>오늘 검토 목록에 다시 표시</b>돼요(알림은 다음 단계). 미뤄도 보관 기간은 계속 줄어요 — <b>'+esc(p.evidence.expire)+'</b>. 음성만 만료되면 전사로 계속 검토할 수 있어요.</div></div>'+
         '<div class="section-label">변경 전후</div>'+changeBlock(p)+ evidBlock(p)+
         '<div class="dacts"><button class="btn primary" data-act="now">지금 검토</button><button class="btn" data-act="snooze">미루기 변경</button><button class="btn ghost" data-act="reject">거절</button>'+
         '<div class="snooze-menu" id="snoozeMenu"></div></div></div>';
@@ -489,7 +489,7 @@
   function doSnooze(ts){
     var p=proposals.find(function(x){return x.id===selectedId;});
     p.snoozedUntil=new Date(parseInt(ts,10)); delete picked[p.id];
-    afterChange('<span class="u">미뤄둠</span> '+fmt(p.snoozedUntil)+'에 다시 알림 · 근거 만료 전 검토하세요');
+    afterChange('<span class="u">미뤄둠</span> '+fmt(p.snoozedUntil)+'에 오늘 목록으로 다시 표시 · 근거 만료 전 검토하세요');
   }
 
   document.getElementById("list").addEventListener("click", function(e){

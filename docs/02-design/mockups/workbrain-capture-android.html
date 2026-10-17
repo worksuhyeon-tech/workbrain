@@ -176,6 +176,12 @@
   .bottom-nav span{font-size:11px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px;font-weight:600;}
   .bottom-nav .on{color:var(--primary);}
   .fgs{position:absolute;top:28px;left:0;right:0;margin:6px;background:var(--dark-action);color:#fff;border-radius:14px;padding:10px 12px;font-size:12px;box-shadow:var(--shadow-lg);display:flex;gap:8px;align-items:center;}
+  .sheet-back{position:absolute;inset:0;background:rgba(9,20,30,.45);display:flex;align-items:flex-end;z-index:5;}
+  .sheet{background:var(--card);width:100%;border-radius:20px 20px 0 0;padding:var(--s-lg) var(--s-base);box-shadow:var(--shadow-lg);}
+  .sheet h3{font-size:17px;margin:0 0 4px;}
+  .sheet .opt{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;padding:12px;border:1px solid var(--border);border-radius:var(--r-lg);background:var(--card);margin-top:8px;color:var(--body);font-size:14px;}
+  .sheet .opt b{display:block;color:var(--ink);}
+  .sheet .opt.no{border-color:color-mix(in srgb,var(--crit-fg) 35%,transparent);}
   @media (max-width:1000px){ .stage{grid-template-columns:1fr;padding:var(--s-base);} .ctrl{position:static;} .phone.medium{width:100%;} .phone.compact{width:min(380px,100%);} }
 
 </style>
@@ -236,6 +242,17 @@
           <div id="uploads"><div class="note">아직 올린 기록이 없어요.</div></div>
         </div>
       </div>
+      <!-- 업로드 전 외부 저장 허용 확인(M11): 금지·모름이면 서명 URL을 받지 않고 기기에만 둔다 -->
+      <div class="sheet-back" id="permSheet" hidden>
+        <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="permTitle">
+          <h3 id="permTitle">이 자료를 클라우드에 올려도 되나요?</h3>
+          <p class="note" style="margin:0">앱이 내용을 보고 자동으로 판단하지 않아요. 직접 골라 주세요.</p>
+          <button class="opt" data-perm="personal">🙋 <span><b>개인 자료</b>내 메모·개인 통화</span></button>
+          <button class="opt" data-perm="sample">🧪 <span><b>샘플·시험용</b>테스트용으로 만든 녹음</span></button>
+          <button class="opt" data-perm="company-approved">🏢 <span><b>회사 자료 (외부 저장 허용 확인됨)</b>허용 범위를 확인한 업무 자료</span></button>
+          <button class="opt no" data-perm="deny">⛔ <span><b>허용 안 됨 · 잘 모르겠음</b>올리지 않고 이 기기에만 보관해요</span></button>
+        </div>
+      </div>
       <div class="bottom-nav"><span>🏠<b>오늘</b></span><span>📁<b>프로젝트</b></span><span class="on">🎙️<b>녹음</b></span><span>✅<b>검토함</b></span><span>☰<b>더보기</b></span></div>
     </div>
   </div>
@@ -281,6 +298,15 @@
     document.getElementById("fgs").hidden = !(document.getElementById("fgsChk").checked && s!=="idle");
     animateWave();
   }
+  // 업로드 전에 저장 허용을 묻는다. 금지·모름이면 업로드 자체를 시작하지 않는다(M11)
+  var pendingUpload=null;
+  function askPermission(start){ pendingUpload=start; document.getElementById("permSheet").hidden=false; }
+  document.getElementById("permSheet").addEventListener("click", function(e){
+    var b=e.target.closest("button[data-perm]"); if(!b) return;
+    this.hidden=true; var start=pendingUpload; pendingUpload=null;
+    if(b.dataset.perm==="deny"){ toast('올리지 않았어요 · 파일은 이 기기에만 있어요'); return; }
+    start(b.dataset.perm);
+  });
   function addUpload(name, sizeLabel, failNet){
     var u={name:name, size:sizeLabel, pct:0, state:"up"}; uploads.unshift(u); renderUploads();
     var id=setInterval(function(){
@@ -309,9 +335,9 @@
       if(c==="perm"){ toast('마이크 권한이 없어 녹음을 시작할 수 없어요'); return; }
       sec=0; document.getElementById("timer").textContent="00:00"; document.getElementById("saved").textContent=""; setState("rec");
     } else {
-      var len=fmt(sec); setState("idle");
-      addUpload("녹음 10/17 10:24.m4a", len+" · "+Math.max(1,Math.round(sec*0.008))+"MB", c==="net");
-      toast('녹음을 저장했어요 · 업로드를 시작해요');
+      var len=fmt(sec), mb=Math.max(1,Math.round(sec*0.008)); setState("idle");
+      toast('녹음을 기기에 저장했어요');
+      askPermission(function(){ addUpload("녹음 10/17 10:24.m4a", len+" · "+mb+"MB", c==="net"); });
     }
   });
   document.getElementById("pauseBtn").addEventListener("click", function(){ setState(state==="rec"?"pause":"rec"); });
@@ -325,8 +351,10 @@
   document.getElementById("importPane").addEventListener("click", function(e){
     var b=e.target.closest("button[data-up]"); if(!b) return;
     var net=document.getElementById("caseSel").value==="net";
-    if(b.dataset.up==="call") addUpload("통화 녹음_김하늘_1014.m4a","18분 · 16MB",net); else addUpload("음성 메모 1015.m4a","4분 · 3MB",net);
-    b.disabled=true; b.textContent="올림";
+    askPermission(function(){
+      if(b.dataset.up==="call") addUpload("통화 녹음_김하늘_1014.m4a","18분 · 16MB",net); else addUpload("음성 메모 1015.m4a","4분 · 3MB",net);
+      b.disabled=true; b.textContent="올림";
+    });
   });
   document.getElementById("pickBtn").addEventListener("click", function(){ toast('시스템 파일 선택 창 열기 · m4a/mp3/wav/webm, 200MB·120분까지'); });
   document.getElementById("uploads").addEventListener("click", function(e){
@@ -338,7 +366,8 @@
   document.getElementById("caseBanner").addEventListener("click", function(e){
     var r=e.target.dataset.recover; if(!r) return;
     document.getElementById("caseSel").value=""; document.getElementById("caseBanner").innerHTML="";
-    if(r==="save"){ addUpload("녹음 10/17 09:12 (복구).m4a","23:40 · 11MB",false); toast('확정 저장된 23:40까지 올려요'); } else toast('끊긴 녹음을 버렸어요');
+    if(r==="save") askPermission(function(){ addUpload("녹음 10/17 09:12 (복구).m4a","23:40 · 11MB",false); toast('확정 저장된 23:40까지 올려요'); });
+    else toast('끊긴 녹음을 버렸어요');
   });
   document.getElementById("caseSel").addEventListener("change", function(){ document.getElementById("caseBanner").innerHTML = CASES[this.value]||""; });
   document.getElementById("fgsChk").addEventListener("change", function(){ document.getElementById("fgs").hidden = !(this.checked && state!=="idle"); });

@@ -13,8 +13,8 @@
 | FR-03 | 회의·음성메모 녹음, 중단 복구 | P1 | AudioAsset | S04 | TC-03 |
 | FR-04 | 기존 파일·삼성 통화 파일·재시도 | P1 | SourceRecord/ProcessingJob | S04/S05 | TC-04 |
 | FR-05 | STT·원문 수정 | P1 | TranscriptVersion | S05 | TC-05 |
-| FR-06 | 업무/개인/불확실·기존 프로젝트 연결 | P1 | SourceProjectLink | S05/S06 | TC-06 |
-| FR-07 | 회의록 모든 항목·편집·재생성 | P1 | MeetingVersion | S05/S06 | TC-07/TC-09 |
+| FR-06 | 업무/개인/불확실·기존 프로젝트 연결·항목 단위·확신 등급 | P1 | SourceProjectLink(item_ref, confidence) | S05/S06 | TC-06 |
+| FR-07 | 회의록 모든 항목·편집·재생성·버전 승인 | P1 | MeetingVersion/ApprovalEvent | S05/S06 | TC-07/TC-08/TC-09 |
 | FR-08 | 기본 할 일·기한·우선순위 | P1 | Task | S07 | TC-07/TC-17 |
 | FR-09 | 기존 프로젝트 상태·할 일 변경 | P1 | ProjectStateVersion/ChangeProposal | S03/S06 | TC-08 |
 | FR-10 | 중요 변경 승인·거절·일괄 확인 | P1 | ApprovalEvent | S06 | TC-08 |
@@ -24,7 +24,7 @@
 | FR-14 | PC/모바일 동기화·처리 상태 | P1 | ProcessingJob | S02/S05 | TC-13 |
 | FR-15 | 기간별 보관·삭제·복구·내보내기 | P1 | DeletionRequest/Tombstone | S09 | TC-10/TC-11/TC-12 |
 | FR-16 | 운영 비용·사용량·예산 대기 | P1 | CostLedger/BudgetReservation | S09 | TC-14 |
-| FR-17 | 비식별화·외부 AI 전송 동의 | P1 | Settings/TranscriptVersion | S01/S05/S09 | TC-06/TC-15 |
+| FR-17 | 업로드 전 저장 허용·비식별화·외부 AI 전송 동의 | P1 | SourceRecord(storagePermission)/ConsentGrant/TranscriptVersion | S01/S04/S05/S09 | TC-06/TC-15 |
 | FR-18 | 결정·요구·이슈·일정·위험 수명 관리 | P2 | Decision/Requirement/Issue | S03/S06 확장 | TC-18 |
 | FR-19 | 의미 검색·근거·프로젝트 간 비교 | P2/P3 | KnowledgeItem/SearchChunk | S08 확장 | TC-18/TC-19 |
 | FR-20 | AI 우선순위·브리핑·업무 부담 | P2 | KnowledgeItem/Task/Issue | S02 확장 | TC-18 |
@@ -48,7 +48,7 @@
 | NFR-03 | 재시도·중복·복구 | 녹음/업로드/작업/승인 | TC-03/TC-04/TC-05/TC-08 |
 | NFR-04 | 동기화 지연 | 웹/Android | TC-13 |
 | NFR-05 | 접근성·Fold | 전체 화면 | TC-16 |
-| NFR-06 | 개인정보·삭제 | 보관/검색/백업 | TC-10/TC-11/TC-12 |
+| NFR-06 | 개인정보·삭제·저장 암호화 | 보관/검색/백업/저장소 | TC-01/TC-10/TC-11/TC-12 |
 | NFR-07 | 비용 제한 | 장부/작업 큐 | TC-14 |
 | NFR-08 | AI 입력 안전 | 분석·출력 검증 | TC-15 |
 | NFR-09 | 공급자 교체·백업 운영 | 어댑터/작업/내보내기 | TC-05/TC-12/TC-14 |

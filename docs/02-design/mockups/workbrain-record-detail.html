@@ -387,7 +387,7 @@
     <div class="warn" id="resendWarn" hidden></div>
     <div class="foot">
       <label class="demo">목업 결과
-        <select id="mailDemo"><option value="ok">성공</option><option value="retry">일시 오류 → 재시도 성공</option><option value="auth">인증 오류</option></select>
+        <select id="mailDemo"><option value="ok">성공</option><option value="retry">일시 오류 → 재시도 성공</option><option value="auth">인증 오류</option><option value="unknown">응답 끊김(결과 불명)</option></select>
       </label>
       <div class="head-sp"></div>
       <button class="btn" id="mailCancel">취소</button>
@@ -499,6 +499,12 @@
   }
   function closeMailDlg(){ mailDlg.hidden=true; mailBtn.focus(); }
   mailBtn.addEventListener("click", openMailDlg);
+  document.getElementById("sentInfo").addEventListener("click", function(e){
+    var b=e.target.closest("button[data-confirm]"); if(!b) return;
+    var info=this; info.style.color="";
+    if(b.dataset.confirm==="got"){ lastSentAt="10/17 14:02"; info.textContent="✓ 받음 확인 · "+lastSentAt; document.getElementById("mailBtnLabel").textContent="다시 보내기"; toast('발송 완료로 기록했어요'); }
+    else { info.hidden=true; toast('발송 실패로 기록했어요 · 메일발송을 다시 눌러 주세요'); }
+  });
   document.getElementById("mailCancel").addEventListener("click", closeMailDlg);
   mailDlg.addEventListener("click", function(e){ if(e.target===mailDlg) closeMailDlg(); });
   document.addEventListener("keydown", function(e){ if(e.key==="Escape" && !mailDlg.hidden) closeMailDlg(); });
@@ -515,8 +521,18 @@
         toast('Gmail 인증이 만료됐어요 · 자동 재시도 없이 <a class="u" href="workbrain-settings.html#mail">설정에서 다시 연결</a>');
         return;
       }
+      var info=document.getElementById("sentInfo"); info.hidden=false;
+      // 결과 불명은 자동 재전송하지 않고 사용자가 메일함을 확인한다(DEC-21)
+      if(demo==="unknown"){
+        info.style.color="var(--warn-fg)";
+        info.innerHTML='⚠ 발송 확인 필요 — 메일함을 확인해 주세요 <button class="btn ghost" data-confirm="got">받았어요</button><button class="btn ghost" data-confirm="miss">못 받았어요</button>';
+        document.getElementById("mailBtnLabel").textContent = lastSentAt ? "다시 보내기" : "메일발송";
+        toast('Gmail 응답이 끊겨 보냈는지 알 수 없어요 · <span class="u">자동으로 다시 보내지 않아요</span>');
+        return;
+      }
+      info.style.color="";
       lastSentAt="10/17 14:02";
-      var info=document.getElementById("sentInfo"); info.hidden=false; info.textContent="✓ 마지막 발송 "+lastSentAt+" · "+checked+"곳";
+      info.textContent="✓ 마지막 발송 "+lastSentAt+" · "+checked+"곳";
       document.getElementById("mailBtnLabel").textContent="다시 보내기";
       toast(demo==="retry" ? '일시 오류로 1번 다시 시도해 보냈어요 · '+checked+'곳' : '메일을 보냈어요 · '+checked+'곳');
     }, demo==="retry" ? 1800 : 1000);
