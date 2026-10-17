@@ -28,3 +28,5 @@ android/build/
 android/app/build/
 android/local.properties
 *.apk
+*.apk.zip
+workbrain-apk*.zip

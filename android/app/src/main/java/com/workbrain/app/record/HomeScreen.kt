@@ -12,14 +12,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -41,24 +42,33 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.Supa
+import com.workbrain.app.data.Server
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** S04 녹음(1차): 녹음 시작·일시정지·정지와 기기 안 녹음 목록. 업로드·회의록은 다음 단계. */
+/** S04 녹음: 녹음 시작·일시정지·정지, 기기 안 녹음 목록, 올리기 → 회의록·할 일 후보 보기 */
 @Composable
-fun HomeScreen() {
+fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val rec by RecordingService.state.collectAsStateWithLifecycle()
     var sessions by remember { mutableStateOf(RecordingStore.list(context, rec.sessionId)) }
+    val uploads by UploadManager.progress.collectAsStateWithLifecycle()
     var notice by remember { mutableStateOf<String?>(null) }
+    // 올리기 확인 창: 대상 녹음과 동의 필요 여부(null이면 확인 중)
+    var uploadTarget by remember { mutableStateOf<RecordingSession?>(null) }
+    var needConsent by remember { mutableStateOf<Boolean?>(null) }
 
-    // 녹음이 시작·정지되거나 조각이 확정될 때 목록을 다시 읽는다
-    LaunchedEffect(rec.status, rec.sessionId, rec.confirmedMs) {
+    // 녹음이 시작·정지되거나 조각이 확정되거나 올리기 단계가 바뀔 때 목록을 다시 읽는다
+    LaunchedEffect(rec.status, rec.sessionId, rec.confirmedMs, uploads) {
         sessions = RecordingStore.list(context, rec.sessionId)
+    }
+    LaunchedEffect(uploadTarget) {
+        needConsent = null
+        if (uploadTarget != null) needConsent = runCatching { !Server.hasConsent() }.getOrDefault(true)
     }
 
     val permissions = buildList {
@@ -78,7 +88,7 @@ fun HomeScreen() {
         if (hasMic) RecordingService.start(context) else askPermissions.launch(permissions)
     }
 
-    Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("WorkBrain", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -109,7 +119,7 @@ fun HomeScreen() {
         Spacer(Modifier.height(20.dp))
         Text("기기에 저장된 녹음", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Text(
-            "업로드·회의록 만들기는 다음 버전에서 추가돼요. 지금은 이 휴대폰 안에만 있어요.",
+            "올리기를 누르기 전까지는 이 휴대폰 안에만 있어요.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -118,8 +128,30 @@ fun HomeScreen() {
             Text("아직 녹음이 없어요.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp))
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(sessions, key = { it.id }) { SessionRow(it) }
+            items(sessions, key = { it.id }) { s ->
+                SessionRow(
+                    s = s,
+                    progress = uploads[s.id],
+                    isActive = s.id == rec.sessionId,
+                    onUpload = { uploadTarget = s },
+                    onResume = { UploadManager.resume(context, s) },
+                    onOpen = { s.recordId?.let { onOpenRecord(it, s.title) } },
+                )
+            }
         }
+    }
+
+    val target = uploadTarget
+    val consentNeeded = needConsent
+    if (target != null && consentNeeded != null) {
+        UploadDialog(
+            needConsent = consentNeeded,
+            onDismiss = { uploadTarget = null },
+            onConfirm = { kind, permission, consentGiven ->
+                uploadTarget = null
+                UploadManager.start(context, target, kind, permission, consentGiven)
+            },
+        )
     }
 }
 
@@ -169,7 +201,14 @@ private fun RecorderCard(
 }
 
 @Composable
-private fun SessionRow(s: RecordingSession) {
+private fun SessionRow(
+    s: RecordingSession,
+    progress: UploadProgress?,
+    isActive: Boolean,
+    onUpload: () -> Unit,
+    onResume: () -> Unit,
+    onOpen: () -> Unit,
+) {
     val (badge, badgeColor) = when (s.status) {
         "recording" -> "녹음 중" to Color(0xFFD93A2B)
         "interrupted" -> "중단됨 · 확정분만 남음" to Color(0xFFB7791F)
@@ -189,6 +228,38 @@ private fun SessionRow(s: RecordingSession) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (!isActive && s.segments > 0) SessionActions(s, progress, onUpload, onResume, onOpen)
+        }
+    }
+}
+
+/** 녹음 한 건의 서버 진행: 올리기 → 진행 표시 → (멈췄으면) 이어서 처리 → 회의록·할 일 보기 */
+@Composable
+private fun SessionActions(
+    s: RecordingSession,
+    progress: UploadProgress?,
+    onUpload: () -> Unit,
+    onResume: () -> Unit,
+    onOpen: () -> Unit,
+) {
+    val busy = progress?.busy == true
+    progress?.let {
+        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (busy) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(if (busy) 6.dp else 0.dp))
+            Text(
+                it.message,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (it.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+    if (busy) return
+    Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        when {
+            s.serverState == "ready" -> Button(onClick = onOpen) { Text("회의록·할 일 보기") }
+            s.recordId != null -> OutlinedButton(onClick = onResume) { Text("이어서 처리") }
+            else -> OutlinedButton(onClick = onUpload) { Text("올리기") }
         }
     }
 }

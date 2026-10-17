@@ -17,6 +17,10 @@ data class RecordingSession(
     val durationMs: Long,
     val segments: Int,
     val bytes: Long,
+    /** 서버에 만든 기록 ID(올리기 시작 뒤) */
+    val recordId: String? = null,
+    /** 서버 진행: uploaded(올림 완료) · ready(회의록·할 일 후보 나옴) · 그 밖은 null */
+    val serverState: String? = null,
 )
 
 object RecordingStore {
@@ -51,6 +55,17 @@ object RecordingStore {
         write(dir, m.put("status", status).put("durationMs", durationMs))
     }
 
+    fun dir(context: Context, id: String) = File(root(context), id)
+
+    fun segmentFiles(dir: File): List<File> =
+        dir.listFiles { f -> f.name.startsWith("seg-") && f.name.endsWith(".m4a") }.orEmpty().sortedBy { it.name }
+
+    /** 올리기 진행 상태를 기록해 두어 앱을 다시 열어도 이어서 처리할 수 있게 한다 */
+    fun setServer(dir: File, recordId: String, serverState: String?) {
+        val m = read(dir) ?: return
+        write(dir, m.put("recordId", recordId).put("serverState", serverState ?: ""))
+    }
+
     fun list(context: Context, activeId: String?): List<RecordingSession> =
         root(context).listFiles().orEmpty().filter { it.isDirectory }.mapNotNull { dir ->
             val m = read(dir) ?: return@mapNotNull null
@@ -70,6 +85,8 @@ object RecordingStore {
                 durationMs = duration,
                 segments = segs.size,
                 bytes = segs.sumOf { it.length() },
+                recordId = m.optString("recordId").ifEmpty { null },
+                serverState = m.optString("serverState").ifEmpty { null },
             )
         }.sortedByDescending { it.startedAt }
 

@@ -5,6 +5,10 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.FlowType
 import io.github.jan.supabase.createSupabaseClient
+import io.github.jan.supabase.functions.Functions
+import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.storage.Storage
+import kotlin.time.Duration.Companion.seconds
 
 class WorkBrainApp : Application()
 
@@ -15,12 +19,17 @@ class WorkBrainApp : Application()
 object Supa {
     val client: SupabaseClient by lazy {
         createSupabaseClient(BuildConfig.SUPABASE_URL, BuildConfig.SUPABASE_KEY) {
+            // 긴 회의의 전사는 처리 함수 한 번에 1분 넘게 걸릴 수 있다(함수 제한 150초에 맞춤)
+            requestTimeout = 150.seconds
             install(Auth) {
                 // 브라우저에서 Google 로그인 후 workbrain://login-callback 으로 돌아온다(PKCE)
                 flowType = FlowType.PKCE
                 scheme = "workbrain"
                 host = "login-callback"
             }
+            install(Postgrest)
+            install(Storage)
+            install(Functions)
         }
     }
 }

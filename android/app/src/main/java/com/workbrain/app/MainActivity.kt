@@ -14,7 +14,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.auth.LoginScreen
-import com.workbrain.app.record.HomeScreen
 import com.workbrain.app.ui.WorkBrainTheme
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.handleDeeplinks
@@ -39,7 +38,7 @@ class MainActivity : ComponentActivity() {
 private fun AppRoot() {
     val status by Supa.client.auth.sessionStatus.collectAsStateWithLifecycle()
     when (status) {
-        is SessionStatus.Authenticated -> HomeScreen()
+        is SessionStatus.Authenticated -> MainShell()
         is SessionStatus.Initializing -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
