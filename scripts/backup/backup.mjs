@@ -23,14 +23,15 @@ async function rpc(name) {
 
 const outDir = process.argv[2] ?? "out";
 mkdirSync(outDir, { recursive: true });
-const day = new Date().toISOString().slice(0, 10);
+// 같은 날 다시 실행해도 덮어쓰지 않게 시각까지 넣는다(서비스 계정은 '넣기'만 가능해 덮어쓰기 불가)
+const stamp = new Date().toISOString().slice(0, 16).replace(/[:]/g, "").replace("T", "-");   // 2026-10-18-1725 (UTC)
 
 const backup = await rpc("wb_backup_export");
 const tombstones = await rpc("wb_tombstone_export");
 if (backup.format !== "workbrain-backup-v1" || tombstones.format !== "workbrain-tombstones-v1") throw new Error("형식이 맞지 않아요");
 
 const rows = Object.values(backup.tables).reduce((n, t) => n + t.length, 0);
-for (const [name, data] of [[`backup-${day}`, backup], [`tombstones-${day}`, tombstones]]) {
+for (const [name, data] of [[`backup-${stamp}`, backup], [`tombstones-${stamp}`, tombstones]]) {
   const file = join(outDir, `${name}.json.gz.enc`);
   const buf = encrypt(Buffer.from(JSON.stringify(data)), env.BACKUP_PASSPHRASE);
   writeFileSync(file, buf);

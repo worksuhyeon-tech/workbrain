@@ -36,10 +36,25 @@ jobs:
       - name: GCS 업로드(백업 7일·원장 35일은 버킷 수명 규칙이 지운다)
         env:
           BUCKET: ${{ secrets.GCS_BUCKET }}
-        # 서비스 계정은 '개체 생성자'(넣기만 가능)라 목록 조회 없이 올라가도록 대상 이름을 파일 단위로 정확히 준다
+        # 서비스 계정은 '개체 생성자'(넣기만 가능)다. gcloud storage cp는 대상 조회 권한까지 요구할 수 있어
+        # 저장소 JSON API의 단순 업로드(objects.create만 필요)로 올리고, 실패하면 이유(오류 문구)만 출력한다
         run: |
-          for f in out/backup-*.json.gz.enc; do gcloud storage cp "$f" "gs://${BUCKET}/backups/$(basename "$f")" --quiet; done
-          for f in out/tombstones-*.json.gz.enc; do gcloud storage cp "$f" "gs://${BUCKET}/tombstones/$(basename "$f")" --quiet; done
+          TOKEN="$(gcloud auth print-access-token)"
+          echo "::add-mask::$TOKEN"
+          for f in out/*.json.gz.enc; do
+            name="$(basename "$f")"
+            case "$name" in tombstones-*) prefix=tombstones ;; *) prefix=backups ;; esac
+            url="https://storage.googleapis.com/upload/storage/v1/b/${BUCKET}/o?uploadType=media&name=${prefix}%2F${name}"
+            code=$(curl -sS -o resp.json -w '%{http_code}' -X POST -H "Authorization: Bearer ${TOKEN}" \
+              -H "Content-Type: application/octet-stream" --data-binary @"$f" "$url")
+            if [ "$code" != "200" ]; then
+              echo "업로드 실패: ${prefix}/${name} HTTP ${code}"
+              node -e "const r=require('./resp.json'); console.log(r.error ? r.error.message : '')"
+              exit 1
+            fi
+            echo "업로드 완료: ${prefix}/${name}"
+          done
+          rm -f resp.json
       - name: 임시 파일 삭제
         if: always()
         run: rm -rf out
