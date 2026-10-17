@@ -487,6 +487,7 @@ create table source_record (
   owner_id      uuid not null references app_user(id),
   workspace_id  uuid not null references workspace(id), -- 녹음·업로드 때 고른 공간(기본 본업). AI 연결 후보는 같은 공간 안에서만
   channel       text not null,                 -- 'recording' | 'upload' | 'call-share'
+  title         text,                          -- 녹음 중 고친 제목(S04, P0에서 추가)
   occurred_at   timestamptz,                   -- 업무 발생 시각(불명 가능)
   occurred_unknown boolean not null default false,
   ingested_at   timestamptz not null default now(),
@@ -585,6 +586,7 @@ create table task (
   due_date      date,                          -- 날짜만 보존
   due_time      timestamptz,                   -- 시각 포함 시
   due_ambiguous boolean not null default false,-- '다음 주' 등 확인 필요
+  due_text      text,                          -- 모호한 기한 원문('다음 주'). 날짜로 바꾸지 않음(P0에서 추가)
   version       int not null default 0,
   created_at    timestamptz not null default now(),
   check (project_id is null or area_id is null), -- 한 곳에만 속함
@@ -670,6 +672,7 @@ create table approval_event (
   seen_revision int,                           -- 사용자가 본 제안 revision(M18)
   result        text not null,                 -- 'approved' | 'rejected'
   actor         text not null,                 -- 'user'
+  context       text,                          -- 'inbox' | 'record' 승인 위치(DEC-23, P0에서 추가)
   applied_version int,                          -- 생성된 새 버전
   created_at    timestamptz not null default now(),
   unique (proposal_id),                        -- 제안 승인 효과 1회(FR-10)
@@ -733,6 +736,8 @@ create table tombstone (
 );
 ```
 
+> **실제 스키마의 원본은 `supabase/migrations/`다(P0, 2026-10-18).** 위 DDL은 설계 참조이며, 열거형 CHECK·열 단위 권한·트리거·승인 함수는 마이그레이션에 있다. 결과는 [P0 검증 기록](../../03-analysis/p0-verification.md).
+>
 > DDL 주석: `enum`은 구현 시 `text + CHECK` 또는 도메인 타입 중 택1(DESIGN-OPEN-ISSUES M1). FK/unique는 **멱등·충돌 검사의 최소 조건**이다. 승인·예약·삭제처럼 여러 행을 함께 바꾸는 동작은 Supabase의 DB 함수(트랜잭션) 하나로만 수행한다(§4.7).
 
 ### 4.4 음성/STT 데이터 저장 정책
