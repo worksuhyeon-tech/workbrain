@@ -1,13 +1,13 @@
 {
   "version": "2.0",
-  "lastUpdated": "2026-10-16T12:53:19.160Z",
+  "lastUpdated": "2026-10-18T00:00:00.000Z",
   "activeFeatures": [
     "workbrain"
   ],
   "primaryFeature": "workbrain",
   "features": {
     "workbrain": {
-      "phase": "plan",
+      "phase": "design",
       "matchRate": null,
       "iterationCount": 0,
       "documents": {
@@ -19,18 +19,22 @@
         "roadmap": "docs/05-ROADMAP.md",
         "risks": "docs/06-RISK-AND-DECISIONS.md",
         "traceability": "docs/REQUIREMENTS-TRACEABILITY.md",
-        "planReview": "docs/PLAN-REVIEW-v0.2.md"
+        "planReview": "docs/PLAN-REVIEW-v0.2.md",
+        "design": "docs/02-design/features/workbrain.design.md",
+        "designOpenIssues": "docs/02-design/DESIGN-OPEN-ISSUES.md",
+        "mockups": "docs/02-design/mockups/"
       },
       "taskChain": [
         {
           "phase": "plan",
-          "status": "active",
+          "status": "completed",
           "createdAt": "2026-10-16T12:40:23.925Z"
         },
         {
           "phase": "design",
-          "status": "pending",
-          "createdAt": "2026-10-16T12:40:23.925Z"
+          "status": "completed",
+          "createdAt": "2026-10-16T12:40:23.925Z",
+          "approvedAt": "2026-10-18"
         },
         {
           "phase": "do",
@@ -50,13 +54,12 @@
       ],
       "timestamps": {
         "started": "2026-10-16T12:40:24.073Z",
-        "lastUpdated": "2026-10-16T12:40:24.073Z"
+        "lastUpdated": "2026-10-18T00:00:00.000Z"
       },
       "planRevision": "0.2",
       "planDocumentStatus": "draft_written_and_document_reviewed",
-      "designApproved": false,
+      "designApproved": true,
       "pendingGates": [
-        "Q5: user Design approval (Design Draft v0.1.4)",
         "P0: Supabase RLS isolation / concurrent approval / backup restore (TC-01/08/12)",
         "P0: gpt-6-luna vs Haiku 5.5 Korean quality & cost (DEC-19), gpt-transcribe Korean STT",
         "P0/G3: real-device Fold recording"
@@ -65,7 +68,10 @@
         "issuesAddressedInDocuments": 8,
         "externalGatesPending": 2,
         "implementationTestsRun": false
-      }
+      },
+      "designVersion": "0.1.7",
+      "designApprovedAt": "2026-10-18",
+      "nextStep": "P0 technical verification (each external resource needs separate user approval)"
     }
   },
   "pipeline": {
@@ -85,6 +91,14 @@
       "revision": "0.2",
       "phase": "plan",
       "timestamp": "2026-10-16T12:53:19.158Z"
+    },
+    {
+      "feature": "workbrain",
+      "action": "design_approved",
+      "revision": "0.1.7",
+      "phase": "design",
+      "decision": "DEC-25",
+      "timestamp": "2026-10-18T00:00:00.000Z"
     }
   ]
 }

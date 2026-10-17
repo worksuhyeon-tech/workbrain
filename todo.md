@@ -1,6 +1,6 @@
 # WorkBrain 다음 작업
 
-현재: Design Draft v0.1.7(2026-10-18). Design 승인 전. Do 미진입.
+현재: Design v0.1.7 **승인**(2026-10-18, DEC-25). 다음은 P0 기술 검증. Design 승인 전. Do 미진입.
 
 ## 완료
 
@@ -19,7 +19,7 @@
 - [x] Q0 교차 확인(Codex, 2026-10-17): 원본 브리프 §0~10을 v0.1.3과 대조. 결과는 `docs/02-design/DESIGN-OPEN-ISSUES.md` G절
 - [x] Q0 보완(Claude, 2026-10-17): M10~M21·C7~C10·U6~U7을 Design v0.1.4·PRD·TC에 반영, Q8~Q10은 DEC-21로 종결. 반영 위치는 `DESIGN-OPEN-ISSUES.md` G.8. **실측은 P0/P1에서 별도**
 - [ ] (선택) Codex 재확인: v0.1.4 반영이 G절 지적을 닫는지
-- [ ] 사용자 Design 검토 및 승인(Q5) → `docs/.pdca-status.json` 갱신
+- [x] 사용자 Design 검토 및 승인(Q5, 2026-10-18) → DEC-25, `docs/.pdca-status.json` 갱신
 
 ## Design 승인 후 (P0 기술 검증, 외부 자원 생성은 별도 승인)
 

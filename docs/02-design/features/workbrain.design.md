@@ -6,7 +6,7 @@
 > **버전**: 0.1.7 (Draft)
 > **작성자**: Claude Code (PDCA Design)
 > **작성일**: 2026-10-16 (Asia/Seoul)
-> **상태**: Draft — **G1/G2 문서 근거 충족(2026-10-17)**: 백엔드 Supabase Free(DEC-20), 모델 저가 후보 비교 방침(DEC-19). 실측(격리·동시성·복원·한국어 품질·비용)은 P0. 사용자 Design 승인 대기.
+> **상태**: **사용자 승인(2026-10-18, v0.1.7, Q5 → DEC-25)**. G1/G2 문서 근거 충족(2026-10-17): 백엔드 Supabase Free(DEC-20), 모델 저가 후보 비교 방침(DEC-19). 실측(격리·동시성·복원·한국어 품질·비용)은 P0에서 하며, 결과에 따라 이 문서를 고친다.
 > **Plan 원본**: [workbrain.plan.md](../../01-plan/features/workbrain.plan.md) · [PRD](../../01-PRD.md) · [아키텍처 계획](../../02-ARCHITECTURE-PLAN.md) · [데이터 모델 계획](../../03-DATA-MODEL-PLAN.md) · [UX 계획](../../04-UX-PLAN.md) · [로드맵](../../05-ROADMAP.md) · [위험·결정](../../06-RISK-AND-DECISIONS.md) · [추적표](../../REQUIREMENTS-TRACEABILITY.md)
 > **검토·미확정 사항**: [DESIGN-OPEN-ISSUES.md](../DESIGN-OPEN-ISSUES.md) ← Codex 검증 대상
 
