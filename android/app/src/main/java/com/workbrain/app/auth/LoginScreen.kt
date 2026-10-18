@@ -24,7 +24,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.workbrain.app.Supa
 import com.workbrain.app.ui.Banner
+import com.workbrain.app.ui.GlassIcon
+import com.workbrain.app.ui.GlassTint
 import com.workbrain.app.ui.HandAccent
+import com.workbrain.app.ui.WbIcons
 import com.workbrain.app.ui.PrimaryButton
 import com.workbrain.app.ui.Tone
 import com.workbrain.app.ui.Wb
@@ -45,6 +48,7 @@ fun LoginScreen() {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        GlassIcon(WbIcons.Sparkle, GlassTint.Green, size = 72.dp, modifier = Modifier.padding(bottom = 16.dp))
         Text("WorkBrain", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Wb.colors.ink, letterSpacing = (-0.6).sp)
         Text("일의 기억", fontFamily = HandAccent, fontSize = 26.sp, color = Wb.colors.muted)
         Spacer(Modifier.height(40.dp))

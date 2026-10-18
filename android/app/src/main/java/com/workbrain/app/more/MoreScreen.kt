@@ -39,7 +39,10 @@ import com.workbrain.app.Supa
 import com.workbrain.app.data.Server
 import com.workbrain.app.record.RecStatus
 import com.workbrain.app.record.RecordingService
+import com.workbrain.app.ui.GlassIcon
+import com.workbrain.app.ui.GlassTint
 import com.workbrain.app.ui.PageHeader
+import com.workbrain.app.ui.WbIcons
 import com.workbrain.app.ui.SecondaryButton
 import com.workbrain.app.ui.SectionLabel
 import com.workbrain.app.ui.Wb
@@ -88,13 +91,18 @@ fun MoreScreen() {
 
         SectionLabel("AI 사용")
         WbCard {
-            Text("이번 달 AI 처리 비용", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
-            Text(
-                costKrw?.let { "%,d원".format(it) } ?: "—",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                color = Wb.colors.ink,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                GlassIcon(WbIcons.Coin, GlassTint.Orange, size = 44.dp)
+                Column(Modifier.padding(start = 12.dp)) {
+                    Text("이번 달 AI 처리 비용", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+                    Text(
+                        costKrw?.let { "%,d원".format(it) } ?: "—",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Wb.colors.ink,
+                    )
+                }
+            }
             Text("받아쓰기·회의록 정리에 쓴 금액이에요. 예산 대기선을 넘으면 새 처리를 멈추고 알려 드려요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
         }
 

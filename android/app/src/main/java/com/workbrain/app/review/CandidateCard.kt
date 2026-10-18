@@ -21,6 +21,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.workbrain.app.ui.Tone
+import com.workbrain.app.ui.WbIcons
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
 import com.workbrain.app.ui.Wb
 import com.workbrain.app.ui.WbCard
 import com.workbrain.app.ui.WbChip
@@ -83,13 +86,18 @@ fun CandidateCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 source?.let {
-                    Text(
-                        "📄 $it",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Wb.colors.link,
+                    Row(
                         modifier = if (onOpenSource != null) Modifier.clickable(onClick = onOpenSource) else Modifier,
-                    )
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(WbIcons.Document, contentDescription = null, tint = Wb.colors.link, modifier = Modifier.size(16.dp))
+                        Text(
+                            " $it",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Wb.colors.link,
+                        )
+                    }
                 }
             }
         }

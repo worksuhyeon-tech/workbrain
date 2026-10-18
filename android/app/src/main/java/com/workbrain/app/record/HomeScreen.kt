@@ -45,6 +45,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.data.Server
 import com.workbrain.app.ui.Banner
 import com.workbrain.app.ui.ControlShape
+import com.workbrain.app.ui.GlassIcon
+import com.workbrain.app.ui.GlassTint
+import com.workbrain.app.ui.WbIcons
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.workbrain.app.ui.PageHeader
 import com.workbrain.app.ui.PrimaryButton
 import com.workbrain.app.ui.SecondaryButton
@@ -170,7 +175,7 @@ private fun RecorderCard(
             Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
                 // 왼쪽: 일시정지·재개(녹음 중이 아니면 흐리게). 오른쪽은 북마크 자리(다음 버전) — 가운데 정렬을 위해 같은 크기로 비워 둔다
                 RoundButton(
-                    glyph = if (rec.status == RecStatus.PAUSED) "▶" else "⏸",
+                    glyph = if (rec.status == RecStatus.PAUSED) WbIcons.Play else WbIcons.Pause,
                     enabled = rec.status != RecStatus.IDLE,
                     onClick = if (rec.status == RecStatus.PAUSED) onResume else onPause,
                 )
@@ -208,7 +213,7 @@ private fun BigButton(recording: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun RoundButton(glyph: String, enabled: Boolean, onClick: () -> Unit) {
+private fun RoundButton(glyph: ImageVector, enabled: Boolean, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         enabled = enabled,
@@ -218,7 +223,7 @@ private fun RoundButton(glyph: String, enabled: Boolean, onClick: () -> Unit) {
         modifier = Modifier.size(52.dp),
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Text(glyph, fontSize = 18.sp, color = Wb.colors.ink.copy(alpha = if (enabled) 1f else 0.35f))
+            Icon(glyph, contentDescription = null, tint = Wb.colors.ink.copy(alpha = if (enabled) 1f else 0.35f), modifier = Modifier.size(22.dp))
         }
     }
 }
@@ -244,8 +249,8 @@ private fun SessionRow(
     Surface(shape = ControlShape, color = Wb.colors.card, border = BorderStroke(1.dp, Wb.colors.border), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("🎙️", fontSize = 18.sp)
-                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                GlassIcon(WbIcons.Mic, GlassTint.Red, size = 36.dp)
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text(s.title, style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA).format(Date(s.startedAt)) +

@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -122,8 +123,9 @@ fun Banner(text: String, tone: Tone, modifier: Modifier = Modifier) {
 
 /** 비어 있을 때: 손글씨 한마디 + 설명(목업 .empty) */
 @Composable
-fun EmptyState(hand: String, body: String, modifier: Modifier = Modifier) {
+fun EmptyState(hand: String, body: String, modifier: Modifier = Modifier, icon: ImageVector? = null, tint: GlassTint = GlassTint.Blue) {
     Column(modifier.fillMaxWidth().padding(vertical = 32.dp, horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        icon?.let { GlassIcon(it, tint, size = 56.dp, modifier = Modifier.padding(bottom = 12.dp)) }
         Text(hand, fontFamily = HandAccent, fontSize = 26.sp, color = Wb.colors.ink, textAlign = TextAlign.Center)
         Text(body, style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp))
     }

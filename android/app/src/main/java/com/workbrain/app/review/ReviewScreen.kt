@@ -34,6 +34,8 @@ import com.workbrain.app.ui.SecondaryButton
 import com.workbrain.app.ui.SectionLabel
 import com.workbrain.app.ui.Tone
 import com.workbrain.app.ui.Wb
+import com.workbrain.app.ui.WbIcons
+import com.workbrain.app.ui.GlassTint
 import kotlinx.coroutines.launch
 
 /**
@@ -72,7 +74,7 @@ fun ReviewScreen(onOpenRecord: (recordId: String, title: String) -> Unit, onCoun
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
         ) {
             if (items != null && list.isEmpty()) item {
-                EmptyState("검토 끝! 깔끔해요", "녹음을 올리면 할 일 후보가 여기에 모여요.")
+                EmptyState("검토 끝! 깔끔해요", "녹음을 올리면 할 일 후보가 여기에 모여요.", icon = WbIcons.Review, tint = GlassTint.Green)
             }
             list.groupBy { it.recordId to it.recordTitle }.forEach { (record, rows) ->
                 item(key = "h-${record.first}") { SectionLabel("${record.second} · ${rows.size}") }

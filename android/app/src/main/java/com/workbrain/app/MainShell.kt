@@ -24,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,12 +35,19 @@ import com.workbrain.app.record.HomeScreen
 import com.workbrain.app.review.RecordDetailScreen
 import com.workbrain.app.review.ReviewScreen
 import com.workbrain.app.today.TodayScreen
+import com.workbrain.app.ui.GlassIcon
+import com.workbrain.app.ui.GlassTint
 import com.workbrain.app.ui.PillShape
+import com.workbrain.app.ui.WbIcons
 import com.workbrain.app.ui.Wb
 
-// 목업 하단 메뉴와 같은 순서·이름·아이콘(workbrain-capture-android .bottom-nav)
-private enum class Tab(val label: String, val icon: String) {
-    TODAY("오늘", "🏠"), PROJECTS("프로젝트", "📁"), RECORD("녹음", "🎙️"), REVIEW("검토함", "✅"), MORE("더보기", "☰")
+// 목업 하단 메뉴와 같은 순서·이름. 아이콘은 글래스(고른 메뉴만 색, 나머지는 회색 유리, DEC-32)
+private enum class Tab(val label: String, val glyph: ImageVector, val tint: GlassTint) {
+    TODAY("오늘", WbIcons.Home, GlassTint.Blue),
+    PROJECTS("프로젝트", WbIcons.Folder, GlassTint.Purple),
+    RECORD("녹음", WbIcons.Mic, GlassTint.Red),
+    REVIEW("검토함", WbIcons.Review, GlassTint.Green),
+    MORE("더보기", WbIcons.Menu, GlassTint.Orange),
 }
 
 /** 로그인 뒤 화면 틀: 아래 메뉴 5개와, 녹음·검토함에서 연 기록 상세. 상세는 뒤로 가기로 닫는다 */
@@ -84,14 +92,14 @@ fun MainShell() {
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Box {
-                        Text(t.icon, fontSize = 20.sp)
+                        GlassIcon(t.glyph, if (on) t.tint else GlassTint.Gray, size = 30.dp)
                         if (t == Tab.REVIEW && reviewCount > 0) {
                             Text(
                                 if (reviewCount > 99) "99+" else reviewCount.toString(),
                                 color = Color.White,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.align(Alignment.TopEnd).offset(x = 12.dp, y = (-4).dp)
+                                modifier = Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-4).dp)
                                     .background(Wb.colors.crit, PillShape).padding(horizontal = 5.dp),
                             )
                         }

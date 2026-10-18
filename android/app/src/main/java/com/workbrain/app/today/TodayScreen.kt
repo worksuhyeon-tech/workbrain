@@ -35,6 +35,8 @@ import com.workbrain.app.ui.PageHeader
 import com.workbrain.app.ui.SectionLabel
 import com.workbrain.app.ui.Tone
 import com.workbrain.app.ui.Wb
+import com.workbrain.app.ui.WbIcons
+import com.workbrain.app.ui.GlassTint
 import com.workbrain.app.ui.WbCard
 import com.workbrain.app.ui.WbChip
 import com.workbrain.app.ui.dueGroup
@@ -83,7 +85,7 @@ fun TodayScreen() {
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
         ) {
             if (tasks != null && list.isEmpty()) item {
-                EmptyState("오늘 할 일 끝!", "녹음을 올리고 검토함에서 할 일을 추가하면 여기에 모여요.")
+                EmptyState("오늘 할 일 끝!", "녹음을 올리고 검토함에서 할 일을 추가하면 여기에 모여요.", icon = WbIcons.Home, tint = GlassTint.Blue)
             }
             DueGroup.entries.forEach { group ->
                 val rows = groups[group].orEmpty()

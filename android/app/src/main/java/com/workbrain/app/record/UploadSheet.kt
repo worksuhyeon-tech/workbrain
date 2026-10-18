@@ -33,6 +33,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.workbrain.app.ui.ControlShape
+import com.workbrain.app.ui.GlassIcon
+import com.workbrain.app.ui.GlassTint
+import com.workbrain.app.ui.WbIcons
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.workbrain.app.ui.PillShape
 import com.workbrain.app.ui.PrimaryButton
 import com.workbrain.app.ui.SecondaryButton
@@ -41,12 +45,12 @@ import com.workbrain.app.ui.Wb
 private val KINDS = listOf("meeting" to "회의", "call" to "통화", "memo" to "혼자 메모")
 
 // 앱이 내용을 보고 자동으로 판단하지 않고 사용자가 고른다(M11). 금지·모름이면 올리지 않는다
-private data class PermissionOption(val value: String, val icon: String, val title: String, val desc: String)
+private data class PermissionOption(val value: String, val glyph: ImageVector, val tint: GlassTint, val title: String, val desc: String)
 private val PERMISSIONS = listOf(
-    PermissionOption("personal", "🙋", "개인 자료", "내 메모·개인 통화"),
-    PermissionOption("sample", "🧪", "샘플·시험용", "테스트용으로 만든 녹음"),
-    PermissionOption("company-approved", "🏢", "회사 자료 (외부 저장 허용 확인됨)", "허용 범위를 확인한 업무 자료"),
-    PermissionOption("deny", "⛔", "허용 안 됨 · 잘 모르겠음", "올리지 않고 이 기기에만 보관해요"),
+    PermissionOption("personal", WbIcons.Person, GlassTint.Purple, "개인 자료", "내 메모·개인 통화"),
+    PermissionOption("sample", WbIcons.Flask, GlassTint.Green, "샘플·시험용", "테스트용으로 만든 녹음"),
+    PermissionOption("company-approved", WbIcons.Building, GlassTint.Blue, "회사 자료 (외부 저장 허용 확인됨)", "허용 범위를 확인한 업무 자료"),
+    PermissionOption("deny", WbIcons.Ban, GlassTint.Red, "허용 안 됨 · 잘 모르겠음", "올리지 않고 이 기기에만 보관해요"),
 )
 
 /**
@@ -159,9 +163,9 @@ private fun PermissionCard(opt: PermissionOption, selected: Boolean, onClick: ()
         border = BorderStroke(if (selected) 2.dp else 1.dp, borderColor),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.Top) {
-            Text(opt.icon, fontSize = 18.sp)
-            Column(Modifier.padding(start = 10.dp)) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            GlassIcon(opt.glyph, opt.tint, size = 36.dp)
+            Column(Modifier.padding(start = 12.dp)) {
                 Text(opt.title, style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
                 Text(opt.desc, style = MaterialTheme.typography.bodySmall, color = Wb.colors.body)
             }
