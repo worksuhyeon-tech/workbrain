@@ -2,6 +2,7 @@ package com.workbrain.app.data
 
 import com.workbrain.app.Supa
 import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.exceptions.RestException
 import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
@@ -149,7 +150,15 @@ object Server {
 
     /** 처리 함수를 한 번 불러 다음 단계를 진행한다 */
     suspend fun process(recordId: String): ProcessStatus {
-        val res = db.functions.invoke("process-record", body = buildJsonObject { put("record_id", recordId) })
+        val body = buildJsonObject { put("record_id", recordId) }
+        // 백그라운드 처리 중에 로그인 토큰(1시간)이 끝나면 함수가 401을 준다. 토큰을 새로 받아 한 번만 다시 부른다
+        val res = try {
+            db.functions.invoke("process-record", body = body)
+        } catch (e: RestException) {
+            if (e.statusCode != 401) throw e
+            db.auth.refreshCurrentSession()
+            db.functions.invoke("process-record", body = body)
+        }
         val json = Json.parseToJsonElement(res.bodyAsText()) as JsonObject
         val failMessage = json["error"]?.jsonPrimitive?.content
         // 단계가 없는 응답은 거부(로그인 만료·기록 없음 등)다. 계속 다시 부르지 않고 바로 알린다

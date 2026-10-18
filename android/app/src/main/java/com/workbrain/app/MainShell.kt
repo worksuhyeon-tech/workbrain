@@ -23,6 +23,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.workbrain.app.record.UploadManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -65,6 +67,9 @@ fun MainShell() {
         runCatching { Server.pendingProposals().size }.onSuccess { reviewCount = it }
     }
     val open: (String, String) -> Unit = { id, title -> detailTitle = title; detailId = id }
+    // 앱을 열 때: 결과가 아직 없는 녹음은 백그라운드 처리를 다시 건다(강제 중지 뒤에도 이어 가기, DEC-37)
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { UploadManager.ensureRunning(context) }
 
     Column(Modifier.fillMaxSize().background(Wb.colors.surface)) {
         Box(Modifier.weight(1f).fillMaxWidth().statusBarsPadding()) {

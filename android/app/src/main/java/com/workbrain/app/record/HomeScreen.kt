@@ -313,8 +313,12 @@ private fun SessionActions(
     onOpen: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val busy = progress?.busy == true
-    progress?.let {
+    // 앱을 다시 열었는데 진행 표시가 없으면, 백그라운드 작업이 이어서 하는 중이다
+    val shown = progress ?: if (s.recordId != null && s.serverState != "ready") {
+        UploadProgress("백그라운드에서 처리 중 · 결과가 나오면 알려 드릴게요", busy = true)
+    } else null
+    val busy = shown?.busy == true
+    shown?.let {
         Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (busy) {
                 CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = Wb.colors.primary)
@@ -328,7 +332,8 @@ private fun SessionActions(
             )
         }
     }
-    if (busy) return
+    // 지금 이 화면에서 돌고 있는 작업이면 버튼을 숨기고, 백그라운드 추정 표시일 때는 '이어서 처리'로 바로 다시 돌릴 수 있게 둔다
+    if (busy && progress != null) return
     Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         when {
             s.serverState == "ready" -> PrimaryButton("회의록·할 일 보기", onClick = onOpen)

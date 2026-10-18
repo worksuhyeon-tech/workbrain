@@ -61,6 +61,8 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    // 앱을 닫아도 올리기·처리를 이어 가는 백그라운드 작업(DEC-37)
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
 
     implementation(platform("io.github.jan-tennert.supabase:bom:3.1.4"))
     implementation("io.github.jan-tennert.supabase:auth-kt")

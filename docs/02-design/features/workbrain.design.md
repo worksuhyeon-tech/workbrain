@@ -922,6 +922,10 @@ create table tombstone (
 - 저장: `vocab_term(id, owner_id, term, created_at)`, `(owner_id, lower(term))` 유일. 추가는 `wb_vocab_add(text[])` 하나로만(형식·중복·200개 상한을 사용자 단위 잠금 안에서 검사, 결과 `added/duplicate/invalid/over_limit/total`). 삭제는 RLS로 본인 행만. 백업 범위에 포함.
 - 처리: STT(힌트 없음) → **CORRECT**(용어집이 있을 때, DEC-36: 잘못 들린 업무 용어만 고친 `term-corrected` 전사 버전, 원문 보존) → EXTRACT(교정본 기준 + `내 용어집(표기 기준…)` 한 줄). STT에는 힌트를 주지 않는다(DEC-33 개정).
 
+### 6.8 백그라운드 올리기·처리 (DEC-37)
+
+- `UploadManager`는 작업을 `ProcessWorker`(WorkManager, 녹음별 고유 작업 `process-<세션ID>`)로 맡긴다. 인터넷 조건, 4분 기다린 뒤 미완이면 재예약, 일시 오류는 재시도, 동의·예산·키 문제는 멈추고 표시. 완료 시 알림(채널 '처리 결과'). 앱을 열면 `ensureRunning`이 결과 없는 녹음을 다시 건다. 화면은 진행 표시가 없을 때 '백그라운드에서 처리 중'을 보여 주고 '이어서 처리'로 즉시 재실행 가능.
+
 ### 6.7 기기 녹음 사본 정리 (DEC-34)
 
 - 처리 완료(ready) 시각을 `session.json.readyAt`에 남기고, 앱을 열 때 7일 지난 사본의 음성 조각을 지운다(`audioDeletedAt`, 목록 줄·회의록 보기는 유지). 목록에 `n일 뒤 기기에서 자동 삭제` / `기기 음성 지움` 표시.
