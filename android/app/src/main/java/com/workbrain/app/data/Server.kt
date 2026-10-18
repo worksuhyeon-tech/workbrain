@@ -80,7 +80,7 @@ import kotlinx.serialization.json.put
 
 @Serializable data class MeetingRow(val id: String, val fields: JsonObject)
 
-@Serializable data class TranscriptRow(val id: String, val content: String? = null)
+@Serializable data class TranscriptRow(val id: String, val kind: String = "", val content: String? = null)
 
 @Serializable data class TaskRow(
     val id: String,
@@ -163,12 +163,15 @@ object Server {
             order("created_at", Order.DESCENDING)
         }.decodeList<IdRow>().map { it.id }
 
-    suspend fun transcript(recordId: String): String? =
-        db.from("transcript_version").select {
+    /** 종류별 최신 전사: stt-original(받아쓴 원문) · term-corrected(용어 교정본, DEC-36) */
+    suspend fun transcripts(recordId: String): Map<String, String> =
+        db.from("transcript_version").select(Columns.list("id", "kind", "content")) {
             filter { eq("source_record_id", recordId) }
             order("created_at", Order.DESCENDING)
-            limit(1)
-        }.decodeList<TranscriptRow>().firstOrNull()?.content
+        }.decodeList<TranscriptRow>()
+            .filter { it.content != null }
+            .distinctBy { it.kind }
+            .associate { it.kind to it.content!! }
 
     suspend fun meeting(recordId: String): MeetingRow? {
         val tv = transcriptIds(recordId).ifEmpty { return null }

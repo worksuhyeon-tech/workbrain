@@ -100,7 +100,11 @@ object UploadManager {
                     return
                 }
                 else -> {
-                    val label = if (s.stage == "STT") "받아쓰는 중" else "회의록·할 일 정리 중"
+                    val label = when (s.stage) {
+                        "STT" -> "받아쓰는 중"
+                        "CORRECT" -> "업무 용어 맞추는 중"
+                        else -> "회의록·할 일 정리 중"
+                    }
                     set(id, UploadProgress(if (s.state == "FAILED") "$label · 다시 시도 중" else label, busy = true))
                     delay(3000)
                 }

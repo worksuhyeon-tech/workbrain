@@ -59,8 +59,9 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
     var firstLoad by remember { mutableStateOf(true) }
     var meeting by remember { mutableStateOf<MeetingRow?>(null) }
     var proposals by remember { mutableStateOf<List<ProposalRow>>(emptyList()) }
-    var transcript by remember { mutableStateOf<String?>(null) }
+    var transcripts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var showTranscript by remember { mutableStateOf(false) }
+    var showOriginal by remember { mutableStateOf(false) }
     val checked = remember { mutableStateMapOf<String, Boolean>() }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<Pair<String, Tone>?>(null) }
@@ -69,7 +70,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
         runCatching {
             meeting = Server.meeting(recordId)
             proposals = Server.proposals(recordId)
-            transcript = Server.transcript(recordId)
+            transcripts = Server.transcripts(recordId)
         }.onFailure { message = "불러오지 못했어요. 인터넷 연결을 확인해 주세요." to Tone.Crit }
         proposals.filter { it.status == "pending" }.forEach { checked.putIfAbsent(it.id, true) }
         firstLoad = false
@@ -125,13 +126,24 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
             }
             items(done, key = { it.id }) { p -> CandidateCard(p.after, p.rationale, p.status, checked = false, onChecked = null) }
             item {
-                SectionLabel("받아쓴 원문")
+                // 교정본이 있으면 그것을 먼저 보여 주고, 받아쓴 원문은 따로 볼 수 있게 둔다(원문은 고치지 않음, DEC-36)
+                val corrected = transcripts["term-corrected"]
+                val original = transcripts["stt-original"]
+                val shown = if (corrected != null && !showOriginal) corrected else original
+                SectionLabel(if (corrected != null && !showOriginal) "전사 · 업무 용어 교정본" else "받아쓴 원문")
                 WbCard {
                     if (showTranscript) {
-                        Text(transcript ?: "원문이 없어요", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body)
+                        Text(shown ?: "원문이 없어요", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body)
                     }
-                    TextButton(onClick = { showTranscript = !showTranscript }) {
-                        Text(if (showTranscript) "접기" else "원문 펼치기", color = Wb.colors.link)
+                    Row {
+                        TextButton(onClick = { showTranscript = !showTranscript }) {
+                            Text(if (showTranscript) "접기" else "전사 펼치기", color = Wb.colors.link)
+                        }
+                        if (showTranscript && corrected != null) {
+                            TextButton(onClick = { showOriginal = !showOriginal }) {
+                                Text(if (showOriginal) "교정본 보기" else "받아쓴 원문 보기", color = Wb.colors.link)
+                            }
+                        }
                     }
                 }
             }
