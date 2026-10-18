@@ -5,6 +5,7 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.storage.storage
 import io.ktor.client.statement.bodyAsText
@@ -44,6 +45,25 @@ import kotlinx.serialization.json.put
     @SerialName("after_json") val after: JsonObject,
     val rationale: String,
 )
+
+// 검토함: 후보와 그 후보가 나온 기록(후보 → 분석 → 전사 → 기록을 한 번에 따라간다)
+@Serializable data class InboxRow(
+    val id: String,
+    val status: String,
+    val revision: Int,
+    @SerialName("after_json") val after: JsonObject,
+    val rationale: String,
+    @SerialName("analysis_run") val run: InboxRun? = null,
+) {
+    fun proposal() = ProposalRow(id, status, revision, after, rationale)
+    val recordId: String? get() = run?.transcript?.record?.id
+    val recordTitle: String get() = run?.transcript?.record?.title ?: "제목 없는 기록"
+}
+@Serializable data class InboxRun(@SerialName("transcript_version") val transcript: InboxTranscript? = null)
+@Serializable data class InboxTranscript(@SerialName("source_record") val record: InboxRecord? = null)
+@Serializable data class InboxRecord(val id: String, val title: String? = null)
+
+@Serializable data class CostRow(@SerialName("confirmed_krw") val krw: Int = 0)
 
 @Serializable data class MeetingRow(val id: String, val fields: JsonObject)
 
@@ -156,19 +176,39 @@ object Server {
         }.decodeList<ProposalRow>()
     }
 
-    /** 기록 화면에서는 새 할 일만 승인할 수 있다(DEC-23). 결과: approved·already-approved·stale-revision 등 */
-    suspend fun approve(p: ProposalRow): String =
+    /** 모든 기록의 승인 대기 후보(검토함). 오래된 것부터 */
+    suspend fun pendingProposals(): List<InboxRow> =
+        db.from("change_proposal").select(
+            Columns.raw("id,status,revision,after_json,rationale,analysis_run(transcript_version(source_record(id,title)))"),
+        ) {
+            filter { eq("status", "pending") }
+            order("created_at", Order.ASCENDING)
+        }.decodeList<InboxRow>()
+
+    /** 이번 달 AI 처리 비용(원). 달 구분은 처리 함수와 같은 UTC 기준 yyyy-MM */
+    suspend fun monthCostKrw(): Int {
+        val cycle = java.time.YearMonth.now(java.time.ZoneOffset.UTC).toString()
+        return db.from("cost_ledger").select(Columns.list("confirmed_krw")) {
+            filter { eq("billing_cycle", cycle) }
+        }.decodeList<CostRow>().sumOf { it.krw }
+    }
+
+    /**
+     * context: record(기록 상세, 새 할 일만 가능 DEC-23) · inbox(검토함).
+     * 결과: approved·already-approved·stale-revision 등
+     */
+    suspend fun approve(p: ProposalRow, context: String): String =
         db.postgrest.rpc("approve_proposal", buildJsonObject {
             put("p_proposal_id", p.id)
             put("p_seen_revision", p.revision)
-            put("p_context", "record")
+            put("p_context", context)
         }).decodeAs<JsonObject>()["result"]?.jsonPrimitive?.content ?: ""
 
-    suspend fun reject(p: ProposalRow): String =
+    suspend fun reject(p: ProposalRow, context: String): String =
         db.postgrest.rpc("reject_proposal", buildJsonObject {
             put("p_proposal_id", p.id)
             put("p_seen_revision", p.revision)
-            put("p_context", "record")
+            put("p_context", context)
         }).decodeAs<JsonObject>()["result"]?.jsonPrimitive?.content ?: ""
 
     suspend fun openTasks(): List<TaskRow> =
