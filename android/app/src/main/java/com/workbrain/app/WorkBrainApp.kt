@@ -8,6 +8,8 @@ import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.functions.Functions
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.storage.Storage
+import io.ktor.client.engine.okhttp.OkHttp
+import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.seconds
 
 class WorkBrainApp : Application()
@@ -19,8 +21,10 @@ class WorkBrainApp : Application()
 object Supa {
     val client: SupabaseClient by lazy {
         createSupabaseClient(BuildConfig.SUPABASE_URL, BuildConfig.SUPABASE_KEY) {
-            // 긴 회의의 전사는 처리 함수 한 번에 1분 넘게 걸릴 수 있다(함수 제한 150초에 맞춤)
+            // 긴 회의의 전사는 처리 함수 한 번에 1분 넘게 걸릴 수 있다(함수 제한 150초에 맞춤).
+            // OkHttp 기본 읽기 제한(10초)이 먼저 끊으면 서버는 끝냈는데 앱만 실패로 보므로 같은 값으로 늘린다
             requestTimeout = 150.seconds
+            httpEngine = OkHttp.create { config { readTimeout(150, TimeUnit.SECONDS) } }
             install(Auth) {
                 // 브라우저에서 Google 로그인 후 workbrain://login-callback 으로 돌아온다(PKCE)
                 flowType = FlowType.PKCE

@@ -15,6 +15,7 @@ import androidx.work.WorkerParameters
 import com.workbrain.app.MainActivity
 import com.workbrain.app.R
 import com.workbrain.app.Supa
+import kotlinx.coroutines.CancellationException
 import io.github.jan.supabase.auth.auth
 
 /**
@@ -38,6 +39,12 @@ class ProcessWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 permission = inputData.getString(PERMISSION) ?: "personal",
                 consentGiven = inputData.getBoolean(CONSENT, false),
             )
+        }.onFailure {
+            // 시스템이 작업을 잠시 멈춘 것(앱 종료·제약 변화)은 오류가 아니다. WorkManager가 다시 돌린다
+            if (it is CancellationException) {
+                UploadManager.set(sessionId, UploadProgress("잠시 멈췄어요. 자동으로 이어서 할게요", busy = true))
+                throw it
+            }
         }.fold(
             { outcome ->
                 when (outcome) {
