@@ -27,6 +27,8 @@ data class RecordingSession(
     val audioDeleted: Boolean = false,
     /** 참석자(DEC-39). 올릴 때 기록과 함께 올라간다 */
     val attendees: List<String> = emptyList(),
+    /** 어디서 왔나: recording(앱 녹음) · upload(파일 가져오기) · call-share(통화 녹음 공유), DEC-40 */
+    val channel: String = "recording",
 ) {
     /** 서버에 음성이 다 올라가 있어 기기 사본이 없어도 되는 상태 */
     val serverHasAudio get() = serverState == "uploaded" || serverState == "ready"
@@ -52,6 +54,31 @@ object RecordingStore {
             .put("confirmedMs", 0L))
         return dir
     }
+
+    /**
+     * 가져온 파일(DEC-40): 세션 폴더에 import.<확장자>로 복사해 두고, 앱 녹음처럼 목록·올리기·지우기를 함께 쓴다.
+     * 시작 시각은 파일의 수정 시각(통화 시각에 가까움)을 쓰고, 녹음 조각과 달리 합치지 않고 그대로 올린다.
+     */
+    fun createImported(context: Context, title: String, startedAt: Long, durationMs: Long, channel: String): File {
+        val base = "import-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+        var dir = File(root(context), base)
+        var n = 1
+        while (dir.exists()) dir = File(root(context), "$base-${n++}")
+        dir.mkdirs()
+        write(dir, JSONObject()
+            .put("id", dir.name)
+            .put("title", title)
+            .put("startedAt", startedAt)
+            .put("status", "imported")
+            .put("durationMs", durationMs)
+            .put("channel", channel))
+        return dir
+    }
+
+    fun importedFile(dir: File): File? = dir.listFiles { f -> f.name.startsWith("import.") }.orEmpty().firstOrNull()
+
+    /** 기기에 남은 음성 파일: 녹음 조각 또는 가져온 파일 */
+    private fun audioFiles(dir: File): List<File> = segmentFiles(dir) + listOfNotNull(importedFile(dir))
 
     fun title(dir: File): String = read(dir)?.optString("title").orEmpty()
 
@@ -94,7 +121,7 @@ object RecordingStore {
 
     /** 기기 음성 조각만 지운다. 서버 기록 연결(회의록 보기)은 남긴다 */
     fun deleteAudio(dir: File) {
-        segmentFiles(dir).forEach { it.delete() }
+        audioFiles(dir).forEach { it.delete() }
         File(dir, "upload.m4a").delete()
         val m = read(dir) ?: return
         write(dir, m.put("audioDeletedAt", System.currentTimeMillis()))
@@ -115,7 +142,7 @@ object RecordingStore {
             val m = read(dir) ?: return@forEach
             if (m.optString("serverState") != "ready") return@forEach
             if (!m.has("readyAt")) { write(dir, m.put("readyAt", now)); return@forEach }
-            if (now - m.optLong("readyAt") >= KEEP_AFTER_READY_MS && segmentFiles(dir).isNotEmpty()) {
+            if (now - m.optLong("readyAt") >= KEEP_AFTER_READY_MS && audioFiles(dir).isNotEmpty()) {
                 deleteAudio(dir)
                 purged++
             }
@@ -126,7 +153,7 @@ object RecordingStore {
     fun list(context: Context, activeId: String?): List<RecordingSession> =
         root(context).listFiles().orEmpty().filter { it.isDirectory }.mapNotNull { dir ->
             val m = read(dir) ?: return@mapNotNull null
-            val segs = dir.listFiles { f -> f.name.startsWith("seg-") }.orEmpty()
+            val segs = audioFiles(dir)
             var status = m.optString("status")
             var duration = m.optLong("durationMs")
             // '녹음 중'으로 남았는데 지금 녹음하고 있지 않으면, 앱이 강제 종료된 것이다. 확정 저장된 시간까지만 남는다
@@ -147,6 +174,7 @@ object RecordingStore {
                 readyAt = m.optLong("readyAt").takeIf { m.has("readyAt") },
                 audioDeleted = m.has("audioDeletedAt"),
                 attendees = attendees(m),
+                channel = m.optString("channel").ifEmpty { "recording" },
             )
         }.sortedByDescending { it.startedAt }
 

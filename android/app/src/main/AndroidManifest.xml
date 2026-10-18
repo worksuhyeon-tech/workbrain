@@ -28,6 +28,12 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- 통화 녹음·다른 앱 녹음을 '공유 → WorkBrain'으로 받는다(DEC-40) -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
             <!-- Google 로그인 뒤 돌아오는 주소: workbrain://login-callback -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

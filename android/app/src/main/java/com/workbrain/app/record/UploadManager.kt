@@ -84,16 +84,26 @@ object UploadManager {
 
         var recordId = session.recordId
         if (session.serverState == null) {
-            set(sessionId, UploadProgress("녹음 조각 합치는 중", busy = true))
+            // 가져온 파일은 그대로, 앱 녹음은 조각을 하나로 합쳐 올린다
+            val imported = RecordingStore.importedFile(dir)
             val merged = File(dir, "upload.m4a")
-            val seconds = AudioMerger.merge(RecordingStore.segmentFiles(dir), merged)
-            val bytes = merged.readBytes()
+            val ext = imported?.extension?.lowercase() ?: "m4a"
+            val seconds: Int
+            val bytes: ByteArray
+            if (imported != null) {
+                bytes = imported.readBytes()
+                seconds = (session.durationMs / 1000).toInt()
+            } else {
+                set(sessionId, UploadProgress("녹음 조각 합치는 중", busy = true))
+                seconds = AudioMerger.merge(RecordingStore.segmentFiles(dir), merged)
+                bytes = merged.readBytes()
+            }
             if (recordId == null) {
                 recordId = UUID.randomUUID().toString()
                 Server.createRecord(SourceRecordInsert(
                     id = recordId,
                     workspaceId = Server.workspaceId(),
-                    channel = "recording",
+                    channel = session.channel,
                     title = session.title,
                     occurredAt = Instant.ofEpochMilli(session.startedAt).toString(),
                     storagePermission = permission,
@@ -103,8 +113,8 @@ object UploadManager {
                 RecordingStore.setServer(dir, recordId, null)
             }
             set(sessionId, UploadProgress("올리는 중 · %.1fMB".format(bytes.size / 1_048_576.0), busy = true))
-            Server.uploadAudio(recordId, bytes)
-            Server.recordReady(recordId, bytes.size.toLong(), seconds, sha256(bytes))
+            Server.uploadAudio(recordId, bytes, ext)
+            Server.recordReady(recordId, bytes.size.toLong(), seconds, sha256(bytes), ext)
             RecordingStore.setServer(dir, recordId, "uploaded")
             merged.delete()
         }

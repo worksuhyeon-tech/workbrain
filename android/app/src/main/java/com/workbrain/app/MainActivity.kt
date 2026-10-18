@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.auth.LoginScreen
+import com.workbrain.app.record.SharedAudio
 import com.workbrain.app.ui.WorkBrainTheme
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.handleDeeplinks
@@ -23,6 +24,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Supa.client.handleDeeplinks(intent)
+        receiveShared(intent)
         enableEdgeToEdge()
         setContent { WorkBrainTheme { AppRoot() } }
     }
@@ -31,6 +33,14 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         Supa.client.handleDeeplinks(intent)
+        receiveShared(intent)
+    }
+
+    // 다른 앱의 '공유'로 받은 음성 파일: 녹음 화면이 가져오기를 이어서 한다(파일 읽기 권한은 이 화면이 살아 있는 동안 유효)
+    private fun receiveShared(intent: Intent) {
+        if (intent.action != Intent.ACTION_SEND) return
+        val uri = androidx.core.content.IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java) ?: return
+        SharedAudio.pending.value = SharedAudio.Item(uri, intent.type)
     }
 }
 

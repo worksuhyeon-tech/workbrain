@@ -64,10 +64,11 @@ fun UploadSheet(
     title: String,
     needConsent: Boolean,
     initialAttendees: List<String>,
+    initialKind: String,
     onDismiss: () -> Unit,
     onConfirm: (kind: String, permission: String, consentGiven: Boolean, attendees: List<String>) -> Unit,
 ) {
-    var kind by remember { mutableStateOf("meeting") }
+    var kind by remember { mutableStateOf(initialKind) }
     var attendees by remember { mutableStateOf(initialAttendees) }
     var permission by remember { mutableStateOf<String?>(null) }
     var consent by remember { mutableStateOf(false) }

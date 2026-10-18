@@ -87,6 +87,23 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     var renameTarget by remember { mutableStateOf<RecordingSession?>(null) }
     val scope = rememberCoroutineScope()
 
+    // 파일 가져오기(DEC-40): 복사가 끝나면 바로 올리기 시트를 연다
+    fun importAudio(uri: android.net.Uri, channel: String, mime: String? = null) {
+        scope.launch {
+            when (val r = withContext(Dispatchers.IO) { FileImporter.import(context, uri, channel, mime) }) {
+                is FileImporter.Result.Ok -> { notice = null; sessions = RecordingStore.list(context, rec.sessionId); uploadTarget = r.session }
+                is FileImporter.Result.Rejected -> notice = r.reason
+            }
+        }
+    }
+    val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) importAudio(uri, "upload")
+    }
+    val shared by SharedAudio.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(shared) {
+        shared?.let { SharedAudio.pending.value = null; importAudio(it.uri, "call-share", it.mime) }
+    }
+
     // 처리 완료 후 7일 지난 기기 음성 정리(앱을 열 때)
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) { RecordingStore.purgeExpired(context) }
@@ -146,7 +163,10 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
                     }, Modifier.padding(top = 8.dp))
                 }
             }
-            SectionLabel("기기에 저장된 녹음 · 올리기")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SectionLabel("기기에 저장된 녹음 · 올리기", Modifier.weight(1f))
+                TextButton(onClick = { pickAudio.launch(arrayOf("audio/*")) }) { Text("파일 가져오기", color = Wb.colors.link) }
+            }
             if (sessions.isEmpty()) {
                 Text("아직 녹음이 없어요. 올리기를 누르기 전까지는 이 휴대폰 안에만 있어요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
             }
@@ -209,6 +229,8 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
             title = target.title,
             needConsent = consentNeeded,
             initialAttendees = target.attendees,
+            // 통화 녹음 공유나 '통화'가 들어간 파일 이름이면 처음부터 '통화'로 고른다
+            initialKind = if (target.channel == "call-share" || "통화" in target.title) "call" else "meeting",
             onDismiss = { uploadTarget = null },
             onConfirm = { kind, permission, consentGiven, attendees ->
                 uploadTarget = null
@@ -317,6 +339,7 @@ private fun SessionRow(
         s.status == "failed" -> "시작 실패" to Tone.Crit
         s.serverState == "ready" -> "정리 완료" to Tone.Good
         s.recordId != null -> "올림" to Tone.Info
+        s.status == "imported" -> "가져온 파일" to Tone.Mute
         else -> "기기에만 있음" to Tone.Mute
     }
     Surface(shape = ControlShape, color = Wb.colors.card, border = BorderStroke(1.dp, Wb.colors.border), modifier = Modifier.fillMaxWidth()) {

@@ -94,7 +94,7 @@ function splitSentences(text: string): string[] {
 }
 
 async function runStt(db: SupabaseClient, uid: string, recordId: string, job: Job, cycle: string) {
-  const { data: asset } = await db.from("audio_asset").select("storage_key,bytes,duration_sec")
+  const { data: asset } = await db.from("audio_asset").select("storage_key,bytes,duration_sec,mime")
     .eq("source_record_id", recordId).eq("owner_id", uid).limit(1).single();
   if (!asset) throw new Error("음성 파일 정보가 없어요");
   if (asset.bytes > STT_MAX_BYTES) throw new Error("음성이 25MB(약 100분)를 넘어 나눠서 처리해야 해요(다음 버전)");
@@ -107,7 +107,8 @@ async function runStt(db: SupabaseClient, uid: string, recordId: string, job: Jo
   form.append("language", "ko");
   // 용어집을 받아쓰기 힌트로 주지 않는다(DEC-33 개정): A/B에서 맞던 'ARS'가 'AR 리스트'로 바뀌는 부작용이 있어
   // 원문은 힌트 없이 받아쓰고, 용어 표기는 교정 단계(runCorrect, DEC-36)에서 맞춘다
-  form.append("file", new File([blob], "audio.m4a", { type: "audio/mp4" }));
+  // 가져온 파일은 mp3·wav 등일 수 있어 저장 경로의 파일 이름(확장자)과 형식을 그대로 보낸다(DEC-40)
+  form.append("file", new File([blob], asset.storage_key.split("/").pop() ?? "audio.m4a", { type: asset.mime ?? "audio/mp4" }));
   const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST", headers: { Authorization: `Bearer ${OPENAI_KEY}` }, body: form,
   });

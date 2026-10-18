@@ -139,21 +139,28 @@ object Server {
         db.from("source_record").insert(row)
     }
 
-    fun audioPath(recordId: String) = "${uid()}/$recordId/audio.m4a"
+    /** 받아쓰기가 읽는 형식과 저장소 형식(서버 0019와 같은 목록, DEC-40) */
+    val AUDIO_TYPES = mapOf(
+        "m4a" to "audio/mp4", "mp4" to "audio/mp4", "mp3" to "audio/mpeg", "wav" to "audio/wav",
+        "ogg" to "audio/ogg", "webm" to "audio/webm", "flac" to "audio/flac",
+    )
 
-    suspend fun uploadAudio(recordId: String, bytes: ByteArray) {
-        db.storage.from("audio").upload(audioPath(recordId), bytes) {
+    fun audioPath(recordId: String, ext: String) = "${uid()}/$recordId/audio.$ext"
+
+    suspend fun uploadAudio(recordId: String, bytes: ByteArray, ext: String = "m4a") {
+        db.storage.from("audio").upload(audioPath(recordId, ext), bytes) {
             upsert = true          // 같은 기록을 다시 올리면 덮어쓴다(중간에 끊긴 업로드 재시도)
-            contentType = ContentType.Audio.MP4
+            contentType = ContentType.parse(AUDIO_TYPES.getValue(ext))
         }
     }
 
-    suspend fun recordReady(recordId: String, bytes: Long, durationSec: Int, sha256: String) {
+    suspend fun recordReady(recordId: String, bytes: Long, durationSec: Int, sha256: String, ext: String = "m4a") {
         db.postgrest.rpc("wb_record_ready", buildJsonObject {
             put("p_record_id", recordId)
             put("p_bytes", bytes)
             put("p_duration_sec", durationSec)
             put("p_hash", sha256)
+            put("p_ext", ext)
         })
     }
 
