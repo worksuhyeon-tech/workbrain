@@ -1,5 +1,6 @@
 package com.workbrain.app.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -30,36 +31,44 @@ enum class GlassTint(val light: Color, val deep: Color) {
 
 /**
  * 프로스티드 글래스 아이콘(docs/02-design/reference.png, DESIGN-SYSTEM-reference "비주얼 질감").
- * 오른쪽 아래로 비켜 놓은 색 뒤판 + 그 위의 반투명 유리 앞판 + 단순한 선 글리프. 이모지로 대신하지 않는다(DEC-32).
- * 진짜 배경 흐림은 Android 12 미만에서 못 쓰므로, 반투명 흰 앞판이 색 뒤판과 겹치는 부분으로 유리 느낌을 낸다.
+ * 색 뒤판을 오른쪽 아래로 조금만 비켜(크기의 14%) 앞판과 대부분 겹치게 두고, 앞판은 반투명이라 겹친 자리에 뒤판 색이 비친다.
+ * 진짜 배경 흐림은 Android 12 미만에서 못 쓰므로 이 비침 + 밝은 사선 테두리로 유리 느낌을 낸다. 이모지로 대신하지 않는다(DEC-32).
  */
 @Composable
 fun GlassIcon(glyph: ImageVector, tint: GlassTint, size: Dp = 40.dp, modifier: Modifier = Modifier) {
-    val plate = size * 0.80f
+    val plate = size * 0.86f
     val shift = size - plate
     val shape = RoundedCornerShape(size * 0.26f)
     val dark = Wb.colors.isDark
     Box(modifier.size(size)) {
-        // 뒤판: 색 그라데이션
+        // 뒤판: 색 그라데이션 + 같은 색의 옅은 그림자(불투명이라 그림자가 앞으로 비치지 않는다)
         Box(
             Modifier.offset(shift, shift).size(plate)
+                .shadow(if (dark) 0.dp else 3.dp, shape, ambientColor = tint.deep, spotColor = tint.deep)
                 .background(Brush.linearGradient(listOf(tint.light, tint.deep)), shape),
         )
-        // 앞판: 반투명 유리 + 밝은 테두리 + 옅은 그림자
+        // 앞판: 반투명 유리. 그림자를 주면 반투명 면 아래로 회색이 비쳐 탁해지므로 쓰지 않는다
         Box(
             Modifier.size(plate)
-                .shadow(if (dark) 0.dp else 2.dp, shape, ambientColor = tint.deep, spotColor = tint.deep)
                 .background(
                     Brush.linearGradient(
-                        if (dark) listOf(Color.White.copy(alpha = 0.26f), Color.White.copy(alpha = 0.08f))
-                        else listOf(Color.White.copy(alpha = 0.92f), Color.White.copy(alpha = 0.55f)),
+                        if (dark) listOf(Color.White.copy(alpha = 0.30f), Color.White.copy(alpha = 0.10f))
+                        else listOf(Color.White.copy(alpha = 0.78f), Color.White.copy(alpha = 0.34f)),
                     ),
                     shape,
                 )
-                .border(1.dp, Color.White.copy(alpha = if (dark) 0.30f else 0.85f), shape),
+                .border(
+                    BorderStroke(
+                        1.dp,
+                        Brush.linearGradient(
+                            listOf(Color.White.copy(alpha = if (dark) 0.55f else 0.95f), Color.White.copy(alpha = if (dark) 0.12f else 0.40f)),
+                        ),
+                    ),
+                    shape,
+                ),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(glyph, contentDescription = null, tint = if (dark) Color.White else tint.deep, modifier = Modifier.size(plate * 0.56f))
+            Icon(glyph, contentDescription = null, tint = if (dark) Color.White else tint.deep, modifier = Modifier.size(plate * 0.54f))
         }
     }
 }
