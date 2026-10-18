@@ -55,6 +55,11 @@ object RecordingStore {
 
     fun title(dir: File): String = read(dir)?.optString("title").orEmpty()
 
+    fun setTitle(dir: File, title: String) {
+        val m = read(dir) ?: return
+        write(dir, m.put("title", title))
+    }
+
     fun setAttendees(dir: File, names: List<String>) {
         val m = read(dir) ?: return
         write(dir, m.put("attendees", org.json.JSONArray(names)))

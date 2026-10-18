@@ -40,6 +40,13 @@ import com.workbrain.app.ui.SectionLabel
 import com.workbrain.app.ui.Tone
 import com.workbrain.app.ui.Wb
 import com.workbrain.app.ui.WbCard
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.platform.LocalContext
+import com.workbrain.app.ui.TitleDialog
+import com.workbrain.app.ui.WbIcons
+import com.workbrain.app.record.RecordingStore
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -70,6 +77,9 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
     var editing by remember { mutableStateOf<ProposalRow?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<Pair<String, Tone>?>(null) }
+    var shownTitle by remember { mutableStateOf(title) }
+    var renaming by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     suspend fun load() {
         runCatching {
@@ -91,7 +101,10 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
     Column(Modifier.fillMaxSize().background(Wb.colors.surface)) {
         TextButton(onClick = onBack, modifier = Modifier.padding(horizontal = 4.dp)) { Text("← 녹음", color = Wb.colors.link) }
         Column(Modifier.padding(horizontal = 16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleLarge, color = Wb.colors.ink)
+            Row(Modifier.clickable { renaming = true }, verticalAlignment = Alignment.CenterVertically) {
+                Text(shownTitle, style = MaterialTheme.typography.titleLarge, color = Wb.colors.ink, modifier = Modifier.weight(1f, fill = false))
+                Icon(WbIcons.Pencil, contentDescription = "제목 고치기", tint = Wb.colors.muted, modifier = Modifier.padding(start = 6.dp).size(18.dp))
+            }
             Text(
                 if (!firstLoad && pending.isEmpty() && updates.isEmpty()) "정리 끝!" else "거의 다 왔어요",
                 fontFamily = HandAccent,
@@ -217,6 +230,23 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
                         }
                     },
                 )
+            }
+        }
+    }
+
+    if (renaming) {
+        TitleDialog(shownTitle, onDismiss = { renaming = false }) { newTitle ->
+            renaming = false
+            scope.launch {
+                runCatching { Server.renameRecord(recordId, newTitle) }
+                    .onSuccess {
+                        shownTitle = newTitle
+                        // 이 기록을 올린 기기 녹음이 있으면 녹음 목록 제목도 맞춘다
+                        RecordingStore.list(context, activeId = null).firstOrNull { it.recordId == recordId }
+                            ?.let { RecordingStore.setTitle(RecordingStore.dir(context, it.id), newTitle) }
+                        message = "제목을 바꿨어요" to Tone.Good
+                    }
+                    .onFailure { message = "제목을 바꾸지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit }
             }
         }
     }

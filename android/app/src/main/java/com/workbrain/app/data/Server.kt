@@ -247,6 +247,11 @@ object Server {
             put("p_context", context)
         }).decodeAs<JsonObject>()["result"]?.jsonPrimitive?.content ?: ""
 
+    /** 기록 제목 바꾸기. 회의록·검토함은 기록 제목을 따라 보여 준다 */
+    suspend fun renameRecord(recordId: String, title: String) {
+        db.from("source_record").update({ set("title", title) }) { filter { eq("id", recordId) } }
+    }
+
     /** 내 용어집(DEC-33), 클로바노트처럼 최신순 */
     suspend fun vocab(): List<VocabRow> =
         db.from("vocab_term").select(Columns.list("id", "term")) {

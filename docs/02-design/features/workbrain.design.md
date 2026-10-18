@@ -922,6 +922,10 @@ create table tombstone (
 - 저장: `vocab_term(id, owner_id, term, created_at)`, `(owner_id, lower(term))` 유일. 추가는 `wb_vocab_add(text[])` 하나로만(형식·중복·200개 상한을 사용자 단위 잠금 안에서 검사, 결과 `added/duplicate/invalid/over_limit/total`). 삭제는 RLS로 본인 행만. 백업 범위에 포함.
 - 처리: STT(힌트 없음) → **CORRECT**(용어집이 있을 때, DEC-36: 잘못 들린 업무 용어만 고친 `term-corrected` 전사 버전, 원문 보존) → EXTRACT(교정본 기준 + `내 용어집(표기 기준…)` 한 줄). STT에는 힌트를 주지 않는다(DEC-33 개정).
 
+### 6.12 제목 고치기 (S04 TitleField)
+
+- 녹음 목록의 제목(연필 표시)을 누르면 제목 창(80자). 녹음 중·올리기 전에는 기기 메타만, 올린 기록은 `source_record.title`도 함께 바꾼다(실패하면 안내, 기기 제목은 유지). 기록 상세 머리 제목도 같은 창으로 고치고, 같은 기록을 올린 기기 녹음 제목을 맞춘다. 검토함 묶음 이름은 서버 제목을 따른다.
+
 ### 6.11 참석자 (DEC-39)
 
 - 입력: 녹음 중 녹음 카드 아래 '참석자 n명'(칩·이름 입력·최근 참석자), 올리기 시트 '참석자 (선택)'(회의·통화일 때, 녹음 중 넣은 명단이 채워짐). '님'은 떼고 저장, 20자·30명 상한. 최근 참석자는 SharedPreferences에만.

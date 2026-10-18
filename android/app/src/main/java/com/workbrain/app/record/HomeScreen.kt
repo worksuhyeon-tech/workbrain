@@ -62,6 +62,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import com.workbrain.app.ui.TitleDialog
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -79,6 +83,9 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     var needConsent by remember { mutableStateOf<Boolean?>(null) }
     // 지우기 확인 창 대상
     var deleteTarget by remember { mutableStateOf<RecordingSession?>(null) }
+    // 제목 고치기 창 대상
+    var renameTarget by remember { mutableStateOf<RecordingSession?>(null) }
+    val scope = rememberCoroutineScope()
 
     // 처리 완료 후 7일 지난 기기 음성 정리(앱을 열 때)
     LaunchedEffect(Unit) {
@@ -153,7 +160,23 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
                 onResume = { UploadManager.resume(context, s) },
                 onOpen = { s.recordId?.let { onOpenRecord(it, s.title) } },
                 onDelete = { deleteTarget = s },
+                onRename = { renameTarget = s },
             )
+        }
+    }
+
+    renameTarget?.let { r ->
+        TitleDialog(r.title, onDismiss = { renameTarget = null }) { newTitle ->
+            renameTarget = null
+            RecordingStore.setTitle(RecordingStore.dir(context, r.id), newTitle)
+            sessions = RecordingStore.list(context, rec.sessionId)
+            // 이미 올린 기록이면 서버 제목도 바꾼다. 실패하면 알리고 기기 제목은 그대로 둔다(다음에 다시 고치면 됨)
+            r.recordId?.let { id ->
+                scope.launch {
+                    runCatching { Server.renameRecord(id, newTitle) }
+                        .onFailure { notice = "기기 제목은 바꿨지만 서버에는 반영하지 못했어요. 인터넷 연결 뒤 다시 고쳐 주세요." }
+                }
+            }
         }
     }
 
@@ -286,6 +309,7 @@ private fun SessionRow(
     onResume: () -> Unit,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
+    onRename: () -> Unit,
 ) {
     val (badge, tone) = when {
         s.status == "recording" -> "녹음 중" to Tone.Crit
@@ -300,7 +324,11 @@ private fun SessionRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 GlassIcon(WbIcons.Mic, GlassTint.Red, size = 36.dp)
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text(s.title, style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // 제목을 누르면 고친다(녹음 중·올리기 전후 모두. 올린 기록은 서버 제목도 함께 바뀜)
+                    Row(Modifier.clickable(onClick = onRename), verticalAlignment = Alignment.CenterVertically) {
+                        Text(s.title, style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        Icon(WbIcons.Pencil, contentDescription = "제목 고치기", tint = Wb.colors.muted, modifier = Modifier.padding(start = 4.dp).size(14.dp))
+                    }
                     Text(
                         SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA).format(Date(s.startedAt)) +
                             " · " + formatClock(s.durationMs) + " · " + deviceAudioLabel(s),
