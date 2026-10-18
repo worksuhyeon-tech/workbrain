@@ -61,6 +61,7 @@ object UploadManager {
                 Server.createRecord(SourceRecordInsert(
                     id = recordId,
                     workspaceId = Server.workspaceId(),
+                    channel = "recording",
                     title = session.title,
                     occurredAt = Instant.ofEpochMilli(session.startedAt).toString(),
                     storagePermission = permission,

@@ -18,12 +18,13 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 // ── 서버 행 모양(필요한 칸만). 이름은 DB 열 이름과 같다 ──
+// 보낼 행에는 기본값을 두지 않는다: 직렬화가 기본값과 같은 칸을 빼고 보내 DB에서 NULL이 된다(2단계 첫 시험에서 발견)
 @Serializable data class IdRow(val id: String)
 
 @Serializable data class SourceRecordInsert(
     val id: String,
     @SerialName("workspace_id") val workspaceId: String,
-    val channel: String = "recording",
+    val channel: String,
     val title: String,
     @SerialName("occurred_at") val occurredAt: String,
     @SerialName("storage_permission") val storagePermission: String,
@@ -32,8 +33,8 @@ import kotlinx.serialization.json.put
 
 @Serializable data class ConsentInsert(
     val purpose: String,
-    val provider: String = "openai",
-    @SerialName("policy_version") val policyVersion: String = CONSENT_POLICY_VERSION,
+    val provider: String,
+    @SerialName("policy_version") val policyVersion: String,
 )
 
 @Serializable data class ProposalRow(
@@ -88,7 +89,7 @@ object Server {
     }
 
     suspend fun grantConsent() {
-        db.from("consent_grant").insert(listOf(ConsentInsert("voice-stt"), ConsentInsert("text-ai")))
+        db.from("consent_grant").insert(listOf("voice-stt", "text-ai").map { ConsentInsert(it, provider = "openai", policyVersion = CONSENT_POLICY_VERSION) })
     }
 
     suspend fun createRecord(row: SourceRecordInsert) {
