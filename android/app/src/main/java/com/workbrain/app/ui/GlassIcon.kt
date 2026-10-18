@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -26,7 +27,7 @@ enum class GlassTint(val light: Color, val deep: Color) {
     Pink(Color(0xFFFF9BB8), Color(0xFFFF3D7F)),
     Blue(Color(0xFF8CC8FF), Color(0xFF1E7FEA)),
     Red(Color(0xFFFFA49A), Color(0xFFE0453A)),
-    Gray(Color(0xFFD7DEE6), Color(0xFF8A99A8)),
+    Gray(Color(0xFFE2E8EE), Color(0xFF8A99A8)),
 }
 
 /**
@@ -57,6 +58,10 @@ fun GlassIcon(glyph: ImageVector, tint: GlassTint, size: Dp = 40.dp, modifier: M
                     ),
                     shape,
                 )
+                // 바깥 실선: 흰 화면 위에서 유리판 윤곽이 묻히지 않게 아주 옅은 색 테두리를 두른다
+                .border(1.dp, tint.deep.copy(alpha = if (dark) 0.35f else 0.22f), shape)
+                .padding(1.dp)
+                // 안쪽 사선 하이라이트: 유리 모서리의 반사광
                 .border(
                     BorderStroke(
                         1.dp,
@@ -64,7 +69,7 @@ fun GlassIcon(glyph: ImageVector, tint: GlassTint, size: Dp = 40.dp, modifier: M
                             listOf(Color.White.copy(alpha = if (dark) 0.55f else 0.95f), Color.White.copy(alpha = if (dark) 0.12f else 0.40f)),
                         ),
                     ),
-                    shape,
+                    RoundedCornerShape(size * 0.26f - 1.dp),
                 ),
             contentAlignment = Alignment.Center,
         ) {
