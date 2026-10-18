@@ -21,10 +21,19 @@ data class RecordingSession(
     val recordId: String? = null,
     /** 서버 진행: uploaded(올림 완료) · ready(회의록·할 일 후보 나옴) · 그 밖은 null */
     val serverState: String? = null,
-)
+    /** 처리 완료 시각. 이때부터 7일 뒤 기기 음성을 자동으로 지운다 */
+    val readyAt: Long? = null,
+    /** 기기 음성을 지웠는지(목록 줄과 서버 기록 연결은 남긴다) */
+    val audioDeleted: Boolean = false,
+) {
+    /** 서버에 음성이 다 올라가 있어 기기 사본이 없어도 되는 상태 */
+    val serverHasAudio get() = serverState == "uploaded" || serverState == "ready"
+}
 
 object RecordingStore {
     private const val META = "session.json"
+    /** 처리 완료 후 기기 음성 보관 기간(사용자 결정 2026-10-18: 7일 뒤 자동 삭제 + 바로 지우기) */
+    const val KEEP_AFTER_READY_MS = 7L * 24 * 60 * 60 * 1000
 
     private fun root(context: Context) = File(context.filesDir, "recordings").apply { mkdirs() }
 
@@ -63,7 +72,40 @@ object RecordingStore {
     /** 올리기 진행 상태를 기록해 두어 앱을 다시 열어도 이어서 처리할 수 있게 한다 */
     fun setServer(dir: File, recordId: String, serverState: String?) {
         val m = read(dir) ?: return
-        write(dir, m.put("recordId", recordId).put("serverState", serverState ?: ""))
+        m.put("recordId", recordId).put("serverState", serverState ?: "")
+        if (serverState == "ready" && !m.has("readyAt")) m.put("readyAt", System.currentTimeMillis())
+        write(dir, m)
+    }
+
+    /** 기기 음성 조각만 지운다. 서버 기록 연결(회의록 보기)은 남긴다 */
+    fun deleteAudio(dir: File) {
+        segmentFiles(dir).forEach { it.delete() }
+        File(dir, "upload.m4a").delete()
+        val m = read(dir) ?: return
+        write(dir, m.put("audioDeletedAt", System.currentTimeMillis()))
+    }
+
+    /** 올리지 않은 녹음을 버릴 때: 세션 통째로 지운다 */
+    fun deleteSession(dir: File) {
+        dir.deleteRecursively()
+    }
+
+    /**
+     * 처리 완료 후 7일 지난 기기 음성을 지운다. 앱을 열 때마다 부른다.
+     * 이 기능 전에 처리된 녹음은 완료 시각이 없으므로 지금부터 7일을 센다(바로 지우지 않음).
+     */
+    fun purgeExpired(context: Context, now: Long = System.currentTimeMillis()): Int {
+        var purged = 0
+        root(context).listFiles().orEmpty().filter { it.isDirectory }.forEach { dir ->
+            val m = read(dir) ?: return@forEach
+            if (m.optString("serverState") != "ready") return@forEach
+            if (!m.has("readyAt")) { write(dir, m.put("readyAt", now)); return@forEach }
+            if (now - m.optLong("readyAt") >= KEEP_AFTER_READY_MS && segmentFiles(dir).isNotEmpty()) {
+                deleteAudio(dir)
+                purged++
+            }
+        }
+        return purged
     }
 
     fun list(context: Context, activeId: String?): List<RecordingSession> =
@@ -87,6 +129,8 @@ object RecordingStore {
                 bytes = segs.sumOf { it.length() },
                 recordId = m.optString("recordId").ifEmpty { null },
                 serverState = m.optString("serverState").ifEmpty { null },
+                readyAt = m.optLong("readyAt").takeIf { m.has("readyAt") },
+                audioDeleted = m.has("audioDeletedAt"),
             )
         }.sortedByDescending { it.startedAt }
 

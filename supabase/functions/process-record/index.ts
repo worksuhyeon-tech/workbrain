@@ -76,7 +76,7 @@ async function addCost(db: SupabaseClient, uid: string, cycle: string, usd: numb
   await db.from("cost_ledger").insert({ owner_id: uid, billing_cycle: cycle, confirmed_krw: Math.max(1, Math.ceil(usd * KRW_PER_USD)) });
 }
 
-// 내 용어집(DEC-33): 받아쓰기 힌트와 회의록 표기 기준. 없으면 빈 목록
+// 내 용어집(DEC-33): 회의록·할 일 표기 기준. 없으면 빈 목록
 async function loadVocab(db: SupabaseClient, uid: string): Promise<string[]> {
   const { data } = await db.from("vocab_term").select("term").eq("owner_id", uid).order("created_at").limit(200);
   return (data ?? []).map((r) => r.term as string);
@@ -98,9 +98,8 @@ async function runStt(db: SupabaseClient, uid: string, recordId: string, job: Jo
   const form = new FormData();
   form.append("model", STT_MODEL);
   form.append("language", "ko");
-  // 업무 용어를 힌트로 주면 그 표기로 받아쓸 확률이 올라간다(클로바노트 단어 등록과 같은 목적)
-  const vocab = await loadVocab(db, uid);
-  if (vocab.length) form.append("prompt", `업무 용어: ${vocab.join(", ")}`);
+  // 용어집을 받아쓰기 힌트로 주지 않는다(DEC-33 개정): A/B에서 맞던 'ARS'가 'AR 리스트'로 바뀌는 부작용이 있어
+  // 원문은 힌트 없이 받아쓰고, 용어 표기는 정리 단계(runExtract)에서만 맞춘다
   form.append("file", new File([blob], "audio.m4a", { type: "audio/mp4" }));
   const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST", headers: { Authorization: `Bearer ${OPENAI_KEY}` }, body: form,

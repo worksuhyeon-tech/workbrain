@@ -58,6 +58,10 @@ import com.workbrain.app.ui.Tone
 import com.workbrain.app.ui.Wb
 import com.workbrain.app.ui.WbCard
 import com.workbrain.app.ui.WbChip
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -73,6 +77,14 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     // 올리기 확인 창: 대상 녹음과 동의 필요 여부(null이면 확인 중)
     var uploadTarget by remember { mutableStateOf<RecordingSession?>(null) }
     var needConsent by remember { mutableStateOf<Boolean?>(null) }
+    // 지우기 확인 창 대상
+    var deleteTarget by remember { mutableStateOf<RecordingSession?>(null) }
+
+    // 처리 완료 후 7일 지난 기기 음성 정리(앱을 열 때)
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { RecordingStore.purgeExpired(context) }
+        sessions = RecordingStore.list(context, rec.sessionId)
+    }
 
     // 녹음이 시작·정지되거나 조각이 확정되거나 올리기 단계가 바뀔 때 목록을 다시 읽는다
     LaunchedEffect(rec.status, rec.sessionId, rec.confirmedMs, uploads) {
@@ -128,8 +140,31 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
                 onUpload = { uploadTarget = s },
                 onResume = { UploadManager.resume(context, s) },
                 onOpen = { s.recordId?.let { onOpenRecord(it, s.title) } },
+                onDelete = { deleteTarget = s },
             )
         }
+    }
+
+    deleteTarget?.let { d ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text(if (d.serverHasAudio) "기기에서 음성 지우기" else "녹음 버리기") },
+            text = {
+                Text(
+                    if (d.serverHasAudio) "이 휴대폰에 있는 음성만 지워요. 서버에 올린 회의록·할 일은 그대로 볼 수 있어요."
+                    else "아직 올리지 않은 녹음이라 지우면 완전히 사라져요. 되돌릴 수 없어요.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val dir = RecordingStore.dir(context, d.id)
+                    if (d.serverHasAudio) RecordingStore.deleteAudio(dir) else RecordingStore.deleteSession(dir)
+                    deleteTarget = null
+                    sessions = RecordingStore.list(context, rec.sessionId)
+                }) { Text("지우기", color = Wb.colors.crit) }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("취소") } },
+        )
     }
 
     val target = uploadTarget
@@ -237,6 +272,7 @@ private fun SessionRow(
     onUpload: () -> Unit,
     onResume: () -> Unit,
     onOpen: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val (badge, tone) = when {
         s.status == "recording" -> "녹음 중" to Tone.Crit
@@ -254,14 +290,15 @@ private fun SessionRow(
                     Text(s.title, style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA).format(Date(s.startedAt)) +
-                            " · " + formatClock(s.durationMs) + " · " + "%.1fMB".format(s.bytes / 1_048_576.0),
+                            " · " + formatClock(s.durationMs) + " · " + deviceAudioLabel(s),
                         style = MaterialTheme.typography.bodySmall,
                         color = Wb.colors.muted,
                     )
                 }
                 WbChip(badge, tone)
             }
-            if (!isActive && s.segments > 0) SessionActions(s, progress, onUpload, onResume, onOpen)
+            // 기기 음성을 지운 뒤에도 서버에서 정리된 기록은 계속 열 수 있다
+            if (!isActive && (s.segments > 0 || s.serverHasAudio)) SessionActions(s, progress, onUpload, onResume, onOpen, onDelete)
         }
     }
 }
@@ -274,6 +311,7 @@ private fun SessionActions(
     onUpload: () -> Unit,
     onResume: () -> Unit,
     onOpen: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val busy = progress?.busy == true
     progress?.let {
@@ -291,11 +329,22 @@ private fun SessionActions(
         }
     }
     if (busy) return
-    Row(Modifier.padding(top = 8.dp)) {
+    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         when {
             s.serverState == "ready" -> PrimaryButton("회의록·할 일 보기", onClick = onOpen)
             s.recordId != null -> SecondaryButton("이어서 처리", onClick = onResume)
             else -> SecondaryButton("올리기", onClick = onUpload)
         }
+        Spacer(Modifier.weight(1f))
+        if (s.segments > 0) TextButton(onClick = onDelete) { Text("지우기", color = Wb.colors.muted) }
     }
+}
+
+/** 기기에 남은 음성 크기와, 처리 완료 뒤 자동 삭제까지 남은 날 */
+private fun deviceAudioLabel(s: RecordingSession): String {
+    if (s.audioDeleted || s.segments == 0) return "기기 음성 지움"
+    val size = "%.1fMB".format(s.bytes / 1_048_576.0)
+    val readyAt = s.readyAt ?: return size
+    val left = ((readyAt + RecordingStore.KEEP_AFTER_READY_MS - System.currentTimeMillis()) / 86_400_000L + 1).coerceAtLeast(1)
+    return "$size · ${left}일 뒤 기기에서 자동 삭제"
 }
