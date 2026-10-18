@@ -236,8 +236,10 @@ object Server {
             put("p_terms", JsonArray(terms.map { JsonPrimitive(it) }))
         }).decodeAs<VocabAddResult>()
 
-    suspend fun deleteVocab(id: String) {
-        db.from("vocab_term").delete { filter { eq("id", id) } }
+    /** 한 건·선택 여러 건 모두 같은 길. RLS가 본인 행만 지운다 */
+    suspend fun deleteVocab(ids: List<String>) {
+        if (ids.isEmpty()) return
+        db.from("vocab_term").delete { filter { isIn("id", ids) } }
     }
 
     suspend fun openTasks(): List<TaskRow> =

@@ -16,6 +16,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -67,12 +70,33 @@ fun VocabScreen(onBack: () -> Unit) {
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<Pair<String, Tone>?>(null) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmDelete by remember { mutableStateOf(false) }
 
     suspend fun load() {
-        runCatching { terms = Server.vocab() }
+        runCatching { Server.vocab() }
+            .onSuccess { rows ->
+                terms = rows
+                // 지워졌거나 다른 기기에서 바뀐 단어는 선택에서 뺀다
+                selected = selected intersect rows.map { it.id }.toSet()
+            }
             .onFailure { message = "불러오지 못했어요. 인터넷 연결을 확인해 주세요." to Tone.Crit }
     }
     LaunchedEffect(Unit) { load() }
+
+    fun remove(rows: List<VocabRow>) {
+        busy = true
+        scope.launch {
+            runCatching { Server.deleteVocab(rows.map { it.id }) }
+                .onSuccess {
+                    message = (if (rows.size == 1) "'${rows[0].term}'을(를) 지웠어요" else "${rows.size}개를 지웠어요") to Tone.Mute
+                    selected = selected - rows.map { it.id }.toSet()
+                }
+                .onFailure { message = "지우지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit }
+            load()
+            busy = false
+        }
+    }
 
     fun add(list: List<String>, fromFile: Boolean) {
         if (list.isEmpty()) {
@@ -159,38 +183,75 @@ fun VocabScreen(onBack: () -> Unit) {
             }
             message?.let { (text, tone) -> item { Banner(text, tone) } }
             item {
-                Text(
-                    "등록 ${list.size}/${VOCAB_LIMIT}개",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (list.size >= VOCAB_LIMIT) Wb.colors.warn else Wb.colors.muted,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "등록 ${list.size}/${VOCAB_LIMIT}개",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (list.size >= VOCAB_LIMIT) Wb.colors.warn else Wb.colors.muted,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(enabled = !busy && selected.isNotEmpty(), onClick = { confirmDelete = true }) {
+                        Text(
+                            if (selected.isEmpty()) "선택 삭제" else "선택 삭제 (${selected.size})",
+                            color = if (selected.isEmpty()) Wb.colors.muted else Wb.colors.crit,
+                        )
+                    }
+                }
             }
             if (terms != null && list.isEmpty()) item {
                 EmptyState("아직 비어 있어요", "클로바노트에서 '다운로드'한 엑셀을 그대로 가져올 수 있어요.", icon = WbIcons.Document, tint = GlassTint.Purple)
             }
             if (list.isNotEmpty()) item {
-                WbCard(padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
-                    list.forEachIndexed { i, row ->
-                        if (i > 0) HorizontalDivider(color = Wb.colors.border)
+                WbCard(padding = PaddingValues(start = 4.dp, end = 16.dp, top = 0.dp, bottom = 4.dp)) {
+                    // 머리 줄: 전체 선택(클로바노트 목록과 같은 자리)
+                    val allChecked = selected.size == list.size
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = allChecked,
+                            onCheckedChange = { selected = if (it) list.map { r -> r.id }.toSet() else emptySet() },
+                            colors = CheckboxDefaults.colors(uncheckedColor = Wb.colors.borderStrong),
+                        )
+                        Text("단어", style = MaterialTheme.typography.labelLarge, color = Wb.colors.muted, modifier = Modifier.weight(1f))
+                        Text("관리", style = MaterialTheme.typography.labelLarge, color = Wb.colors.muted)
+                    }
+                    list.forEach { row ->
+                        HorizontalDivider(color = Wb.colors.border)
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = row.id in selected,
+                                onCheckedChange = { selected = if (it) selected + row.id else selected - row.id },
+                                colors = CheckboxDefaults.colors(uncheckedColor = Wb.colors.borderStrong),
+                            )
                             Text(row.term, style = MaterialTheme.typography.bodyMedium, color = Wb.colors.ink, modifier = Modifier.weight(1f))
-                            TextButton(enabled = !busy, onClick = {
-                                busy = true
-                                scope.launch {
-                                    runCatching { Server.deleteVocab(row.id) }
-                                        .onSuccess { message = "'${row.term}'을(를) 지웠어요" to Tone.Mute }
-                                        .onFailure { message = "지우지 못했어요" to Tone.Crit }
-                                    load()
-                                    busy = false
-                                }
-                            }) { Text("삭제", color = Wb.colors.muted) }
+                            TextButton(enabled = !busy, onClick = { remove(listOf(row)) }) { Text("삭제", color = Wb.colors.muted) }
                         }
                     }
                 }
             }
         }
     }
+
+    if (confirmDelete) {
+        val rows = list.filter { it.id in selected }
+        ConfirmDelete(
+            count = rows.size,
+            all = rows.size == list.size,
+            onConfirm = { confirmDelete = false; remove(rows) },
+            onDismiss = { confirmDelete = false },
+        )
+    }
+}
+
+/** 여러 개를 한 번에 지우는 것은 되돌릴 수 없어 한 번 더 묻는다 */
+@Composable
+private fun ConfirmDelete(count: Int, all: Boolean, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (all) "단어 전체 삭제" else "선택한 단어 삭제") },
+        text = { Text("${count}개를 지울까요? 지운 단어는 되돌릴 수 없어요. 필요하면 먼저 '엑셀로 내보내기'로 저장해 두세요.") },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("삭제", color = Wb.colors.crit) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
+    )
 }
 
 /** 서버 결과를 한 줄 안내로: 넣은 개수 + 건너뛴 이유 */
