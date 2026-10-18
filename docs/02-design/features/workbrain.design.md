@@ -922,6 +922,11 @@ create table tombstone (
 - 저장: `vocab_term(id, owner_id, term, created_at)`, `(owner_id, lower(term))` 유일. 추가는 `wb_vocab_add(text[])` 하나로만(형식·중복·200개 상한을 사용자 단위 잠금 안에서 검사, 결과 `added/duplicate/invalid/over_limit/total`). 삭제는 RLS로 본인 행만. 백업 범위에 포함.
 - 처리: STT(힌트 없음) → **CORRECT**(용어집이 있을 때, DEC-36: 잘못 들린 업무 용어만 고친 `term-corrected` 전사 버전, 원문 보존) → EXTRACT(교정본 기준 + `내 용어집(표기 기준…)` 한 줄). STT에는 힌트를 주지 않는다(DEC-33 개정).
 
+### 6.10 이어지는 회의의 할 일 (DEC-38)
+
+- EXTRACT 뒤 열린 할 일과 짝 맞추기(MATCH_PROMPT, T번호만 고르게 해 ID 지어내기 방지) → 서버 비교: 같음=새 후보 없음(회의록 `already_tracked`), 담당·기한 차이=변경 제안(`target_id`·`base_version`·`before_json`(제목 포함)·`after_json`(바뀌는 칸만)), 짝 없음=새 후보.
+- 기록 상세: 새 후보는 체크·고치기·추가, 변경 제안은 '기존 할 일 변경'으로 보여 주기만(검토함에서 승인), '이미 있는 할 일' 목록. 검토함: 변경 제안 카드에 '담당: A → B', '기한: A → B'를 보여 주고 승인·버림(고치기 없음).
+
 ### 6.9 할 일 후보 고치기 (FR-10)
 
 - 후보 카드의 '고치기' → 시트(제목, 담당 나/다른 사람(이름)/확인 필요, 기한 없음/날짜(달력)/원문대로(모호 후보만)). '적용'하면 카드에 '고침' 칩·체크, 승인 때 `approve_proposal(p_edits)`로 AI 값 위에 덮어 할 일을 만든다. 후보 원본(after_json)은 바꾸지 않고, 고친 값은 승인 전까지 화면 상태에만 있다. 날짜를 바꾸면 시각은 비운다.

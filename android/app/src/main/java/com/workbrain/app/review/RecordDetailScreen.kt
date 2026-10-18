@@ -75,12 +75,14 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
             proposals = Server.proposals(recordId)
             transcripts = Server.transcripts(recordId)
         }.onFailure { message = "불러오지 못했어요. 인터넷 연결을 확인해 주세요." to Tone.Crit }
-        proposals.filter { it.status == "pending" }.forEach { checked.putIfAbsent(it.id, true) }
+        proposals.filter { it.status == "pending" && !it.isUpdate }.forEach { checked.putIfAbsent(it.id, true) }
         firstLoad = false
     }
     LaunchedEffect(recordId) { load() }
 
-    val pending = proposals.filter { it.status == "pending" }
+    // 기존 할 일 변경 제안은 검토함에서 전후를 보고 승인한다(DEC-23·38). 여기서는 보여 주기만 한다
+    val pending = proposals.filter { it.status == "pending" && !it.isUpdate }
+    val updates = proposals.filter { it.status == "pending" && it.isUpdate }
     val done = proposals.filter { it.status != "pending" }
     val selected = pending.filter { checked[it.id] == true }
 
@@ -89,7 +91,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
         Column(Modifier.padding(horizontal = 16.dp)) {
             Text(title, style = MaterialTheme.typography.titleLarge, color = Wb.colors.ink)
             Text(
-                if (!firstLoad && pending.isEmpty()) "정리 끝!" else "거의 다 왔어요",
+                if (!firstLoad && pending.isEmpty() && updates.isEmpty()) "정리 끝!" else "거의 다 왔어요",
                 fontFamily = HandAccent,
                 fontSize = 20.sp,
                 color = Wb.colors.muted,
@@ -105,6 +107,8 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
             val fields = meeting?.fields
             val decisions = fields?.texts("decisions").orEmpty()
             val questions = fields?.texts("open_questions").orEmpty()
+            // 이미 있는 할 일이라 새로 만들지 않은 것(DEC-38)
+            val tracked = (fields?.get("already_tracked") as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.str("title") }
             if (decisions.isNotEmpty() || questions.isNotEmpty()) item {
                 WbCard {
                     MeetingSection("결정 후보", "회의에서 정한 것처럼 들린 말이에요. 확정은 아니에요.", decisions)
@@ -114,11 +118,11 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
             }
             item {
                 SectionLabel("할 일 후보 ${pending.size}")
-                if (pending.isEmpty() && done.isEmpty()) {
+                if (pending.isEmpty() && done.isEmpty() && updates.isEmpty() && tracked.isEmpty()) {
                     Text("이 녹음에서는 할 일을 찾지 못했어요.", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.muted)
                 } else if (pending.isNotEmpty()) {
                     Text(
-                        "체크한 것만 할 일로 추가돼요. 제목·담당·기한 고치기는 다음 버전에서 돼요.",
+                        "체크한 것만 할 일로 추가돼요. '고치기'로 제목·담당·기한을 바꿔 추가할 수 있어요.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Wb.colors.muted,
                     )
@@ -131,7 +135,19 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
                     edited = p.id in edits, onEdit = { editing = p },
                 )
             }
-            items(done, key = { it.id }) { p -> CandidateCard(p.after, p.rationale, p.status, checked = false, onChecked = null) }
+            if (updates.isNotEmpty()) item {
+                SectionLabel("기존 할 일 변경 ${updates.size}")
+                Text("이미 있는 할 일의 담당·기한이 이번 녹음에서 달라졌어요. 검토함에서 전후를 보고 반영해요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+            }
+            items(updates, key = { it.id }) { p -> CandidateCard(p.after, p.rationale, p.status, checked = false, onChecked = null, before = p.before) }
+            if (tracked.isNotEmpty()) item {
+                SectionLabel("이미 있는 할 일 ${tracked.size}")
+                WbCard {
+                    Text("이번 녹음에도 나왔지만 이미 할 일에 있어서 새로 만들지 않았어요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+                    tracked.forEach { Text("· $it", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.ink, modifier = Modifier.padding(top = 6.dp)) }
+                }
+            }
+            items(done, key = { it.id }) { p -> CandidateCard(p.after, p.rationale, p.status, checked = false, onChecked = null, before = p.before) }
             item {
                 // 교정본이 있으면 그것을 먼저 보여 주고, 받아쓴 원문은 따로 볼 수 있게 둔다(원문은 고치지 않음, DEC-36)
                 val corrected = transcripts["term-corrected"]

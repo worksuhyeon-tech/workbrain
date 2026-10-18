@@ -47,7 +47,12 @@ import kotlinx.serialization.json.put
     val revision: Int,
     @SerialName("after_json") val after: JsonObject,
     val rationale: String,
-)
+    /** 기존 할 일 변경 제안이면 대상 할 일 ID와 바뀌기 전 값(제목 포함, DEC-38). 새 할 일 후보면 null */
+    @SerialName("target_id") val targetId: String? = null,
+    @SerialName("before_json") val before: JsonObject? = null,
+) {
+    val isUpdate get() = targetId != null
+}
 
 // 검토함: 후보와 그 후보가 나온 기록(후보 → 분석 → 전사 → 기록을 한 번에 따라간다)
 @Serializable data class InboxRow(
@@ -56,9 +61,11 @@ import kotlinx.serialization.json.put
     val revision: Int,
     @SerialName("after_json") val after: JsonObject,
     val rationale: String,
+    @SerialName("target_id") val targetId: String? = null,
+    @SerialName("before_json") val before: JsonObject? = null,
     @SerialName("analysis_run") val run: InboxRun? = null,
 ) {
-    fun proposal() = ProposalRow(id, status, revision, after, rationale)
+    fun proposal() = ProposalRow(id, status, revision, after, rationale, targetId, before)
     val recordId: String? get() = run?.transcript?.record?.id
     val recordTitle: String get() = run?.transcript?.record?.title ?: "제목 없는 기록"
 }
@@ -204,7 +211,7 @@ object Server {
     /** 모든 기록의 승인 대기 후보(검토함). 오래된 것부터 */
     suspend fun pendingProposals(): List<InboxRow> =
         db.from("change_proposal").select(
-            Columns.raw("id,status,revision,after_json,rationale,analysis_run(transcript_version(source_record(id,title)))"),
+            Columns.raw("id,status,revision,after_json,rationale,target_id,before_json,analysis_run(transcript_version(source_record(id,title)))"),
         ) {
             filter { eq("status", "pending") }
             order("created_at", Order.ASCENDING)

@@ -92,7 +92,9 @@ fun ReviewScreen(onOpenRecord: (recordId: String, title: String) -> Unit, onCoun
                         source = "회의록 보기",
                         onOpenSource = record.first?.let { id -> { onOpenRecord(id, record.second) } },
                         edited = row.id in edits,
-                        onEdit = { editing = row },
+                        // 변경 제안은 전후를 보고 승인·버림만 한다(고친 값은 새 할 일 후보에만, approve_proposal 규칙)
+                        onEdit = if (row.targetId == null) ({ editing = row }) else null,
+                        before = row.before,
                     )
                 }
             }

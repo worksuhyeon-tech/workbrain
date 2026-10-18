@@ -56,9 +56,12 @@ fun CandidateCard(
     onOpenSource: (() -> Unit)? = null,
     edited: Boolean = false,
     onEdit: (() -> Unit)? = null,
+    /** 기존 할 일 변경 제안이면 바뀌기 전 값(DEC-38). after에는 바뀌는 칸만 있다 */
+    before: JsonObject? = null,
 ) {
     val ambiguous = after["due_ambiguous"]?.jsonPrimitive?.booleanOrNull == true
     val due = dueLabel(after.str("due_date"), after.str("due_time"), ambiguous, after.str("due_text"))
+    val changes = before?.let { changeLines(it, after) }
     WbCard(padding = PaddingValues(start = 4.dp, end = 14.dp, top = 6.dp, bottom = 12.dp)) {
         Row(verticalAlignment = Alignment.Top) {
             if (onChecked != null) {
@@ -71,10 +74,14 @@ fun CandidateCard(
                 Spacer(Modifier.width(14.dp))
             }
             Column(Modifier.weight(1f).padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(after.str("title").orEmpty(), style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
+                Text((before ?: after).str("title").orEmpty(), style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    WbChip(ownerLabel(after.str("owner_kind"), after.str("assignee")), ownerTone(after.str("owner_kind")))
-                    due?.let { WbChip(it, dueTone(ambiguous)) }
+                    if (changes != null) {
+                        WbChip("기존 할 일 변경", Tone.Info)
+                    } else {
+                        WbChip(ownerLabel(after.str("owner_kind"), after.str("assignee")), ownerTone(after.str("owner_kind")))
+                        due?.let { WbChip(it, dueTone(ambiguous)) }
+                    }
                     if (edited) WbChip("고침", Tone.Info)
                     when (status) {
                         "pending" -> Unit
@@ -83,6 +90,7 @@ fun CandidateCard(
                         else -> WbChip("확인 필요", Tone.Crit)
                     }
                 }
+                changes?.forEach { Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Wb.colors.ink) }
                 Text(
                     "“$rationale”",
                     style = MaterialTheme.typography.bodySmall,
@@ -113,5 +121,16 @@ private fun LinkText(text: String, icon: ImageVector?, onClick: (() -> Unit)?) {
             fontWeight = FontWeight.SemiBold,
             color = Wb.colors.link,
         )
+    }
+}
+
+/** 변경 제안의 전후 한 줄씩: "담당: 팔로업 · 박지연 → 팔로업 · 박지훈", "기한: 10/23(금) → 10/27(화)" */
+private fun changeLines(before: JsonObject, after: JsonObject): List<String> = buildList {
+    if ("owner_kind" in after) {
+        add("담당: ${ownerLabel(before.str("owner_kind"), before.str("assignee"))} → ${ownerLabel(after.str("owner_kind"), after.str("assignee"))}")
+    }
+    if ("due_date" in after) {
+        fun label(o: JsonObject) = dueLabel(o.str("due_date"), o.str("due_time"), o["due_ambiguous"]?.jsonPrimitive?.booleanOrNull == true, o.str("due_text")) ?: "없음"
+        add("기한: ${label(before)} → ${label(after)}")
     }
 }
