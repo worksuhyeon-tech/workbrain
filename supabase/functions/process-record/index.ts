@@ -76,6 +76,12 @@ async function addCost(db: SupabaseClient, uid: string, cycle: string, usd: numb
   await db.from("cost_ledger").insert({ owner_id: uid, billing_cycle: cycle, confirmed_krw: Math.max(1, Math.ceil(usd * KRW_PER_USD)) });
 }
 
+// 내 용어집(DEC-33): 받아쓰기 힌트와 회의록 표기 기준. 없으면 빈 목록
+async function loadVocab(db: SupabaseClient, uid: string): Promise<string[]> {
+  const { data } = await db.from("vocab_term").select("term").eq("owner_id", uid).order("created_at").limit(200);
+  return (data ?? []).map((r) => r.term as string);
+}
+
 function splitSentences(text: string): string[] {
   return text.split(/(?<=[.?!])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
 }
@@ -92,6 +98,9 @@ async function runStt(db: SupabaseClient, uid: string, recordId: string, job: Jo
   const form = new FormData();
   form.append("model", STT_MODEL);
   form.append("language", "ko");
+  // 업무 용어를 힌트로 주면 그 표기로 받아쓸 확률이 올라간다(클로바노트 단어 등록과 같은 목적)
+  const vocab = await loadVocab(db, uid);
+  if (vocab.length) form.append("prompt", `업무 용어: ${vocab.join(", ")}`);
   form.append("file", new File([blob], "audio.m4a", { type: "audio/mp4" }));
   const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST", headers: { Authorization: `Bearer ${OPENAI_KEY}` }, body: form,
@@ -152,6 +161,7 @@ async function runExtract(db: SupabaseClient, uid: string, recordId: string, job
     ...(areas ?? []).map((a) => ({ id: a.id, line: `- ${a.id}: ${a.name} (반복실행)` })),
   ];
   const validIds = new Set(places.map((p) => p.id));
+  const vocab = await loadVocab(db, uid);
 
   // 녹음 시각은 서울 기준 날짜·요일로 준다(기한 계산의 기준)
   const at = new Date(rec.occurred_at ?? rec.ingested_at);
@@ -159,6 +169,7 @@ async function runExtract(db: SupabaseClient, uid: string, recordId: string, job
   const ymd = seoul.toISOString().slice(0, 10), hm = seoul.toISOString().slice(11, 16);
   const user = `기록 종류: ${rec.record_kind}\n녹음 시각: ${ymd} (${WEEKDAY[seoul.getUTCDay()]}) ${hm} Asia/Seoul\n${weekLine(ymd)}\n\n` +
     `공간의 프로젝트·반복실행:\n${places.map((p) => p.line).join("\n") || "- (아직 없음)"}\n\n` +
+    (vocab.length ? `내 용어집(표기 기준. 전사에 비슷하게 잘못 들린 말이 있으면 이 표기로 쓴다): ${vocab.join(", ")}\n\n` : "") +
     `전사:\n${segments.map((s) => `[${s.idx}] ${s.text}`).join("\n")}`;
 
   const r = await fetch("https://api.openai.com/v1/responses", {

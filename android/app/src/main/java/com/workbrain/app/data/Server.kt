@@ -13,6 +13,8 @@ import io.ktor.http.ContentType
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -62,6 +64,17 @@ import kotlinx.serialization.json.put
 @Serializable data class InboxRun(@SerialName("transcript_version") val transcript: InboxTranscript? = null)
 @Serializable data class InboxTranscript(@SerialName("source_record") val record: InboxRecord? = null)
 @Serializable data class InboxRecord(val id: String, val title: String? = null)
+
+@Serializable data class VocabRow(val id: String, val term: String)
+
+/** wb_vocab_add 결과: 넣은 개수와 건너뛴 이유별 개수, 넣은 뒤 전체 개수 */
+@Serializable data class VocabAddResult(
+    val added: Int,
+    val duplicate: Int,
+    val invalid: Int,
+    @SerialName("over_limit") val overLimit: Int,
+    val total: Int,
+)
 
 @Serializable data class CostRow(@SerialName("confirmed_krw") val krw: Int = 0)
 
@@ -210,6 +223,22 @@ object Server {
             put("p_seen_revision", p.revision)
             put("p_context", context)
         }).decodeAs<JsonObject>()["result"]?.jsonPrimitive?.content ?: ""
+
+    /** 내 용어집(DEC-33), 클로바노트처럼 최신순 */
+    suspend fun vocab(): List<VocabRow> =
+        db.from("vocab_term").select(Columns.list("id", "term")) {
+            order("created_at", Order.DESCENDING)
+        }.decodeList<VocabRow>()
+
+    /** 형식·중복·200개 상한 검사는 서버 함수가 한다. 한 단어 등록과 파일 가져오기 모두 이 길로 */
+    suspend fun addVocab(terms: List<String>): VocabAddResult =
+        db.postgrest.rpc("wb_vocab_add", buildJsonObject {
+            put("p_terms", JsonArray(terms.map { JsonPrimitive(it) }))
+        }).decodeAs<VocabAddResult>()
+
+    suspend fun deleteVocab(id: String) {
+        db.from("vocab_term").delete { filter { eq("id", id) } }
+    }
 
     suspend fun openTasks(): List<TaskRow> =
         db.from("task").select {

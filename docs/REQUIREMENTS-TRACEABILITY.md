@@ -38,6 +38,7 @@
 | FR-28 | 검토 미루기·리마인드 | P1 미룸 / P4 알림 | ChangeProposal(snoozedUntil) | S06 | TC-08/TC-23 |
 | FR-29 | 회의록 Word 다운로드 | P1 | MeetingVersion(document) | S05 | TC-24 |
 | FR-30 | 회의록 작성 지침 가져오기(SKILL.md) | P1 | Settings(minutesGuideline)/MeetingVersion(guidelineRev) | S09/S05 | TC-25 |
+| FR-31 | 내 용어집(업무 단어 등록) | P1 | vocab_term·wb_vocab_add | 더보기 > 내 용어집 | TC-27 |
 
 ## 비기능
 

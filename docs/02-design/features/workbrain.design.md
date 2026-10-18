@@ -916,6 +916,12 @@ create table tombstone (
   - Android: `ui/GlassIcon.kt`(부품), `ui/WbIcons.kt`(글리프). 웹: 같은 구조의 CSS(`--glass-front`·`--glass-border` + 그라데이션 뒤판)로 만든다.
   - 기존 HTML 목업은 로고만 글래스이고 나머지 자리에 이모지가 들어가 있다 → 목업 갱신 시 이 규칙으로 바꾼다(웹 구현 전).
 
+### 6.6 내 용어집 (FR-31, DEC-33)
+
+- 위치: 더보기 > 받아쓰기 > 내 용어집. 단어 입력·등록, 파일 가져오기(클로바노트 엑셀 A열·텍스트), 엑셀로 내보내기(A1 `Word`), 목록(최신순)·삭제, `등록 N/200개`.
+- 저장: `vocab_term(id, owner_id, term, created_at)`, `(owner_id, lower(term))` 유일. 추가는 `wb_vocab_add(text[])` 하나로만(형식·중복·200개 상한을 사용자 단위 잠금 안에서 검사, 결과 `added/duplicate/invalid/over_limit/total`). 삭제는 RLS로 본인 행만. 백업 범위에 포함.
+- 처리: STT 요청에 `prompt = "업무 용어: …"`, EXTRACT 입력에 `내 용어집(표기 기준…)` 한 줄. 단어가 없으면 둘 다 생략.
+
 ---
 
 ## 7. 에러 처리 — 정상 / 오류 / 예외 시나리오

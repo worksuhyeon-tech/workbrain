@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,9 +52,14 @@ import com.workbrain.app.ui.WbCard
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
 
-/** 더보기: 계정·이번 달 AI 비용·앱 정보·글꼴 라이선스·로그아웃 */
+/** 더보기: 계정·내 용어집·이번 달 AI 비용·앱 정보·글꼴 라이선스·로그아웃 */
 @Composable
 fun MoreScreen() {
+    var vocabOpen by rememberSaveable { mutableStateOf(false) }
+    if (vocabOpen) {
+        VocabScreen(onBack = { vocabOpen = false })
+        return
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val rec by RecordingService.state.collectAsStateWithLifecycle()
@@ -87,6 +94,11 @@ fun MoreScreen() {
             if (rec.status != RecStatus.IDLE) {
                 Text("녹음 중에는 로그아웃할 수 없어요", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted, modifier = Modifier.padding(top = 8.dp))
             }
+        }
+
+        SectionLabel("받아쓰기")
+        WbCard(padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
+            InfoRow("내 용어집", "업무 단어 등록 ›") { vocabOpen = true }
         }
 
         SectionLabel("AI 사용")
