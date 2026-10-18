@@ -121,6 +121,19 @@ async function runStt(db: SupabaseClient, uid: string, recordId: string, job: Jo
 
 const WEEKDAY = "일월화수목금토";
 
+// 한 주는 월요일에 시작한다(DEC-31: 회의는 대부분 평일). 일요일은 그 주의 마지막 날이라
+// 일요일에 말한 "다음 주 화요일"은 바로 다음 날 시작하는 주의 화요일이다. 모델이 헷갈리지 않게 날짜 범위를 직접 준다.
+// eval/llm/run.mjs의 weekLine과 같은 규칙(평가·운영 입력을 같게 유지)
+function weekLine(ymd: string): string {
+  const day = new Date(ymd + "T00:00:00Z");
+  const monday = new Date(day.getTime() - ((day.getUTCDay() + 6) % 7) * 86400000);
+  const fmt = (offset: number) => {
+    const d = new Date(monday.getTime() + offset * 86400000);
+    return `${d.toISOString().slice(0, 10)}(${WEEKDAY[d.getUTCDay()]})`;
+  };
+  return `주 기준(월요일 시작): 이번 주 ${fmt(0)}~${fmt(6)}, 다음 주 ${fmt(7)}~${fmt(13)}`;
+}
+
 async function runExtract(db: SupabaseClient, uid: string, recordId: string, job: Job, cycle: string) {
   const { data: rec } = await db.from("source_record").select("title,record_kind,occurred_at,ingested_at,workspace_id")
     .eq("id", recordId).eq("owner_id", uid).single();
@@ -144,7 +157,7 @@ async function runExtract(db: SupabaseClient, uid: string, recordId: string, job
   const at = new Date(rec.occurred_at ?? rec.ingested_at);
   const seoul = new Date(at.getTime() + 9 * 3600 * 1000);
   const ymd = seoul.toISOString().slice(0, 10), hm = seoul.toISOString().slice(11, 16);
-  const user = `기록 종류: ${rec.record_kind}\n녹음 시각: ${ymd} (${WEEKDAY[seoul.getUTCDay()]}) ${hm} Asia/Seoul\n\n` +
+  const user = `기록 종류: ${rec.record_kind}\n녹음 시각: ${ymd} (${WEEKDAY[seoul.getUTCDay()]}) ${hm} Asia/Seoul\n${weekLine(ymd)}\n\n` +
     `공간의 프로젝트·반복실행:\n${places.map((p) => p.line).join("\n") || "- (아직 없음)"}\n\n` +
     `전사:\n${segments.map((s) => `[${s.idx}] ${s.text}`).join("\n")}`;
 

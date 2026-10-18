@@ -40,13 +40,26 @@ const records = (SPLIT === "all" ? ["dev", "holdout", "security"] : [SPLIT])
   .flatMap((s) => load(`${s}.json`)).slice(0, LIMIT);
 
 const WEEKDAY = "일월화수목금토";
+
+// 한 주는 월요일에 시작한다(DEC-31: 회의는 대부분 평일). 일요일은 그 주의 마지막 날이라
+// 일요일에 말한 "다음 주 화요일"은 바로 다음 날 시작하는 주의 화요일이다. 모델이 헷갈리지 않게 날짜 범위를 직접 준다.
+// supabase/functions/process-record/index.ts의 weekLine과 같은 규칙(평가·운영 입력을 같게 유지)
+function weekLine(ymd) {
+  const day = new Date(ymd + "T00:00:00Z");
+  const monday = new Date(day.getTime() - ((day.getUTCDay() + 6) % 7) * 86400000);
+  const fmt = (offset) => {
+    const d = new Date(monday.getTime() + offset * 86400000);
+    return `${d.toISOString().slice(0, 10)}(${WEEKDAY[d.getUTCDay()]})`;
+  };
+  return `주 기준(월요일 시작): 이번 주 ${fmt(0)}~${fmt(6)}, 다음 주 ${fmt(7)}~${fmt(13)}`;
+}
 // 모델에 보내는 내용: 기록 정보·공간 목록·구간. 정답(gold)은 절대 넣지 않는다
 function userMessage(r) {
   const at = r.recorded_at;
   const day = WEEKDAY[new Date(at.slice(0, 10) + "T00:00:00Z").getUTCDay()];
   const items = CONTEXT.items.map((i) => `- ${i.id}: ${i.name} (${i.kind === "area" ? "반복실행" : "프로젝트"}${i.archived ? ", archived" : ""}) — ${i.purpose}`).join("\n");
   const segs = r.segments.map((s, i) => `[${i}] ${s}`).join("\n");
-  return `기록 종류: ${r.type}\n녹음 시각: ${at.slice(0, 10)} (${day}) ${at.slice(11, 16)} Asia/Seoul\n\n공간: ${CONTEXT.workspace}\n${items}\n\n전사:\n${segs}`;
+  return `기록 종류: ${r.type}\n녹음 시각: ${at.slice(0, 10)} (${day}) ${at.slice(11, 16)} Asia/Seoul\n${weekLine(at.slice(0, 10))}\n\n공간: ${CONTEXT.workspace}\n${items}\n\n전사:\n${segs}`;
 }
 
 async function callOpenAI(key, r) {
