@@ -63,10 +63,12 @@ private val PERMISSIONS = listOf(
 fun UploadSheet(
     title: String,
     needConsent: Boolean,
+    initialAttendees: List<String>,
     onDismiss: () -> Unit,
-    onConfirm: (kind: String, permission: String, consentGiven: Boolean) -> Unit,
+    onConfirm: (kind: String, permission: String, consentGiven: Boolean, attendees: List<String>) -> Unit,
 ) {
     var kind by remember { mutableStateOf("meeting") }
+    var attendees by remember { mutableStateOf(initialAttendees) }
     var permission by remember { mutableStateOf<String?>(null) }
     var consent by remember { mutableStateOf(false) }
     val canSend = permission != null && permission != "deny" && (!needConsent || consent)
@@ -89,6 +91,17 @@ fun UploadSheet(
                 style = MaterialTheme.typography.bodySmall,
                 color = Wb.colors.muted,
             )
+
+            if (kind != "memo") {
+                Spacer(Modifier.height(8.dp))
+                Text("참석자 (선택)", style = MaterialTheme.typography.titleMedium, color = Wb.colors.ink)
+                Text(
+                    "이름을 넣으면 받아쓰기에서 잘못 들린 이름을 바로잡아요. 명단만 보고 담당자를 정하지는 않아요.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Wb.colors.muted,
+                )
+                AttendeesEditor(attendees, onChange = { attendees = it })
+            }
 
             Spacer(Modifier.height(8.dp))
             Text("이 자료를 클라우드에 올려도 되나요?", style = MaterialTheme.typography.titleMedium, color = Wb.colors.ink)
@@ -116,7 +129,7 @@ fun UploadSheet(
                     if (permission == "deny") "올리지 않아요" else "올리기",
                     enabled = canSend,
                     modifier = Modifier.weight(1f),
-                    onClick = { permission?.let { onConfirm(kind, it, consent) } },
+                    onClick = { permission?.let { onConfirm(kind, it, consent, if (kind == "memo") emptyList() else attendees) } },
                 )
             }
         }

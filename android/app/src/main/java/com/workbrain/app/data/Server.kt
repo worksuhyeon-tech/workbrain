@@ -33,6 +33,8 @@ import kotlinx.serialization.json.put
     @SerialName("occurred_at") val occurredAt: String,
     @SerialName("storage_permission") val storagePermission: String,
     @SerialName("record_kind") val recordKind: String,
+    // 기본값을 두지 않는다: 직렬화가 기본값과 같은 칸을 빼 버려 빈 목록이 서버에 안 간다
+    val attendees: List<String>,
 )
 
 @Serializable data class ConsentInsert(

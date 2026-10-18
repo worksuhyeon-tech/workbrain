@@ -127,6 +127,18 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
                 onStop = { RecordingService.stop(context) },
             )
             (notice ?: rec.error)?.let { Banner(it, Tone.Crit, Modifier.padding(top = 8.dp)) }
+            // 녹음 중에 참석자를 넣어 두면 올리기 시트에 그대로 채워진다(목업 S04)
+            val liveId = rec.sessionId
+            if (rec.status != RecStatus.IDLE && liveId != null) {
+                var live by remember(liveId) { mutableStateOf(sessions.firstOrNull { it.id == liveId }?.attendees.orEmpty()) }
+                WbCard(Modifier.padding(top = 8.dp)) {
+                    Text("참석자 ${live.size}명", style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
+                    AttendeesEditor(live, onChange = {
+                        live = it
+                        RecordingStore.setAttendees(RecordingStore.dir(context, liveId), it)
+                    }, Modifier.padding(top = 8.dp))
+                }
+            }
             SectionLabel("기기에 저장된 녹음 · 올리기")
             if (sessions.isEmpty()) {
                 Text("아직 녹음이 없어요. 올리기를 누르기 전까지는 이 휴대폰 안에만 있어요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
@@ -173,10 +185,11 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
         UploadSheet(
             title = target.title,
             needConsent = consentNeeded,
+            initialAttendees = target.attendees,
             onDismiss = { uploadTarget = null },
-            onConfirm = { kind, permission, consentGiven ->
+            onConfirm = { kind, permission, consentGiven, attendees ->
                 uploadTarget = null
-                UploadManager.start(context, target, kind, permission, consentGiven)
+                UploadManager.start(context, target, kind, permission, consentGiven, attendees)
             },
         )
     }

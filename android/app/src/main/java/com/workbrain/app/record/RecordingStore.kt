@@ -25,6 +25,8 @@ data class RecordingSession(
     val readyAt: Long? = null,
     /** 기기 음성을 지웠는지(목록 줄과 서버 기록 연결은 남긴다) */
     val audioDeleted: Boolean = false,
+    /** 참석자(DEC-39). 올릴 때 기록과 함께 올라간다 */
+    val attendees: List<String> = emptyList(),
 ) {
     /** 서버에 음성이 다 올라가 있어 기기 사본이 없어도 되는 상태 */
     val serverHasAudio get() = serverState == "uploaded" || serverState == "ready"
@@ -52,6 +54,14 @@ object RecordingStore {
     }
 
     fun title(dir: File): String = read(dir)?.optString("title").orEmpty()
+
+    fun setAttendees(dir: File, names: List<String>) {
+        val m = read(dir) ?: return
+        write(dir, m.put("attendees", org.json.JSONArray(names)))
+    }
+
+    private fun attendees(m: JSONObject): List<String> =
+        m.optJSONArray("attendees")?.let { a -> List(a.length()) { a.optString(it) } }.orEmpty()
 
     /** 조각이 확정될 때마다 기록해 두면, 강제 종료 뒤에도 어디까지 남았는지 안다 */
     fun updateProgress(dir: File, confirmedMs: Long) {
@@ -131,6 +141,7 @@ object RecordingStore {
                 serverState = m.optString("serverState").ifEmpty { null },
                 readyAt = m.optLong("readyAt").takeIf { m.has("readyAt") },
                 audioDeleted = m.has("audioDeletedAt"),
+                attendees = attendees(m),
             )
         }.sortedByDescending { it.startedAt }
 

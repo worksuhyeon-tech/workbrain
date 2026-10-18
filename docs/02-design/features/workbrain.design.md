@@ -922,6 +922,11 @@ create table tombstone (
 - 저장: `vocab_term(id, owner_id, term, created_at)`, `(owner_id, lower(term))` 유일. 추가는 `wb_vocab_add(text[])` 하나로만(형식·중복·200개 상한을 사용자 단위 잠금 안에서 검사, 결과 `added/duplicate/invalid/over_limit/total`). 삭제는 RLS로 본인 행만. 백업 범위에 포함.
 - 처리: STT(힌트 없음) → **CORRECT**(용어집이 있을 때, DEC-36: 잘못 들린 업무 용어만 고친 `term-corrected` 전사 버전, 원문 보존) → EXTRACT(교정본 기준 + `내 용어집(표기 기준…)` 한 줄). STT에는 힌트를 주지 않는다(DEC-33 개정).
 
+### 6.11 참석자 (DEC-39)
+
+- 입력: 녹음 중 녹음 카드 아래 '참석자 n명'(칩·이름 입력·최근 참석자), 올리기 시트 '참석자 (선택)'(회의·통화일 때, 녹음 중 넣은 명단이 채워짐). '님'은 떼고 저장, 20자·30명 상한. 최근 참석자는 SharedPreferences에만.
+- 서버: `source_record.attendees` → CORRECT(이름 교정) · EXTRACT 입력(표기 기준, 담당 추정 금지) · `meeting_version.fields.attendees` → 기록 상세 '참석자 · …'.
+
 ### 6.10 이어지는 회의의 할 일 (DEC-38)
 
 - EXTRACT 뒤 열린 할 일과 짝 맞추기(MATCH_PROMPT, T번호만 고르게 해 ID 지어내기 방지) → 서버 비교: 같음=새 후보 없음(회의록 `already_tracked`), 담당·기한 차이=변경 제안(`target_id`·`base_version`·`before_json`(제목 포함)·`after_json`(바뀌는 칸만)), 짝 없음=새 후보.

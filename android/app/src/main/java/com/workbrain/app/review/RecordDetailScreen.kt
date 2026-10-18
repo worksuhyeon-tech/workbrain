@@ -43,6 +43,8 @@ import com.workbrain.app.ui.WbCard
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 
 private fun JsonObject.texts(key: String): List<String> =
@@ -109,6 +111,10 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
             val questions = fields?.texts("open_questions").orEmpty()
             // 이미 있는 할 일이라 새로 만들지 않은 것(DEC-38)
             val tracked = (fields?.get("already_tracked") as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.str("title") }
+            val attendees = (fields?.get("attendees") as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+            if (attendees.isNotEmpty()) item {
+                Text("참석자 · ${attendees.joinToString(", ")}", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body)
+            }
             if (decisions.isNotEmpty() || questions.isNotEmpty()) item {
                 WbCard {
                     MeetingSection("결정 후보", "회의에서 정한 것처럼 들린 말이에요. 확정은 아니에요.", decisions)

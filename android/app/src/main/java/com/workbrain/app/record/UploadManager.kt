@@ -38,7 +38,10 @@ object UploadManager {
     internal fun set(id: String, p: UploadProgress) = _progress.update { it + (id to p) }
 
     /** kind: meeting·call·memo, permission: personal·sample·company-approved(금지·모름이면 부르지 않는다, M11) */
-    fun start(context: Context, session: RecordingSession, kind: String, permission: String, consentGiven: Boolean) {
+    fun start(context: Context, session: RecordingSession, kind: String, permission: String, consentGiven: Boolean, attendees: List<String>) {
+        // 참석자는 기기 메타에 먼저 적어 둔다(작업이 다시 돌아도 같은 명단으로 올림)
+        RecordingStore.setAttendees(RecordingStore.dir(context, session.id), attendees)
+        RecentAttendees.remember(context, attendees)
         set(session.id, UploadProgress("준비 중", busy = true))
         enqueue(context, session.id, kind, permission, consentGiven, ExistingWorkPolicy.KEEP)
     }
@@ -95,6 +98,7 @@ object UploadManager {
                     occurredAt = Instant.ofEpochMilli(session.startedAt).toString(),
                     storagePermission = permission,
                     recordKind = kind,
+                    attendees = session.attendees,
                 ))
                 RecordingStore.setServer(dir, recordId, null)
             }
