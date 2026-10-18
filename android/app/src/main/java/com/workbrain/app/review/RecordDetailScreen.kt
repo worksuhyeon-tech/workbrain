@@ -63,6 +63,9 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
     var showTranscript by remember { mutableStateOf(false) }
     var showOriginal by remember { mutableStateOf(false) }
     val checked = remember { mutableStateMapOf<String, Boolean>() }
+    // 고친 값(승인 전까지 이 화면에만): 후보 ID → 승인 함수에 넘길 p_edits
+    val edits = remember { mutableStateMapOf<String, JsonObject>() }
+    var editing by remember { mutableStateOf<ProposalRow?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<Pair<String, Tone>?>(null) }
 
@@ -122,7 +125,11 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
                 }
             }
             items(pending, key = { it.id }) { p ->
-                CandidateCard(p.after, p.rationale, p.status, checked[p.id] == true, onChecked = { checked[p.id] = it })
+                CandidateCard(
+                    JsonObject(p.after + edits[p.id].orEmpty()), p.rationale, p.status, checked[p.id] == true,
+                    onChecked = { checked[p.id] = it },
+                    edited = p.id in edits, onEdit = { editing = p },
+                )
             }
             items(done, key = { it.id }) { p -> CandidateCard(p.after, p.rationale, p.status, checked = false, onChecked = null) }
             item {
@@ -177,7 +184,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
                         busy = true
                         scope.launch {
                             // 다른 기기에서 먼저 승인했으면 already-approved로 돌아와 중복 없이 넘어간다(TC-08)
-                            val results = runCatching { selected.map { Server.approve(it, "record") } }.getOrNull()
+                            val results = runCatching { selected.map { Server.approve(it, "record", edits[it.id]) } }.getOrNull()
                             message = when {
                                 results == null -> "추가하지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit
                                 results.all { it == "approved" || it == "already-approved" } ->
@@ -190,6 +197,14 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
                 )
             }
         }
+    }
+
+    editing?.let { p ->
+        CandidateEditSheet(
+            current = JsonObject(p.after + edits[p.id].orEmpty()),
+            onDismiss = { editing = null },
+            onApply = { edits[p.id] = it; checked[p.id] = true; editing = null },
+        )
     }
 }
 

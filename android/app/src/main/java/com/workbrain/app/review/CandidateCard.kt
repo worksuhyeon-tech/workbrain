@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,6 +42,7 @@ fun JsonObject.str(key: String): String? = this[key]?.jsonPrimitive?.contentOrNu
 /**
  * 할 일 후보 카드(기록 상세·검토함 공용). 체크한 것만 추가된다.
  * onChecked가 null이면 이미 처리된 후보(추가됨·버림)라 상태 칩만 보인다.
+ * after는 사용자가 고친 값이 있으면 그것을 덮은 값이다(edited=true면 '고침' 칩).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -52,6 +54,8 @@ fun CandidateCard(
     onChecked: ((Boolean) -> Unit)?,
     source: String? = null,
     onOpenSource: (() -> Unit)? = null,
+    edited: Boolean = false,
+    onEdit: (() -> Unit)? = null,
 ) {
     val ambiguous = after["due_ambiguous"]?.jsonPrimitive?.booleanOrNull == true
     val due = dueLabel(after.str("due_date"), after.str("due_time"), ambiguous, after.str("due_text"))
@@ -71,6 +75,7 @@ fun CandidateCard(
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     WbChip(ownerLabel(after.str("owner_kind"), after.str("assignee")), ownerTone(after.str("owner_kind")))
                     due?.let { WbChip(it, dueTone(ambiguous)) }
+                    if (edited) WbChip("고침", Tone.Info)
                     when (status) {
                         "pending" -> Unit
                         "approved" -> WbChip("추가됨", Tone.Good)
@@ -85,21 +90,28 @@ fun CandidateCard(
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
-                source?.let {
-                    Row(
-                        modifier = if (onOpenSource != null) Modifier.clickable(onClick = onOpenSource) else Modifier,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(WbIcons.Document, contentDescription = null, tint = Wb.colors.link, modifier = Modifier.size(16.dp))
-                        Text(
-                            " $it",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Wb.colors.link,
-                        )
-                    }
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    onEdit?.let { LinkText("고치기", null, it) }
+                    source?.let { LinkText(it, WbIcons.Document, onOpenSource) }
                 }
             }
         }
+    }
+}
+
+/** 카드 아래 작은 파란 링크(아이콘 선택) */
+@Composable
+private fun LinkText(text: String, icon: ImageVector?, onClick: (() -> Unit)?) {
+    Row(
+        modifier = if (onClick != null) Modifier.clickable(onClick = onClick).padding(vertical = 4.dp) else Modifier.padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        icon?.let { Icon(it, contentDescription = null, tint = Wb.colors.link, modifier = Modifier.size(16.dp)) }
+        Text(
+            if (icon != null) " $text" else text,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+            color = Wb.colors.link,
+        )
     }
 }

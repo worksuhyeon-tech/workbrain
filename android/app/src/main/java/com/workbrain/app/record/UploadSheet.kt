@@ -38,6 +38,7 @@ import com.workbrain.app.ui.GlassTint
 import com.workbrain.app.ui.WbIcons
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.workbrain.app.ui.PillShape
+import com.workbrain.app.ui.SegmentPills
 import com.workbrain.app.ui.PrimaryButton
 import com.workbrain.app.ui.SecondaryButton
 import com.workbrain.app.ui.Wb
@@ -82,7 +83,7 @@ fun UploadSheet(
         ) {
             Text(title, style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
             Text("어떤 녹음인가요?", style = MaterialTheme.typography.titleMedium, color = Wb.colors.ink)
-            KindSegment(kind) { kind = it }
+            SegmentPills(KINDS, kind) { kind = it }
             Text(
                 "메모는 '제가 할게요'를 내 할 일로, 회의·통화는 '담당 확인'으로 정리해요.",
                 style = MaterialTheme.typography.bodySmall,
@@ -117,30 +118,6 @@ fun UploadSheet(
                     modifier = Modifier.weight(1f),
                     onClick = { permission?.let { onConfirm(kind, it, consent) } },
                 )
-            }
-        }
-    }
-}
-
-/** 목업 .tabs2: 둥근 바탕 안에서 고른 것만 흰 알약 */
-@Composable
-private fun KindSegment(value: String, onChange: (String) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().background(Wb.colors.surface, PillShape).border(1.dp, Wb.colors.border, PillShape).padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        KINDS.forEach { (v, label) ->
-            val on = v == value
-            Surface(
-                onClick = { onChange(v) },
-                shape = PillShape,
-                color = if (on) Wb.colors.card else Color.Transparent,
-                shadowElevation = if (on) 1.dp else 0.dp,
-                modifier = Modifier.weight(1f).height(36.dp),
-            ) {
-                Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                    Text(label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (on) Wb.colors.ink else Wb.colors.muted)
-                }
             }
         }
     }

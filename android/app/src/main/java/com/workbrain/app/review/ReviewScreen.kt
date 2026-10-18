@@ -37,6 +37,7 @@ import com.workbrain.app.ui.Wb
 import com.workbrain.app.ui.WbIcons
 import com.workbrain.app.ui.GlassTint
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 
 /**
  * S06 검토함(1차): 모든 녹음에서 나온 승인 대기 할 일 후보를 기록별로 모아 한 번에 고른다.
@@ -47,6 +48,9 @@ fun ReviewScreen(onOpenRecord: (recordId: String, title: String) -> Unit, onCoun
     val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<InboxRow>?>(null) }
     val checked = remember { mutableStateMapOf<String, Boolean>() }
+    // 고친 값(승인 전까지 이 화면에만): 후보 ID → 승인 함수에 넘길 p_edits
+    val edits = remember { mutableStateMapOf<String, JsonObject>() }
+    var editing by remember { mutableStateOf<InboxRow?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<Pair<String, Tone>?>(null) }
 
@@ -80,13 +84,15 @@ fun ReviewScreen(onOpenRecord: (recordId: String, title: String) -> Unit, onCoun
                 item(key = "h-${record.first}") { SectionLabel("${record.second} · ${rows.size}") }
                 items(rows, key = { it.id }) { row ->
                     CandidateCard(
-                        after = row.after,
+                        after = JsonObject(row.after + edits[row.id].orEmpty()),
                         rationale = row.rationale,
                         status = row.status,
                         checked = checked[row.id] == true,
                         onChecked = { checked[row.id] = it },
                         source = "회의록 보기",
                         onOpenSource = record.first?.let { id -> { onOpenRecord(id, record.second) } },
+                        edited = row.id in edits,
+                        onEdit = { editing = row },
                     )
                 }
             }
@@ -119,7 +125,7 @@ fun ReviewScreen(onOpenRecord: (recordId: String, title: String) -> Unit, onCoun
                     onClick = {
                         busy = true
                         scope.launch {
-                            val results = runCatching { selected.map { Server.approve(it.proposal(), "inbox") } }.getOrNull()
+                            val results = runCatching { selected.map { Server.approve(it.proposal(), "inbox", edits[it.id]) } }.getOrNull()
                             message = when {
                                 results == null -> "추가하지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit
                                 results.all { it == "approved" || it == "already-approved" } ->
@@ -132,5 +138,13 @@ fun ReviewScreen(onOpenRecord: (recordId: String, title: String) -> Unit, onCoun
                 )
             }
         }
+    }
+
+    editing?.let { row ->
+        CandidateEditSheet(
+            current = JsonObject(row.after + edits[row.id].orEmpty()),
+            onDismiss = { editing = null },
+            onApply = { edits[row.id] = it; checked[row.id] = true; editing = null },
+        )
     }
 }

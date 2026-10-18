@@ -222,11 +222,13 @@ object Server {
      * context: record(기록 상세, 새 할 일만 가능 DEC-23) · inbox(검토함).
      * 결과: approved·already-approved·stale-revision 등
      */
-    suspend fun approve(p: ProposalRow, context: String): String =
+    suspend fun approve(p: ProposalRow, context: String, edits: JsonObject? = null): String =
         db.postgrest.rpc("approve_proposal", buildJsonObject {
             put("p_proposal_id", p.id)
             put("p_seen_revision", p.revision)
             put("p_context", context)
+            // 사용자가 고친 제목·담당·기한(FR-10). AI 후보 원본 위에 덮어 할 일을 만든다
+            edits?.let { put("p_edits", it) }
         }).decodeAs<JsonObject>()["result"]?.jsonPrimitive?.content ?: ""
 
     suspend fun reject(p: ProposalRow, context: String): String =

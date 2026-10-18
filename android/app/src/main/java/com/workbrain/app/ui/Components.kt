@@ -156,3 +156,27 @@ fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modi
         modifier = modifier.height(38.dp),
     ) { Text(text, style = MaterialTheme.typography.labelLarge) }
 }
+
+/** 목업 .tabs2: 둥근 바탕 안에서 고른 것만 흰 알약. options = (값, 표시 이름) */
+@Composable
+fun SegmentPills(options: List<Pair<String, String>>, value: String, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
+    Row(
+        modifier.fillMaxWidth().background(Wb.colors.surface, PillShape).border(1.dp, Wb.colors.border, PillShape).padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        options.forEach { (v, label) ->
+            val on = v == value
+            Surface(
+                onClick = { onChange(v) },
+                shape = PillShape,
+                color = if (on) Wb.colors.card else Color.Transparent,
+                shadowElevation = if (on) 1.dp else 0.dp,
+                modifier = Modifier.weight(1f).height(36.dp),
+            ) {
+                Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    Text(label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (on) Wb.colors.ink else Wb.colors.muted)
+                }
+            }
+        }
+    }
+}
