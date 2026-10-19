@@ -8,6 +8,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.workbrain.app.data.LoginRequired
 import com.workbrain.app.data.Server
 import com.workbrain.app.data.SourceRecordInsert
 import kotlinx.coroutines.delay
@@ -79,6 +80,8 @@ object UploadManager {
         val dir = RecordingStore.dir(app, sessionId)
         val session = RecordingStore.list(app, activeId = null).firstOrNull { it.id == sessionId } ?: return RunOutcome.STOPPED
         if (session.serverState == "ready") return RunOutcome.DONE
+        // 앱 화면 없이 깨어났거나 자동 갱신이 잠깐 실패했어도, 저장된 로그인으로 토큰부터 확보한다
+        Server.ensureSession()
         if (consentGiven && !Server.hasConsent()) Server.grantConsent()
         if (!Server.hasConsent()) error("WB403")
 
@@ -170,6 +173,7 @@ object UploadManager {
     internal fun friendly(e: Throwable): String {
         val m = e.message.orEmpty()
         return when {
+            e is LoginRequired -> "로그인이 필요해요. 앱을 열어 다시 로그인해 주세요"
             "WB403" in m -> "외부 전사·분석 동의가 필요해요"
             "합칠 수 있는" in m -> "올릴 수 있는 녹음 조각이 없어요"
             isTransient(e) -> "인터넷 연결을 기다리는 중이에요. 연결되면 자동으로 이어서 할게요"

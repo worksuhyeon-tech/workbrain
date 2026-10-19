@@ -110,6 +110,9 @@ data class ProcessStatus(val stage: String, val state: String, val error: String
 
 const val CONSENT_POLICY_VERSION = "2026-10-18"
 
+/** 저장된 로그인도 없거나 서버가 거부해, 사용자가 다시 로그인해야 하는 상태 */
+class LoginRequired : Exception("WB401")
+
 /** WorkBrain 서버 호출을 한곳에 모은다. 모든 데이터 접근은 로그인한 본인 것으로 서버(RLS)가 제한한다. */
 object Server {
     private val db get() = Supa.client
@@ -164,15 +167,38 @@ object Server {
         })
     }
 
+    /**
+     * 서버를 부르기 전에 로그인 토큰을 확보한다.
+     * 자동 갱신이 잠깐 실패하면(인터넷 끊김 등) 라이브러리는 세션을 저장소에 둔 채 상태만 RefreshFailure로 바꾸고,
+     * 그동안 currentSessionOrNull()이 null이라 요청에 공개 키가 붙어 401이 난다(2026-10-19 bad_jwt).
+     * 그래서 메모리 세션이 없으면 저장된 세션의 refresh token으로 직접 갱신한다.
+     * force: 세션은 있지만 서버가 401을 준 경우(기기가 잠든 사이 토큰 만료).
+     */
+    suspend fun ensureSession(force: Boolean = false) {
+        val auth = db.auth
+        val current = auth.currentSessionOrNull()
+        if (current != null && !force) return
+        val refreshToken = current?.refreshToken ?: auth.sessionManager.loadSession()?.refreshToken
+            ?: throw LoginRequired()
+        val renewed = try {
+            auth.refreshSession(refreshToken)
+        } catch (e: RestException) {
+            // 4xx는 refresh token 자체가 거부된 것(로그아웃·만료). 5xx는 서버 쪽 일시 문제라 나중에 다시 한다
+            if (e.statusCode in 400..499) throw LoginRequired()
+            throw java.io.IOException("auth refresh failed: ${e.statusCode}", e)
+        }
+        auth.importSession(renewed)
+    }
+
     /** 처리 함수를 한 번 불러 다음 단계를 진행한다 */
     suspend fun process(recordId: String): ProcessStatus {
         val body = buildJsonObject { put("record_id", recordId) }
-        // 백그라운드 처리 중에 로그인 토큰(1시간)이 끝나면 함수가 401을 준다. 토큰을 새로 받아 한 번만 다시 부른다
+        ensureSession()
         val res = try {
             db.functions.invoke("process-record", body = body)
         } catch (e: RestException) {
             if (e.statusCode != 401) throw e
-            db.auth.refreshCurrentSession()
+            ensureSession(force = true)
             db.functions.invoke("process-record", body = body)
         }
         val json = Json.parseToJsonElement(res.bodyAsText()) as JsonObject

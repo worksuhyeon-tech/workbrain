@@ -26,12 +26,8 @@ class ProcessWorker(context: Context, params: WorkerParameters) : CoroutineWorke
 
     override suspend fun doWork(): Result {
         val sessionId = inputData.getString(SESSION) ?: return Result.failure()
-        // 앱 화면 없이 깨어났을 수 있으므로 저장된 로그인 정보를 먼저 불러온다
+        // 앱 화면 없이 깨어났을 수 있으므로 저장된 로그인 정보를 먼저 불러온다(토큰 확보는 UploadManager.run에서)
         Supa.client.auth.awaitInitialization()
-        if (Supa.client.auth.currentUserOrNull() == null) {
-            UploadManager.set(sessionId, UploadProgress("로그인이 필요해요. 앱을 열어 다시 로그인해 주세요", busy = false, isError = true))
-            return Result.failure()
-        }
         return runCatching {
             UploadManager.run(
                 applicationContext, sessionId,
