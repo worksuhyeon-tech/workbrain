@@ -10,6 +10,7 @@ gpt-6-luna와 Haiku 5.5 중 한국어 회의록에서 할 일을 더 정확하�
 | `security.json` | 보안 공격 입력 10건(원문 속 명령문, NFR-08) |
 | `schema.json` | 모델 출력 JSON 형식 |
 | `prompt-v1.md` | 추출 지시문(시스템 프롬프트) |
+| `prompt-v3-draft.md` | 결정·미결 중복을 줄이는 v3 **초안**(미측정, 처리 함수 미반영). 계획은 `docs/03-analysis/ux-memo-v1.2-review.md` §5 |
 | `run.mjs` | 두 모델을 호출해 결과·토큰·비용을 `runs/`에 저장 |
 | `score.mjs` | 정답과 비교해 정밀도·재현율·필수 게이트를 계산. `--validate`는 정답 파일 점검 |
 

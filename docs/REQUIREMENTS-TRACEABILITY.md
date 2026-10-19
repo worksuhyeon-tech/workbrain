@@ -15,11 +15,11 @@
 | FR-05 | STT·원문 수정 | P1 | TranscriptVersion | S05 | TC-05 |
 | FR-06 | 업무/개인/불확실·기존 프로젝트 연결·항목 단위·확신 등급 | P1 | SourceProjectLink(item_ref, confidence) | S05/S06 | TC-06 |
 | FR-07 | 회의록 모든 항목·편집·재생성·버전 승인 | P1 | MeetingVersion/ApprovalEvent | S05/S06 | TC-07/TC-08/TC-09 |
-| FR-08 | 기본 할 일·기한·우선순위·빠른 입력·담당 구분 | P1 | Task(project_id 또는 area_id, owner_kind) | S07(S03 트리 '모든 할 일')/S05(후보 바로 추가)/S02 | TC-07/TC-17/TC-26 |
+| FR-08 | 기본 할 일·기한·우선순위·빠른 입력·담당 구분 | P1 / P1.5 Quick Capture | Task(project_id 또는 area_id, owner_kind), InboxItem(P1.5) | S07(S03 트리 '모든 할 일')/S05(후보 바로 추가)/S02 | TC-07/TC-17/TC-26 |
 | FR-09 | 기존 프로젝트 상태·할 일 변경 | P1 | ProjectStateVersion/ChangeProposal | S03/S06 | TC-08 |
-| FR-10 | 중요 변경 승인·거절·일괄 확인 | P1 | ApprovalEvent | S06 | TC-08 |
+| FR-10 | 중요 변경 승인·거절·일괄 확인 | P1 / P1.5 보관함 | ApprovalEvent, InboxItem(P1.5) | S06(P1.5 보관함) | TC-08 |
 | FR-11 | 출처·변경 이력·덮어쓰기 방지 | P1 | EvidenceLink/ActivityLog | S05/S06 | TC-09 |
-| FR-12 | 오늘/지연/팔로업·기록별 승인 대기·처리 중 기록 | P1 | Task/ChangeProposal/ProcessingJob | S02 | TC-17 |
+| FR-12 | 오늘/지연/팔로업·기록별 승인 대기·처리 중 기록, P1.5 하나 고르기·끼어들기 | P1 / P1.5 | Task/ChangeProposal/ProcessingJob, TodayPick·Task.doneAt(P1.5) | S02 | TC-17 |
 | FR-13 | 프로젝트·기간·기본 필터·키워드 | P1 | Project/MeetingVersion | S08 | TC-17 |
 | FR-14 | PC/모바일 동기화·처리 상태 | P1 | ProcessingJob | S02/S05 | TC-13 |
 | FR-15 | 기간별 보관·삭제·복구·내보내기 | P1 | DeletionRequest/Tombstone | S09 | TC-10/TC-11/TC-12 |
@@ -31,14 +31,16 @@
 | FR-21 | REST·MCP·ChatGPT/Claude/Claude Code/Codex | P3 | ExternalConnection/AccessAudit | S09 확장 | TC-19 |
 | FR-22 | 회의록 이메일·수신 주소 설정 | P1 본인 발송 / P4 확장 | MeetingVersion/MailDispatch/Settings(mail_recipients) | S05/S09 | TC-24 / TC-20 |
 | FR-23 | 반복·하위 작업·태그·고급 필터 | P4 | Task 확장 | S07 확장 | TC-21 |
-| FR-24 | 알림·캘린더·Google 동기화 | P4 | 외부 일정 매핑 추가 | S02/S07(보기 전환 자리 P1)/S09 확장 | TC-20/TC-21 |
-| FR-25 | 매트릭스·뽀모도로·습관·업무 통계 | P4 | 매트릭스는 Task.priority·기한으로 계산(추가 없음), 집중/습관 기록 추가 | S07 보기 전환(매트릭스), 나머지 P4 별도 화면 | TC-21 |
+| FR-24 | 알림·캘린더·Google 동기화 | P1.5 오늘 마감 알림 / P4 | 외부 일정 매핑 추가 | S02/S07(보기 전환 자리 P1)/S09 확장 | TC-20/TC-21 |
+| FR-25a | 집중 세션·체크포인트 | P1.5 | FocusSession/Checkpoint | S02(지금 하는 일) | P1.5 TC(미정) |
+| FR-25b | 매트릭스·습관·업무 통계 | P4 | 매트릭스는 Task.priority·기한으로 계산(추가 없음), 습관 기록 추가 | S07 보기 전환(매트릭스), 나머지 P4 별도 화면 | TC-21 |
 | FR-26 | 화자 분리 검토 | P2 선택 | TranscriptVersion 화자 매핑 | S05 확장 | TC-18 |
 | FR-27 | 복수 사용자·프로젝트 공유 권한 | P1 격리/P5 공유 | User/멤버십 추가 | S09 확장 | TC-01/TC-22 |
-| FR-28 | 검토 미루기·리마인드 | P1 미룸 / P4 알림 | ChangeProposal(snoozedUntil) | S06 | TC-08/TC-23 |
+| FR-28 | 검토 미루기·리마인드 | P1 미룸 / P1.5 계속 보관 / P4 알림 | ChangeProposal(snoozedUntil, P1.5 날짜 없음 허용) | S06 | TC-08/TC-23 |
 | FR-29 | 회의록 Word 다운로드 | P1 | MeetingVersion(document) | S05 | TC-24 |
 | FR-30 | 회의록 작성 지침 가져오기(SKILL.md) | P1 | Settings(minutesGuideline)/MeetingVersion(guidelineRev) | S09/S05 | TC-25 |
 | FR-31 | 내 용어집(업무 단어 등록) | P1 | vocab_term·wb_vocab_add | 더보기 > 내 용어집 | TC-27 |
+| FR-32 | 업무 재개 카드 | P1.5(제안) | ActivityLog·FocusSession·Checkpoint | S03 상세·S02 | P1.5 TC(미정) |
 
 ## 비기능
 
