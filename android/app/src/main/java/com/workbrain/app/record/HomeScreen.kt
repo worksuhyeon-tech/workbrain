@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,7 +56,9 @@ import com.workbrain.app.ui.PrimaryButton
 import com.workbrain.app.ui.SecondaryButton
 import com.workbrain.app.ui.SectionLabel
 import com.workbrain.app.ui.Tone
+import com.workbrain.app.ui.TwoPane
 import com.workbrain.app.ui.Wb
+import com.workbrain.app.ui.isWideWindow
 import com.workbrain.app.ui.WbCard
 import com.workbrain.app.ui.WbChip
 import androidx.compose.material3.AlertDialog
@@ -136,11 +139,8 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
         if (hasMic) RecordingService.start(context) else askPermissions.launch(permissions)
     }
 
-    LazyColumn(
-        Modifier.fillMaxSize().background(Wb.colors.surface),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+    // 녹음 카드: 한 칸이면 맨 위, 두 칸이면 왼쪽
+    fun LazyListScope.recorderItems() {
         item {
             PageHeader("녹음", if (rec.status == RecStatus.IDLE) "말한 건 다 기억해 둘게요" else "잘 듣고 있어요")
             RecorderCard(
@@ -151,18 +151,24 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
                 onStop = { RecordingService.stop(context) },
             )
             (notice ?: rec.error)?.let { Banner(it, Tone.Crit, Modifier.padding(top = 8.dp)) }
-            // 녹음 중에 참석자를 넣어 두면 올리기 시트에 그대로 채워진다(목업 S04)
-            val liveId = rec.sessionId
-            if (rec.status != RecStatus.IDLE && liveId != null) {
-                var live by remember(liveId) { mutableStateOf(sessions.firstOrNull { it.id == liveId }?.attendees.orEmpty()) }
-                WbCard(Modifier.padding(top = 8.dp)) {
-                    Text("참석자 ${live.size}명", style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
-                    AttendeesEditor(live, onChange = {
-                        live = it
-                        RecordingStore.setAttendees(RecordingStore.dir(context, liveId), it)
-                    }, Modifier.padding(top = 8.dp))
-                }
+        }
+    }
+
+    // 참석자·기기 녹음 목록: 한 칸이면 녹음 카드 아래, 두 칸이면 오른쪽(목업 S04 펼침)
+    fun LazyListScope.sessionItems() {
+        // 녹음 중에 참석자를 넣어 두면 올리기 시트에 그대로 채워진다(목업 S04)
+        val liveId = rec.sessionId
+        if (rec.status != RecStatus.IDLE && liveId != null) item(key = "attendees-$liveId") {
+            var live by remember(liveId) { mutableStateOf(sessions.firstOrNull { it.id == liveId }?.attendees.orEmpty()) }
+            WbCard {
+                Text("참석자 ${live.size}명", style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
+                AttendeesEditor(live, onChange = {
+                    live = it
+                    RecordingStore.setAttendees(RecordingStore.dir(context, liveId), it)
+                }, Modifier.padding(top = 8.dp))
             }
+        }
+        item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("기기에 저장된 녹음 · 올리기", Modifier.weight(1f))
                 TextButton(onClick = { pickAudio.launch(arrayOf("audio/*")) }) { Text("파일 가져오기", color = Wb.colors.link) }
@@ -182,6 +188,25 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
                 onDelete = { deleteTarget = s },
                 onRename = { renameTarget = s },
             )
+        }
+    }
+
+    val listModifier = Modifier.fillMaxSize().background(Wb.colors.surface)
+    val spacing = Arrangement.spacedBy(8.dp)
+    if (isWideWindow()) {
+        TwoPane(
+            leftWeight = 0.5f,
+            left = {
+                LazyColumn(listModifier, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = spacing) { recorderItems() }
+            },
+            right = {
+                LazyColumn(listModifier, contentPadding = PaddingValues(16.dp), verticalArrangement = spacing) { sessionItems() }
+            },
+        )
+    } else {
+        LazyColumn(listModifier, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = spacing) {
+            recorderItems()
+            sessionItems()
         }
     }
 

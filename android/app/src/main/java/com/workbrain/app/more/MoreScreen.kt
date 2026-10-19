@@ -44,7 +44,10 @@ import com.workbrain.app.record.RecordingService
 import com.workbrain.app.ui.GlassIcon
 import com.workbrain.app.ui.GlassTint
 import com.workbrain.app.ui.PageHeader
+import com.workbrain.app.ui.PanePlaceholder
+import com.workbrain.app.ui.TwoPane
 import com.workbrain.app.ui.WbIcons
+import com.workbrain.app.ui.isWideWindow
 import com.workbrain.app.ui.SecondaryButton
 import com.workbrain.app.ui.SectionLabel
 import com.workbrain.app.ui.Wb
@@ -52,14 +55,25 @@ import com.workbrain.app.ui.WbCard
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
 
-/** 더보기: 계정·내 용어집·이번 달 AI 비용·앱 정보·글꼴 라이선스·로그아웃 */
+/** 더보기: 계정·내 용어집·이번 달 AI 비용·앱 정보·글꼴 라이선스·로그아웃. 펼친 화면은 왼쪽 메뉴 / 오른쪽 고른 항목(목업 S09) */
 @Composable
 fun MoreScreen() {
     var vocabOpen by rememberSaveable { mutableStateOf(false) }
-    if (vocabOpen) {
+    if (isWideWindow()) {
+        TwoPane(
+            leftWeight = 0.4f,
+            left = { MoreMenu(onOpenVocab = { vocabOpen = true }) },
+            right = { if (vocabOpen) VocabScreen(onBack = null) else PanePlaceholder("왼쪽에서 항목을 고르면 여기에 열려요") },
+        )
+    } else if (vocabOpen) {
         VocabScreen(onBack = { vocabOpen = false })
-        return
+    } else {
+        MoreMenu(onOpenVocab = { vocabOpen = true })
     }
+}
+
+@Composable
+private fun MoreMenu(onOpenVocab: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val rec by RecordingService.state.collectAsStateWithLifecycle()
@@ -98,7 +112,7 @@ fun MoreScreen() {
 
         SectionLabel("받아쓰기")
         WbCard(padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
-            InfoRow("내 용어집", "업무 단어 등록 ›") { vocabOpen = true }
+            InfoRow("내 용어집", "업무 단어 등록 ›", onOpenVocab)
         }
 
         SectionLabel("AI 사용")

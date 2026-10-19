@@ -7,8 +7,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -60,10 +62,11 @@ private fun JsonObject.texts(key: String): List<String> =
 /**
  * S05 기록 상세: 회의 정리(결정 후보·미결정)와 할 일 후보.
  * 회의록을 본 자리에서 할 일을 골라 바로 추가한다. 승인 기록은 검토함과 같다(DEC-23). AI가 직접 할 일을 만들지 않는다.
+ * onBack이 null이면 펼친 화면의 오른쪽 칸에 들어간 것이라 뒤로 가기가 없다. onChanged: 추가·버리기 뒤 옆 칸 목록을 다시 읽게 알린다.
  */
 @Composable
-fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
-    BackHandler(onBack = onBack)
+fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, onChanged: () -> Unit = {}) {
+    BackHandler(enabled = onBack != null) { onBack?.invoke() }
     val scope = rememberCoroutineScope()
     var firstLoad by remember { mutableStateOf(true) }
     var meeting by remember { mutableStateOf<MeetingRow?>(null) }
@@ -99,7 +102,11 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
     val selected = pending.filter { checked[it.id] == true }
 
     Column(Modifier.fillMaxSize().background(Wb.colors.surface)) {
-        TextButton(onClick = onBack, modifier = Modifier.padding(horizontal = 4.dp)) { Text("← 녹음", color = Wb.colors.link) }
+        if (onBack != null) {
+            TextButton(onClick = onBack, modifier = Modifier.padding(horizontal = 4.dp)) { Text("← 녹음", color = Wb.colors.link) }
+        } else {
+            Spacer(Modifier.height(16.dp))
+        }
         Column(Modifier.padding(horizontal = 16.dp)) {
             Row(Modifier.clickable { renaming = true }, verticalAlignment = Alignment.CenterVertically) {
                 Text(shownTitle, style = MaterialTheme.typography.titleLarge, color = Wb.colors.ink, modifier = Modifier.weight(1f, fill = false))
@@ -207,7 +214,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
                             val drop = pending.filter { checked[it.id] != true }
                             message = runCatching { drop.forEach { Server.reject(it, "record") } }
                                 .fold({ "후보 ${drop.size}개를 버렸어요" to Tone.Mute }, { "버리지 못했어요. 다시 시도해 주세요" to Tone.Crit })
-                            load(); busy = false
+                            load(); busy = false; onChanged()
                         }
                     },
                 )
@@ -226,7 +233,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: () -> Unit) {
                                     "할 일 ${selected.size}개를 추가했어요 · 오늘 탭에서 볼 수 있어요" to Tone.Good
                                 else -> "일부는 추가하지 못했어요(${results.filterNot { it == "approved" }.joinToString()})" to Tone.Warn
                             }
-                            load(); busy = false
+                            load(); busy = false; onChanged()
                         }
                     },
                 )

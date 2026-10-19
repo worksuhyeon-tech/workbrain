@@ -62,8 +62,9 @@ private const val VOCAB_LIMIT = 200
  * 클로바노트 단어 등록과 같은 규칙(200개, 한글·영문·숫자 20자 이내)이고, 같은 엑셀 모양으로 가져오고 내보낸다.
  */
 @Composable
-fun VocabScreen(onBack: () -> Unit) {
-    BackHandler(onBack = onBack)
+fun VocabScreen(onBack: (() -> Unit)?) {
+    // null이면 펼친 화면의 오른쪽 칸이라 뒤로 가기가 없다
+    BackHandler(enabled = onBack != null) { onBack?.invoke() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var terms by remember { mutableStateOf<List<VocabRow>?>(null) }
@@ -139,7 +140,7 @@ fun VocabScreen(onBack: () -> Unit) {
 
     val list = terms.orEmpty()
     Column(Modifier.fillMaxSize().background(Wb.colors.surface)) {
-        TextButton(onClick = onBack, modifier = Modifier.padding(start = 4.dp)) { Text("← 더보기", color = Wb.colors.link) }
+        if (onBack != null) TextButton(onClick = onBack, modifier = Modifier.padding(start = 4.dp)) { Text("← 더보기", color = Wb.colors.link) }
         PageHeader("내 용어집", "자주 쓰는 말", Modifier.padding(horizontal = 16.dp))
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(8.dp),
