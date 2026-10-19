@@ -36,8 +36,11 @@ const load = (name) => JSON.parse(readFileSync(join(HERE, name), "utf8"));
 const SYSTEM = readFileSync(join(HERE, PROMPT_FILE), "utf8");
 const SCHEMA = load("schema.json");
 const CONTEXT = load("context.json");
+// 실사용 회의(--split real)는 git 제외 폴더에서 읽고, 결과도 그 폴더에 둔다(원문·결과를 공개 저장소에 올리지 않음, DEC-46)
+const PRIVATE_DIR = join(ROOT, "data-private", "eval");
+const loadSplit = (s) => (s === "real" ? JSON.parse(readFileSync(join(PRIVATE_DIR, "real-holdout.json"), "utf8")) : load(`${s}.json`));
 const records = (SPLIT === "all" ? ["dev", "holdout", "security"] : [SPLIT])
-  .flatMap((s) => load(`${s}.json`)).slice(0, LIMIT);
+  .flatMap(loadSplit).slice(0, LIMIT);
 
 const WEEKDAY = "일월화수목금토";
 
@@ -57,9 +60,12 @@ function weekLine(ymd) {
 function userMessage(r) {
   const at = r.recorded_at;
   const day = WEEKDAY[new Date(at.slice(0, 10) + "T00:00:00Z").getUTCDay()];
-  const items = CONTEXT.items.map((i) => `- ${i.id}: ${i.name} (${i.kind === "area" ? "반복실행" : "프로젝트"}${i.archived ? ", archived" : ""}) — ${i.purpose}`).join("\n");
+  // 실사용 회의는 운영 처리 함수가 보낸 것과 같은 실제 프로젝트 목록·참석자를 쓴다
+  const places = r.places ?? CONTEXT.items;
+  const items = places.map((i) => `- ${i.id}: ${i.name} (${i.kind === "area" ? "반복실행" : "프로젝트"}${i.archived ? ", archived" : ""})${i.purpose ? " — " + i.purpose : ""}`).join("\n");
+  const attendees = r.attendees?.length ? `참석자(이름 표기 기준. 이 명단만으로 담당을 정하지 않는다): ${r.attendees.join(", ")}\n\n` : "";
   const segs = r.segments.map((s, i) => `[${i}] ${s}`).join("\n");
-  return `기록 종류: ${r.type}\n녹음 시각: ${at.slice(0, 10)} (${day}) ${at.slice(11, 16)} Asia/Seoul\n${weekLine(at.slice(0, 10))}\n\n공간: ${CONTEXT.workspace}\n${items}\n\n전사:\n${segs}`;
+  return `기록 종류: ${r.type}\n녹음 시각: ${at.slice(0, 10)} (${day}) ${at.slice(11, 16)} Asia/Seoul\n${weekLine(at.slice(0, 10))}\n\n공간: ${r.workspace ?? CONTEXT.workspace}\n${items}\n\n${attendees}전사:\n${segs}`;
 }
 
 async function callOpenAI(key, r) {
@@ -138,9 +144,11 @@ async function main() {
   usage.usd = (usage.input_tokens * PRICE.input + usage.output_tokens * PRICE.output) / 1e6;
   usage.krw = usage.usd * KRW;
 
-  mkdirSync(join(HERE, "runs"), { recursive: true });
+  const outDir = SPLIT === "real" ? join(PRIVATE_DIR, "runs") : join(HERE, "runs");
+  mkdirSync(outDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const file = join(HERE, "runs", `${MODEL}__${SPLIT}__${stamp}.json`);
+  const tag = PROMPT_FILE.replace(/\.md$/, "").replace(/^prompt-/, "");
+  const file = join(outDir, `${MODEL}__${tag}__${SPLIT}__${stamp}.json`);
   writeFileSync(file, JSON.stringify({ model: MODEL, split: SPLIT, prompt_version: PROMPT_FILE, created_at: new Date().toISOString(), price_usd_per_1m: PRICE, krw_rate: KRW, usage, results }, null, 2));
   console.log(`저장: ${file}\n토큰 입력 ${usage.input_tokens} · 출력 ${usage.output_tokens} · 약 $${usage.usd.toFixed(4)} (₩${Math.round(usage.krw)})`);
   console.log(`채점: node eval/llm/score.mjs "${file}"`);

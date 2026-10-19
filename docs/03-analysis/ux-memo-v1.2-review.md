@@ -149,7 +149,7 @@
 
 ### 5.3 지시문 v3 초안
 
-[`eval/llm/prompt-v3-draft.md`](../../eval/llm/prompt-v3-draft.md)에 작성했다. **초안이며 처리 함수(`prompt.ts`)에는 넣지 않았다.** v2에서 바뀐 곳:
+[`eval/llm/prompt-v3.md`](../../eval/llm/prompt-v3.md)(당시 이름 prompt-v3-draft.md)에 작성했다. **초안이며 처리 함수(`prompt.ts`)에는 넣지 않았다.** v2에서 바뀐 곳:
 
 1. 할 일 정의를 "**약속·요청·배정이 들린 행동**"으로 좁힘(제가 할게요 / ~해 주세요 / ~하기로 해요 / ○○ 님이 ~). 
 2. **요구사항·정책 결정**("~로 바꾼다", "~는 넣지 않는다", "~해야 한다")은 decisions에만 둔다. 같은 내용을 actions에 다시 쓰지 않는다.

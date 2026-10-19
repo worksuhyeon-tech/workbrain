@@ -1,8 +1,8 @@
-// 회의록·할 일 추출 채점기 (로드맵 §2, TC-07/15)
+// 회의록·할 일 추출 채점기 (로드맵 §2, TC-07/15, DEC-46)
 //   node eval/llm/score.mjs --validate            정답 파일 점검(구간 번호·날짜·형식·건수)
 //   node eval/llm/score.mjs runs/<결과>.json       모델 결과 채점 + 검토표(.review.csv) 저장
 // 의존성 없음(Node 18+).
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,7 +10,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const load = (name) => JSON.parse(readFileSync(join(HERE, name), "utf8"));
 const CONTEXT = load("context.json");
 const LIVE_IDS = new Set(CONTEXT.items.filter((i) => !i.archived).map((i) => i.id));
-const SPLITS = { dev: load("dev.json"), holdout: load("holdout.json"), security: load("security.json") };
+// 실사용 회의(R*)는 공개 저장소에 두지 않는다(DEC-46). 이 PC에 있을 때만 보류 세트에 더한다
+const PRIVATE_FILE = join(HERE, "..", "..", "data-private", "eval", "real-holdout.json");
+const SPLITS = {
+  dev: load("dev.json"), holdout: load("holdout.json"), security: load("security.json"),
+  real: existsSync(PRIVATE_FILE) ? JSON.parse(readFileSync(PRIVATE_FILE, "utf8")) : [],
+};
 
 // ── 정답·예측을 같은 모양으로 ──
 // owner: "me" | "unknown" | "other:이름", due: "none" | "date:YYYY-MM-DD" | "datetime:YYYY-MM-DDTHH:MM" | "vague:원문"
@@ -82,9 +87,12 @@ function validate() {
         if (!m) errors.push(`${where}: due 형식 ${a.due}`);
         else if ((m[2] && !isValidDate(m[2])) || (m[3] && !isValidDate(m[3]))) errors.push(`${where}: 없는 날짜 ${a.due}`);
         else if ((m[2] || m[3]) && (m[2] || m[3]) < r.recorded_at.slice(0, 10)) errors.push(`${where}: 녹음일보다 이른 기한 ${a.due}`);
-        if (a.project !== null && !LIVE_IDS.has(a.project)) errors.push(`${where}: 프로젝트 ID ${a.project}`);
+        // 실사용 회의는 사용자의 실제 프로젝트 목록(places)을 쓴다
+        const liveIds = r.places ? new Set(r.places.map((p) => p.id)) : LIVE_IDS;
+        if (a.project !== null && !liveIds.has(a.project)) errors.push(`${where}: 프로젝트 ID ${a.project}`);
       }
       for (const x of r.gold.non_actions ?? []) checkSegs(x.segments, x.text);
+      for (const x of [...(r.gold.decisions ?? []), ...(r.gold.open_questions ?? [])]) checkSegs(x.segments, x.text);
       if (r.gold.attack) checkSegs(r.gold.attack.segments, "attack");
       t.actions += r.gold.actions.length;
       t.non_actions += (r.gold.non_actions ?? []).length;
@@ -139,13 +147,28 @@ function scoreRecord(rec, output) {
     if (!why.length) correct++;
     rows.push([rec.id, g.title, p.title, why.length ? "필드 오류" : "정답", why.join("; ")]);
   });
+  // 결정 중복(DEC-46): 짝 없는 추출이 정답 결정·미결 구간을 근거로 쓰면, 결정·미결을 할 일로 다시 쓴 것으로 따로 센다.
+  // 정밀도 분모에는 그대로 들어간다(이미 초과 추출). 결정·미결을 다 적지 않은 옛 케이스에서는 덜 잡힌다
+  const decisionSegs = [...(rec.gold.decisions ?? []), ...(rec.gold.open_questions ?? [])].flatMap((x) => x.segments);
+  let decisionDup = 0;
   preds.forEach((p, pi) => {
     if (pUsed.has(pi)) return;
     // 짝이 없는 추출 중 전사에 없는 이름을 담당으로 넣은 것도 허구
     if (p.ownerKey.startsWith("other:") && !transcript.includes(p.ownerKey.slice(6))) gates.fabricated.push(`${p.title}: 전사에 없는 담당 ${p.ownerKey}`);
-    rows.push([rec.id, "", p.title, "초과 추출", `${p.ownerKey} / ${p.dueKey}`]);
+    const dup = overlaps(p.segments, decisionSegs);
+    if (dup) decisionDup++;
+    rows.push([rec.id, "", p.title, dup ? "결정 중복" : "초과 추출", `${p.ownerKey} / ${p.dueKey}`]);
   });
-  return { gold: gold.length, pred: preds.length, correct, gates, rows };
+  return { gold: gold.length, pred: preds.length, correct, decisionDup, notes: notesRecall(rec, output), gates, rows };
+}
+
+// 결정 후보·미결정 재현율(참고): 정답 항목의 근거 구간을 모델이 같은 칸(decisions / open_questions)에서 짚었는지
+function notesRecall(rec, output) {
+  const hit = (goldList, predList) => (goldList ?? []).filter((g) => (predList ?? []).some((p) => overlaps(g.segments, p.segments ?? []))).length;
+  return {
+    gold: (rec.gold.decisions ?? []).length + (rec.gold.open_questions ?? []).length,
+    hit: hit(rec.gold.decisions, output?.decisions) + hit(rec.gold.open_questions, output?.open_questions),
+  };
 }
 
 // ── 보안 세트: 원문 속 명령을 따르지 않았는지 ──
@@ -178,20 +201,22 @@ function pct(a, b) { return b ? (100 * a / b).toFixed(1) + "%" : "-"; }
 function scoreRun(path) {
   const run = JSON.parse(readFileSync(path, "utf8"));
   const byId = new Map(run.results.map((r) => [r.id, r]));
-  const all = [...SPLITS.dev, ...SPLITS.holdout].filter((r) => byId.has(r.id));
+  const all = [...SPLITS.dev, ...SPLITS.holdout, ...SPLITS.real].filter((r) => byId.has(r.id));
   const sec = SPLITS.security.filter((r) => byId.has(r.id));
   const agg = {}, rows = [["기록", "정답 할 일", "모델 할 일", "판정", "사유"]];
   const gates = { fabricated: [], sourceMissing: [], parseErrors: [] };
   const add = (key, s) => {
-    const a = (agg[key] ??= { gold: 0, pred: 0, correct: 0 });
+    const a = (agg[key] ??= { gold: 0, pred: 0, correct: 0, decisionDup: 0, notesGold: 0, notesHit: 0 });
     a.gold += s.gold; a.pred += s.pred; a.correct += s.correct;
+    a.decisionDup += s.decisionDup; a.notesGold += s.notes.gold; a.notesHit += s.notes.hit;
   };
   for (const rec of all) {
     const res = byId.get(rec.id);
     if (res.error) gates.parseErrors.push(`${rec.id}: ${res.error}`);
     const s = scoreRecord(rec, res.output);
+    // 실사용 회의(R*)는 보류 세트로 판정하되 유형 줄은 따로 낸다
     const split = rec.id.startsWith("D") ? "dev" : "holdout";
-    add(split, s); add(`${split}/${rec.type}`, s);
+    add(split, s); add(`${split}/${rec.id.startsWith("R") ? "real" : rec.type}`, s);
     gates.fabricated.push(...s.gates.fabricated.map((x) => `${rec.id} ${x}`));
     gates.sourceMissing.push(...s.gates.sourceMissing.map((x) => `${rec.id} ${x}`));
     rows.push(...s.rows);
@@ -203,12 +228,14 @@ function scoreRun(path) {
 
   console.log(`\n모델 ${run.model} · 프롬프트 ${run.prompt_version} · ${run.created_at}`);
   for (const [k, a] of Object.entries(agg)) {
-    console.log(`${k.padEnd(18)} 정밀도 ${pct(a.correct, a.pred).padStart(6)} (${a.correct}/${a.pred})  재현율 ${pct(a.correct, a.gold).padStart(6)} (${a.correct}/${a.gold})`);
+    console.log(`${k.padEnd(18)} 정밀도 ${pct(a.correct, a.pred).padStart(6)} (${a.correct}/${a.pred})  재현율 ${pct(a.correct, a.gold).padStart(6)} (${a.correct}/${a.gold})` +
+      `  결정 중복 ${a.decisionDup}  결정·미결 재현율(참고) ${pct(a.notesHit, a.notesGold)} (${a.notesHit}/${a.notesGold})`);
   }
   if (agg.holdout) {
     const h = agg.holdout;
-    const ok = h.pred && h.correct / h.pred >= 0.9 && h.correct / h.gold >= 0.8;
-    console.log(`보류 목표(정밀도≥90%·재현율≥80%): ${ok ? "충족" : "미달"}`);
+    // DEC-46 판정 제안: 재현율 85%. 결정 중복 ≤ v2의 1/3은 두 결과를 나란히 놓고 본다
+    const ok = h.pred && h.correct / h.pred >= 0.9 && h.correct / h.gold >= 0.85;
+    console.log(`보류 목표(정밀도≥90%·재현율≥85%): ${ok ? "충족" : "미달"}`);
   }
   const secBad = secResults.filter((s) => s.violations.length);
   console.log(`필수 게이트 — 허구 확정 ${gates.fabricated.length}건 · 출처 누락 ${gates.sourceMissing.length}건 · 형식 오류 ${gates.parseErrors.length}건 · 보안 위반 ${secBad.length}/${secResults.length}건`);
