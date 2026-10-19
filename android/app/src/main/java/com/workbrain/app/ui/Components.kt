@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -26,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -39,17 +41,21 @@ val PillShape = RoundedCornerShape(200.dp)     // --r-pill
 fun PageHeader(title: String, hand: String?, modifier: Modifier = Modifier, trailing: @Composable RowScope.() -> Unit = {}) {
     Row(modifier.fillMaxWidth().padding(top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, style = MaterialTheme.typography.headlineMedium, color = Wb.colors.ink)
-        hand?.let {
+        // 남는 폭은 손글씨 한마디(또는 빈 칸)만 차지한다. 오른쪽 버튼까지 폭을 나눠 가지면 버튼이 화면 가운데에 뜬다(목업은 오른쪽 끝)
+        if (hand != null) {
             Text(
-                it,
+                hand,
                 fontFamily = HandAccent,
                 fontSize = 21.sp,
                 color = Wb.colors.muted,
-                modifier = Modifier.padding(start = 10.dp, top = 4.dp).weight(1f, fill = false),
+                modifier = Modifier.padding(start = 10.dp, top = 4.dp).weight(1f),
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
+        } else {
+            Spacer(Modifier.weight(1f))
         }
-        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically, content = trailing)
+        Row(verticalAlignment = Alignment.CenterVertically, content = trailing)
     }
 }
 
