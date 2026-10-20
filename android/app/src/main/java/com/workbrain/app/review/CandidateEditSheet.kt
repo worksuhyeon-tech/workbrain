@@ -47,14 +47,18 @@ private val OWNERS = listOf("me" to "나", "other" to "다른 사람", "unknown"
 private val DUE_KINDS = listOf("none" to "없음", "date" to "날짜", "vague" to "원문대로")
 private val DAY = DateTimeFormatter.ofPattern("M월 d일 (E)", Locale.KOREA)
 
+/** 카드에서 누른 칸: 제목·담당 뱃지·기한 뱃지(Q3) */
+enum class CandidateField(val heading: String) { Title("제목 고치기"), Owner("담당 고치기"), Due("기한 고치기") }
+
 /**
- * 할 일 후보 고치기(FR-10): 제목·담당·기한을 고친 값은 승인 때 AI 값 위에 덮어 할 일로 만든다(approve_proposal p_edits).
+ * 할 일 후보 고치기(FR-10): 고친 값은 승인 때 AI 값 위에 덮어 할 일로 만든다(approve_proposal p_edits).
+ * 카드에서 누른 칸(field) 하나만 보여 준다(Q3). 다른 칸은 현재 값을 그대로 넘긴다.
  * 후보 자체(AI 제안 원본)는 바꾸지 않는다. 고친 값은 승인 전까지 이 화면에만 있다.
  * 결과는 승인 함수가 읽는 키 전체(title·owner_kind·assignee·due_*)로 돌려준다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CandidateEditSheet(current: JsonObject, onDismiss: () -> Unit, onApply: (JsonObject) -> Unit) {
+fun CandidateEditSheet(current: JsonObject, field: CandidateField, onDismiss: () -> Unit, onApply: (JsonObject) -> Unit) {
     val wasVague = current["due_ambiguous"]?.jsonPrimitive?.booleanOrNull == true
     var title by remember { mutableStateOf(current.str("title").orEmpty()) }
     var owner by remember { mutableStateOf(current.str("owner_kind") ?: "unknown") }
@@ -63,7 +67,8 @@ fun CandidateEditSheet(current: JsonObject, onDismiss: () -> Unit, onApply: (Jso
         mutableStateOf(when { current.str("due_date") != null -> "date"; wasVague -> "vague"; else -> "none" })
     }
     var date by remember { mutableStateOf(current.str("due_date")?.let { runCatching { LocalDate.parse(it) }.getOrNull() }) }
-    var picking by remember { mutableStateOf(false) }
+    // '+ 기한'으로 들어오면(기한 없음) 날짜 고르기를 바로 띄운다
+    var picking by remember { mutableStateOf(field == CandidateField.Due && dueKind == "none") }
 
     val valid = title.isNotBlank() && (owner != "other" || assignee.isNotBlank()) && (dueKind != "date" || date != null)
 
@@ -77,32 +82,33 @@ fun CandidateEditSheet(current: JsonObject, onDismiss: () -> Unit, onApply: (Jso
             Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("할 일 고치기", style = MaterialTheme.typography.titleMedium, color = Wb.colors.ink)
+            Text(field.heading, style = MaterialTheme.typography.titleMedium, color = Wb.colors.ink)
             Text("고친 값으로 할 일이 만들어져요. AI가 낸 후보 원본은 그대로 남아요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
 
-            Label("제목")
-            OutlinedTextField(
-                value = title, onValueChange = { title = it.take(200) },
-                shape = ControlShape, modifier = Modifier.fillMaxWidth(),
-            )
-
-            Label("담당")
-            SegmentPills(OWNERS, owner) { owner = it }
-            if (owner == "other") {
-                OutlinedTextField(
-                    value = assignee, onValueChange = { assignee = it.take(40) },
-                    placeholder = { Text("이름이나 팀") }, singleLine = true,
+            when (field) {
+                CandidateField.Title -> OutlinedTextField(
+                    value = title, onValueChange = { title = it.take(200) },
                     shape = ControlShape, modifier = Modifier.fillMaxWidth(),
                 )
-            }
-
-            Label("기한")
-            SegmentPills(if (wasVague) DUE_KINDS else DUE_KINDS.dropLast(1), dueKind) { dueKind = it; if (it == "date" && date == null) picking = true }
-            when (dueKind) {
-                "date" -> TextButton(onClick = { picking = true }) {
-                    Text(date?.format(DAY) ?: "날짜 고르기", color = Wb.colors.link)
+                CandidateField.Owner -> {
+                    SegmentPills(OWNERS, owner) { owner = it }
+                    if (owner == "other") {
+                        OutlinedTextField(
+                            value = assignee, onValueChange = { assignee = it.take(40) },
+                            placeholder = { Text("이름이나 팀") }, singleLine = true,
+                            shape = ControlShape, modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
-                "vague" -> Text("'${current.str("due_text") ?: "모호"}' · 확인 필요로 둬요", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+                CandidateField.Due -> {
+                    SegmentPills(if (wasVague) DUE_KINDS else DUE_KINDS.dropLast(1), dueKind) { dueKind = it; if (it == "date" && date == null) picking = true }
+                    when (dueKind) {
+                        "date" -> TextButton(onClick = { picking = true }) {
+                            Text(date?.format(DAY) ?: "날짜 고르기", color = Wb.colors.link)
+                        }
+                        "vague" -> Text("'${current.str("due_text") ?: "모호"}' · 확인 필요로 둬요", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+                    }
+                }
             }
 
             Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -122,18 +128,13 @@ fun CandidateEditSheet(current: JsonObject, onDismiss: () -> Unit, onApply: (Jso
             onDismissRequest = { picking = false },
             confirmButton = {
                 TextButton(onClick = {
-                    state.selectedDateMillis?.let { date = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() }
+                    state.selectedDateMillis?.let { date = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate(); dueKind = "date" }
                     picking = false
                 }) { Text("확인") }
             },
             dismissButton = { TextButton(onClick = { picking = false }) { Text("취소") } },
         ) { DatePicker(state) }
     }
-}
-
-@Composable
-private fun Label(text: String) {
-    Text(text, style = MaterialTheme.typography.labelLarge, color = Wb.colors.muted, modifier = Modifier.padding(top = 8.dp))
 }
 
 /** 승인 함수가 읽는 키를 모두 채운다. 날짜를 바꾸면 시각은 버린다(날짜만 기한, 시각 지정은 다음 버전) */

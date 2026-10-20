@@ -320,8 +320,13 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
             // 통화 녹음 공유나 '통화'가 들어간 파일 이름이면 처음부터 '통화'로 고른다
             initialKind = if (target.channel == "call-share" || "통화" in target.title) "call" else "meeting",
             onDismiss = { uploadTarget = null },
-            onConfirm = { kind, permission, consentGiven, attendees ->
+            onConfirm = { title, kind, permission, consentGiven, attendees ->
                 uploadTarget = null
+                // 올리는 작업이 기기 메타에서 제목을 읽어 서버 기록을 만들므로, 시작 전에 먼저 적어 둔다
+                if (title != target.title) {
+                    RecordingStore.setTitle(RecordingStore.dir(context, target.id), title)
+                    refresh()
+                }
                 UploadManager.start(context, target, kind, permission, consentGiven, attendees)
             },
         )

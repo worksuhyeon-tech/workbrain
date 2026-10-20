@@ -65,7 +65,7 @@ fun ReviewScreen(
     val checked = remember { mutableStateMapOf<String, Boolean>() }
     // 고친 값(승인 전까지 이 화면에만): 후보 ID → 승인 함수에 넘길 p_edits
     val edits = remember { mutableStateMapOf<String, JsonObject>() }
-    var editing by remember { mutableStateOf<InboxRow?>(null) }
+    var editing by remember { mutableStateOf<Pair<InboxRow, CandidateField>?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<Pair<String, Tone>?>(null) }
 
@@ -118,7 +118,7 @@ fun ReviewScreen(
                             onOpenSource = record.first?.let { id -> { onOpenRecord(id, record.second) } },
                             edited = row.id in edits,
                             // 변경 제안은 전후를 보고 승인·버림만 한다(고친 값은 새 할 일 후보에만, approve_proposal 규칙)
-                            onEdit = if (row.targetId == null) ({ editing = row }) else null,
+                            onEdit = if (row.targetId == null) ({ field -> editing = row to field }) else null,
                             before = row.before,
                         )
                     }
@@ -170,9 +170,10 @@ fun ReviewScreen(
 
     if (detailPane != null) TwoPane(leftWeight = 0.45f, left = inbox, right = detailPane) else inbox()
 
-    editing?.let { row ->
+    editing?.let { (row, field) ->
         CandidateEditSheet(
             current = JsonObject(row.after + edits[row.id].orEmpty()),
+            field = field,
             onDismiss = { editing = null },
             onApply = { edits[row.id] = it; checked[row.id] = true; editing = null },
         )

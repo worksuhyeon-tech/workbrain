@@ -77,7 +77,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     val checked = remember { mutableStateMapOf<String, Boolean>() }
     // 고친 값(승인 전까지 이 화면에만): 후보 ID → 승인 함수에 넘길 p_edits
     val edits = remember { mutableStateMapOf<String, JsonObject>() }
-    var editing by remember { mutableStateOf<ProposalRow?>(null) }
+    var editing by remember { mutableStateOf<Pair<ProposalRow, CandidateField>?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<Pair<String, Tone>?>(null) }
     var shownTitle by remember { mutableStateOf(title) }
@@ -148,7 +148,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                     Text("이 녹음에서는 할 일을 찾지 못했어요.", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.muted)
                 } else if (pending.isNotEmpty()) {
                     Text(
-                        "체크한 것만 할 일로 추가돼요. '고치기'로 제목·담당·기한을 바꿔 추가할 수 있어요.",
+                        "체크한 것만 할 일로 추가돼요. 제목·담당·기한을 누르면 바꿔서 추가할 수 있어요.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Wb.colors.muted,
                     )
@@ -158,7 +158,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                 CandidateCard(
                     JsonObject(p.after + edits[p.id].orEmpty()), p.rationale, p.status, checked[p.id] == true,
                     onChecked = { checked[p.id] = it },
-                    edited = p.id in edits, onEdit = { editing = p },
+                    edited = p.id in edits, onEdit = { field -> editing = p to field },
                 )
             }
             if (updates.isNotEmpty()) item {
@@ -258,9 +258,10 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         }
     }
 
-    editing?.let { p ->
+    editing?.let { (p, field) ->
         CandidateEditSheet(
             current = JsonObject(p.after + edits[p.id].orEmpty()),
+            field = field,
             onDismiss = { editing = null },
             onApply = { edits[p.id] = it; checked[p.id] = true; editing = null },
         )

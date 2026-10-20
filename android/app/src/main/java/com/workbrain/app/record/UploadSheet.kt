@@ -17,8 +17,12 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.ui.text.input.ImeAction
+import com.workbrain.app.ui.MAX_TITLE
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -55,8 +59,8 @@ private val PERMISSIONS = listOf(
 )
 
 /**
- * 올리기 전 확인(목업 .sheet): 기록 종류, 클라우드 저장 허용(M11), 처음 한 번 외부 전사·분석 동의(FR-17).
- * onConfirm(kind, permission, consentGiven)
+ * 올리기 전 확인(목업 .sheet): 제목(Q2), 기록 종류, 클라우드 저장 허용(M11), 처음 한 번 외부 전사·분석 동의(FR-17).
+ * onConfirm(title, kind, permission, consentGiven, attendees) — title은 앞뒤 공백을 뗀 값, 비우면 원래 제목
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,8 +70,9 @@ fun UploadSheet(
     initialAttendees: List<String>,
     initialKind: String,
     onDismiss: () -> Unit,
-    onConfirm: (kind: String, permission: String, consentGiven: Boolean, attendees: List<String>) -> Unit,
+    onConfirm: (title: String, kind: String, permission: String, consentGiven: Boolean, attendees: List<String>) -> Unit,
 ) {
+    var titleText by remember { mutableStateOf(title) }
     var kind by remember { mutableStateOf(initialKind) }
     var attendees by remember { mutableStateOf(initialAttendees) }
     var permission by remember { mutableStateOf<String?>(null) }
@@ -84,7 +89,19 @@ fun UploadSheet(
             Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(title, style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+            // 올리기 전에 제목을 고치면 서버 기록·녹음 목록·회의록에 같은 제목으로 남는다(메모 v1.2 8번)
+            Text("제목", style = MaterialTheme.typography.titleMedium, color = Wb.colors.ink)
+            OutlinedTextField(
+                value = titleText,
+                onValueChange = { titleText = it.take(MAX_TITLE) },
+                singleLine = true,
+                placeholder = { Text("예: 사고접수 개편 2차 범위 회의") },
+                shape = ControlShape,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Spacer(Modifier.height(8.dp))
             Text("어떤 녹음인가요?", style = MaterialTheme.typography.titleMedium, color = Wb.colors.ink)
             SegmentPills(KINDS, kind) { kind = it }
             Text(
@@ -130,7 +147,10 @@ fun UploadSheet(
                     if (permission == "deny") "올리지 않아요" else "올리기",
                     enabled = canSend,
                     modifier = Modifier.weight(1f),
-                    onClick = { permission?.let { onConfirm(kind, it, consent, if (kind == "memo") emptyList() else attendees) } },
+                    onClick = {
+                        val finalTitle = titleText.trim().ifEmpty { title }
+                        permission?.let { onConfirm(finalTitle, kind, it, consent, if (kind == "memo") emptyList() else attendees) }
+                    },
                 )
             }
         }
