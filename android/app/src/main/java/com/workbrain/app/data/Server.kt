@@ -18,6 +18,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
@@ -52,8 +53,14 @@ import kotlinx.serialization.json.put
     /** 기존 할 일 변경 제안이면 대상 할 일 ID와 바뀌기 전 값(제목 포함, DEC-38). 새 할 일 후보면 null */
     @SerialName("target_id") val targetId: String? = null,
     @SerialName("before_json") val before: JsonObject? = null,
+    /** 근거 구간(전사 문장 번호). 결정과 겹치는 후보를 결정 카드 밑에 접을 때 쓴다(DEC-48) */
+    @SerialName("evidence_link") val evidence: List<EvidenceRef> = emptyList(),
 ) {
     val isUpdate get() = targetId != null
+    val segments: Set<Int> get() = evidence.flatMap { it.segments }.toSet()
+}
+@Serializable data class EvidenceRef(@SerialName("segment_ref") val ref: JsonObject? = null) {
+    val segments: List<Int> get() = (ref?.get("idx") as? JsonArray).orEmpty().mapNotNull { it.jsonPrimitive.intOrNull }
 }
 
 // 검토함: 후보와 그 후보가 나온 기록(후보 → 분석 → 전사 → 기록을 한 번에 따라간다)
@@ -238,10 +245,18 @@ object Server {
         val tv = transcriptIds(recordId).ifEmpty { return emptyList() }
         val runs = db.from("analysis_run").select { filter { isIn("input_transcript_version_id", tv) } }
             .decodeList<IdRow>().map { it.id }.ifEmpty { return emptyList() }
-        return db.from("change_proposal").select {
+        return db.from("change_proposal").select(Columns.raw("*,evidence_link(segment_ref)")) {
             filter { isIn("analysis_run_id", runs) }
             order("created_at", Order.ASCENDING)
         }.decodeList<ProposalRow>()
+    }
+
+    /**
+     * 사용자가 직접 만드는 할 일(결정 카드 '할 일로 만들기', DEC-48). AI 후보 승인 경로가 아니다.
+     * fields는 CandidateEditSheet가 돌려주는 키(title·owner_kind·assignee·due_*)만 담는다. 소유자는 DB 기본값(auth.uid)
+     */
+    suspend fun createTask(fields: JsonObject) {
+        db.from("task").insert(fields)
     }
 
     /** 모든 기록의 승인 대기 후보(검토함). 오래된 것부터 */

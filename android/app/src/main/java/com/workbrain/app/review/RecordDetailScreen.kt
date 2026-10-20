@@ -54,10 +54,27 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import com.workbrain.app.ui.WbChip
 
 private fun JsonObject.texts(key: String): List<String> =
     (this[key] as? JsonArray).orEmpty().mapNotNull { it.jsonObject.str("text")?.takeIf(String::isNotBlank) }
+
+/** 결정 후보 한 줄과 그 근거 구간(전사 문장 번호) */
+private data class Decision(val text: String, val segments: Set<Int>)
+
+private fun JsonObject.decisions(): List<Decision> =
+    (this["decisions"] as? JsonArray).orEmpty().mapNotNull { el ->
+        val o = el.jsonObject
+        val text = o.str("text")?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+        Decision(text, (o["segments"] as? JsonArray).orEmpty().mapNotNull { it.jsonPrimitive.intOrNull }.toSet())
+    }
+
+/** 근거 구간이 결정과 겹치는 첫 결정의 번호(DEC-48: 그 결정 카드 밑에 접는다). 없으면 null */
+private fun ProposalRow.overlappingDecision(decisions: List<Decision>): Int? =
+    decisions.indexOfFirst { d -> d.segments.any { it in segments } }.takeIf { it >= 0 }
 
 /**
  * S05 기록 상세: 회의 정리(결정 후보·미결정)와 할 일 후보.
@@ -82,6 +99,11 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     var message by remember { mutableStateOf<Pair<String, Tone>?>(null) }
     var shownTitle by remember { mutableStateOf(title) }
     var renaming by remember { mutableStateOf(false) }
+    // 결정 카드 '할 일로 만들기'(DEC-48): 만들 결정 문장, 이미 있는 할 일 제목(같은 결정을 두 번 만들지 않게)
+    var creatingFrom by remember { mutableStateOf<String?>(null) }
+    var openTaskTitles by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // 결정 밑에 접은 후보를 펼친 결정 번호
+    val expanded = remember { mutableStateMapOf<Int, Boolean>() }
     val context = LocalContext.current
 
     suspend fun load() {
@@ -89,17 +111,31 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             meeting = Server.meeting(recordId)
             proposals = Server.proposals(recordId)
             transcripts = Server.transcripts(recordId)
+            openTaskTitles = Server.openTasks().map { it.title.trim() }.toSet()
         }.onFailure { message = "불러오지 못했어요. 인터넷 연결을 확인해 주세요." to Tone.Crit }
-        proposals.filter { it.status == "pending" && !it.isUpdate }.forEach { checked.putIfAbsent(it.id, true) }
+        // 결정과 겹치는 후보는 결정과 중복일 가능성이 커서 처음에는 체크하지 않는다(DEC-48)
+        val decisions = meeting?.fields?.decisions().orEmpty()
+        proposals.filter { it.status == "pending" && !it.isUpdate }
+            .forEach { checked.putIfAbsent(it.id, it.overlappingDecision(decisions) == null) }
         firstLoad = false
     }
     LaunchedEffect(recordId) { load() }
 
     // 기존 할 일 변경 제안은 검토함에서 전후를 보고 승인한다(DEC-23·38). 여기서는 보여 주기만 한다
+    val decisions = meeting?.fields?.decisions().orEmpty()
     val pending = proposals.filter { it.status == "pending" && !it.isUpdate }
+    val folded = pending.groupBy { it.overlappingDecision(decisions) }
+    val loose = folded[null].orEmpty()
     val updates = proposals.filter { it.status == "pending" && it.isUpdate }
     val done = proposals.filter { it.status != "pending" }
     val selected = pending.filter { checked[it.id] == true }
+
+    @Composable
+    fun candidate(p: ProposalRow) = CandidateCard(
+        JsonObject(p.after + edits[p.id].orEmpty()), p.rationale, p.status, checked[p.id] == true,
+        onChecked = { checked[p.id] = it },
+        edited = p.id in edits, onEdit = { field -> editing = p to field },
+    )
 
     Column(Modifier.fillMaxSize().background(Wb.colors.surface)) {
         if (onBack != null) {
@@ -127,7 +163,6 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             contentPadding = PaddingValues(16.dp),
         ) {
             val fields = meeting?.fields
-            val decisions = fields?.texts("decisions").orEmpty()
             val questions = fields?.texts("open_questions").orEmpty()
             // 이미 있는 할 일이라 새로 만들지 않은 것(DEC-38)
             val tracked = (fields?.get("already_tracked") as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.str("title") }
@@ -137,30 +172,40 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             }
             if (decisions.isNotEmpty() || questions.isNotEmpty()) item {
                 WbCard {
-                    MeetingSection("결정 후보", "회의에서 정한 것처럼 들린 말이에요. 확정은 아니에요.", decisions)
+                    if (decisions.isNotEmpty()) {
+                        Text("결정 후보", style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
+                        Text("회의에서 정한 것처럼 들린 말이에요. 확정은 아니에요. 챙길 일이면 할 일로 옮겨요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+                    }
+                    decisions.forEachIndexed { i, d ->
+                        val overlaps = folded[i].orEmpty()
+                        DecisionRow(
+                            text = d.text,
+                            alreadyTask = d.text.trim() in openTaskTitles,
+                            overlapCount = overlaps.size,
+                            expanded = expanded[i] == true,
+                            onMakeTask = { creatingFrom = d.text },
+                            onToggle = { expanded[i] = expanded[i] != true },
+                        )
+                        if (expanded[i] == true) overlaps.forEach { p -> Box(Modifier.padding(top = 6.dp)) { candidate(p) } }
+                    }
                     if (decisions.isNotEmpty() && questions.isNotEmpty()) HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Wb.colors.border)
                     MeetingSection("정하지 못한 것", null, questions)
                 }
             }
             item {
-                SectionLabel("할 일 후보 ${pending.size}")
+                SectionLabel("할 일 후보 ${loose.size}")
                 if (pending.isEmpty() && done.isEmpty() && updates.isEmpty() && tracked.isEmpty()) {
                     Text("이 녹음에서는 할 일을 찾지 못했어요.", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.muted)
                 } else if (pending.isNotEmpty()) {
                     Text(
-                        "체크한 것만 할 일로 추가돼요. 제목·담당·기한을 누르면 바꿔서 추가할 수 있어요.",
+                        "체크한 것만 할 일로 추가돼요. 제목·담당·기한을 누르면 바꿔서 추가할 수 있어요." +
+                            if (loose.size < pending.size) " 결정과 겹치는 후보는 결정 밑에 접어 뒀어요." else "",
                         style = MaterialTheme.typography.bodySmall,
                         color = Wb.colors.muted,
                     )
                 }
             }
-            items(pending, key = { it.id }) { p ->
-                CandidateCard(
-                    JsonObject(p.after + edits[p.id].orEmpty()), p.rationale, p.status, checked[p.id] == true,
-                    onChecked = { checked[p.id] = it },
-                    edited = p.id in edits, onEdit = { field -> editing = p to field },
-                )
-            }
+            items(loose, key = { it.id }) { p -> candidate(p) }
             if (updates.isNotEmpty()) item {
                 SectionLabel("기존 할 일 변경 ${updates.size}")
                 Text("이미 있는 할 일의 담당·기한이 이번 녹음에서 달라졌어요. 검토함에서 전후를 보고 반영해요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
@@ -265,6 +310,43 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             onDismiss = { editing = null },
             onApply = { edits[p.id] = it; checked[p.id] = true; editing = null },
         )
+    }
+
+    // 결정 → 할 일: 사용자가 직접 만드는 할 일이라 AI 후보 승인을 거치지 않는다. 담당은 '나'로 시작하고 시트에서 바꿀 수 있다
+    creatingFrom?.let { text ->
+        CandidateEditSheet(
+            current = JsonObject(mapOf("title" to JsonPrimitive(text.take(200)), "owner_kind" to JsonPrimitive("me"))),
+            field = null,
+            onDismiss = { creatingFrom = null },
+            onApply = { fields ->
+                creatingFrom = null
+                scope.launch {
+                    message = runCatching { Server.createTask(fields) }
+                        .fold({ "할 일로 만들었어요 · 오늘 탭에서 볼 수 있어요" to Tone.Good }, { "만들지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit })
+                    load(); onChanged()
+                }
+            },
+        )
+    }
+}
+
+/** 결정 후보 한 줄: 문장 + '할 일로 만들기'(이미 같은 제목의 할 일이 있으면 '할 일 있음') + 겹치는 후보 접기 */
+@Composable
+private fun DecisionRow(text: String, alreadyTask: Boolean, overlapCount: Int, expanded: Boolean, onMakeTask: () -> Unit, onToggle: () -> Unit) {
+    Column(Modifier.padding(top = 8.dp)) {
+        Text("· $text", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (alreadyTask) {
+                WbChip("할 일 있음", Tone.Good, Modifier.padding(start = 12.dp, end = 4.dp))
+            } else {
+                TextButton(onClick = onMakeTask) { Text("할 일로 만들기", color = Wb.colors.link) }
+            }
+            if (overlapCount > 0) {
+                TextButton(onClick = onToggle) {
+                    Text("겹치는 할 일 후보 ${overlapCount}개 ${if (expanded) "▴" else "▾"}", color = Wb.colors.muted)
+                }
+            }
+        }
     }
 }
 

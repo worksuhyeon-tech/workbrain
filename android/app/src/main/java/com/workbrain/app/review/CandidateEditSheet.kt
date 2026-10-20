@@ -53,12 +53,13 @@ enum class CandidateField(val heading: String) { Title("제목 고치기"), Owne
 /**
  * 할 일 후보 고치기(FR-10): 고친 값은 승인 때 AI 값 위에 덮어 할 일로 만든다(approve_proposal p_edits).
  * 카드에서 누른 칸(field) 하나만 보여 준다(Q3). 다른 칸은 현재 값을 그대로 넘긴다.
+ * field가 null이면 결정 카드에서 새 할 일을 만드는 것(DEC-48)이라 세 칸을 모두 보여 주고 버튼은 '할 일로 만들기'.
  * 후보 자체(AI 제안 원본)는 바꾸지 않는다. 고친 값은 승인 전까지 이 화면에만 있다.
  * 결과는 승인 함수가 읽는 키 전체(title·owner_kind·assignee·due_*)로 돌려준다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CandidateEditSheet(current: JsonObject, field: CandidateField, onDismiss: () -> Unit, onApply: (JsonObject) -> Unit) {
+fun CandidateEditSheet(current: JsonObject, field: CandidateField?, onDismiss: () -> Unit, onApply: (JsonObject) -> Unit) {
     val wasVague = current["due_ambiguous"]?.jsonPrimitive?.booleanOrNull == true
     var title by remember { mutableStateOf(current.str("title").orEmpty()) }
     var owner by remember { mutableStateOf(current.str("owner_kind") ?: "unknown") }
@@ -82,38 +83,48 @@ fun CandidateEditSheet(current: JsonObject, field: CandidateField, onDismiss: ()
             Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(field.heading, style = MaterialTheme.typography.titleMedium, color = Wb.colors.ink)
-            Text("고친 값으로 할 일이 만들어져요. AI가 낸 후보 원본은 그대로 남아요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+            Text(field?.heading ?: "할 일로 만들기", style = MaterialTheme.typography.titleMedium, color = Wb.colors.ink)
+            Text(
+                if (field == null) "결정 후보를 내 할 일로 옮겨요. 제목·담당·기한을 확인해 주세요."
+                else "고친 값으로 할 일이 만들어져요. AI가 낸 후보 원본은 그대로 남아요.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Wb.colors.muted,
+            )
 
-            when (field) {
-                CandidateField.Title -> OutlinedTextField(
+            // 만들 때(field == null)는 세 칸을 모두, 고칠 때는 누른 칸만 보여 준다
+            fun shows(f: CandidateField) = field == null || field == f
+            if (shows(CandidateField.Title)) {
+                if (field == null) Label("제목")
+                OutlinedTextField(
                     value = title, onValueChange = { title = it.take(200) },
                     shape = ControlShape, modifier = Modifier.fillMaxWidth(),
                 )
-                CandidateField.Owner -> {
-                    SegmentPills(OWNERS, owner) { owner = it }
-                    if (owner == "other") {
-                        OutlinedTextField(
-                            value = assignee, onValueChange = { assignee = it.take(40) },
-                            placeholder = { Text("이름이나 팀") }, singleLine = true,
-                            shape = ControlShape, modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
+            }
+            if (shows(CandidateField.Owner)) {
+                if (field == null) Label("담당")
+                SegmentPills(OWNERS, owner) { owner = it }
+                if (owner == "other") {
+                    OutlinedTextField(
+                        value = assignee, onValueChange = { assignee = it.take(40) },
+                        placeholder = { Text("이름이나 팀") }, singleLine = true,
+                        shape = ControlShape, modifier = Modifier.fillMaxWidth(),
+                    )
                 }
-                CandidateField.Due -> {
-                    SegmentPills(if (wasVague) DUE_KINDS else DUE_KINDS.dropLast(1), dueKind) { dueKind = it; if (it == "date" && date == null) picking = true }
-                    when (dueKind) {
-                        "date" -> TextButton(onClick = { picking = true }) {
-                            Text(date?.format(DAY) ?: "날짜 고르기", color = Wb.colors.link)
-                        }
-                        "vague" -> Text("'${current.str("due_text") ?: "모호"}' · 확인 필요로 둬요", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+            }
+            if (shows(CandidateField.Due)) {
+                if (field == null) Label("기한")
+                SegmentPills(if (wasVague) DUE_KINDS else DUE_KINDS.dropLast(1), dueKind) { dueKind = it; if (it == "date" && date == null) picking = true }
+                when (dueKind) {
+                    "date" -> TextButton(onClick = { picking = true }) {
+                        Text(date?.format(DAY) ?: "날짜 고르기", color = Wb.colors.link)
                     }
+                    "vague" -> Text("'${current.str("due_text") ?: "모호"}' · 확인 필요로 둬요", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
                 }
             }
 
             Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SecondaryButton("취소", onClick = onDismiss, modifier = Modifier.height(44.dp))
-                PrimaryButton("적용", enabled = valid, modifier = Modifier.weight(1f), onClick = {
+                PrimaryButton(if (field == null) "할 일로 만들기" else "적용", enabled = valid, modifier = Modifier.weight(1f), onClick = {
                     onApply(edits(current, title.trim(), owner, assignee.trim(), dueKind, date))
                 })
             }
@@ -135,6 +146,11 @@ fun CandidateEditSheet(current: JsonObject, field: CandidateField, onDismiss: ()
             dismissButton = { TextButton(onClick = { picking = false }) { Text("취소") } },
         ) { DatePicker(state) }
     }
+}
+
+@Composable
+private fun Label(text: String) {
+    Text(text, style = MaterialTheme.typography.labelLarge, color = Wb.colors.muted, modifier = Modifier.padding(top = 8.dp))
 }
 
 /** 승인 함수가 읽는 키를 모두 채운다. 날짜를 바꾸면 시각은 버린다(날짜만 기한, 시각 지정은 다음 버전) */
