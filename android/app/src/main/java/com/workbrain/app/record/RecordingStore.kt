@@ -29,6 +29,8 @@ data class RecordingSession(
     val attendees: List<String> = emptyList(),
     /** 어디서 왔나: recording(앱 녹음) · upload(파일 가져오기) · call-share(통화 녹음 공유), DEC-40 */
     val channel: String = "recording",
+    /** 휴지통에 넣은 시각(DEC-51). 있으면 녹음 목록에서 빠지고 휴지통에만 보인다 */
+    val trashedAt: Long? = null,
 ) {
     /** 서버에 음성이 다 올라가 있어 기기 사본이 없어도 되는 상태 */
     val serverHasAudio get() = serverState == "uploaded" || serverState == "ready"
@@ -38,6 +40,8 @@ object RecordingStore {
     private const val META = "session.json"
     /** 처리 완료 후 기기 음성 보관 기간(사용자 결정 2026-10-18: 7일 뒤 자동 삭제 + 바로 지우기) */
     const val KEEP_AFTER_READY_MS = 7L * 24 * 60 * 60 * 1000
+    /** 휴지통 보관 기간(DEC-51: 서버 음성 보관 30일과 맞춤). 지나면 목록 줄만 없앤다 */
+    const val KEEP_IN_TRASH_MS = 30L * 24 * 60 * 60 * 1000
 
     private fun root(context: Context) = File(context.filesDir, "recordings").apply { mkdirs() }
 
@@ -127,19 +131,39 @@ object RecordingStore {
         write(dir, m.put("audioDeletedAt", System.currentTimeMillis()))
     }
 
-    /** 올리지 않은 녹음을 버릴 때: 세션 통째로 지운다 */
+    /** 올리지 않은 녹음을 버리거나 휴지통에서 영구 삭제할 때: 세션 통째로 지운다(서버 기록은 그대로) */
     fun deleteSession(dir: File) {
         dir.deleteRecursively()
     }
 
     /**
-     * 처리 완료 후 7일 지난 기기 음성을 지운다. 앱을 열 때마다 부른다.
+     * 휴지통으로(DEC-51): 서버에 올라간 녹음만 온다. 기기 음성은 바로 지우고 목록 줄(서버 기록 연결)만 30일 둔다.
+     * 서버의 음성·전사·회의록·할 일 후보는 건드리지 않으므로 되살리면 그대로 다시 열린다.
+     */
+    fun trash(dir: File) {
+        deleteAudio(dir)
+        val m = read(dir) ?: return
+        write(dir, m.put("trashedAt", System.currentTimeMillis()))
+    }
+
+    fun restore(dir: File) {
+        val m = read(dir) ?: return
+        m.remove("trashedAt")
+        write(dir, m)
+    }
+
+    /**
+     * 처리 완료 후 7일 지난 기기 음성과, 휴지통에서 30일 지난 줄을 지운다. 앱을 열 때마다 부른다.
      * 이 기능 전에 처리된 녹음은 완료 시각이 없으므로 지금부터 7일을 센다(바로 지우지 않음).
      */
     fun purgeExpired(context: Context, now: Long = System.currentTimeMillis()): Int {
         var purged = 0
         root(context).listFiles().orEmpty().filter { it.isDirectory }.forEach { dir ->
             val m = read(dir) ?: return@forEach
+            if (m.has("trashedAt")) {
+                if (now - m.optLong("trashedAt") >= KEEP_IN_TRASH_MS) { deleteSession(dir); purged++ }
+                return@forEach
+            }
             if (m.optString("serverState") != "ready") return@forEach
             if (!m.has("readyAt")) { write(dir, m.put("readyAt", now)); return@forEach }
             if (now - m.optLong("readyAt") >= KEEP_AFTER_READY_MS && audioFiles(dir).isNotEmpty()) {
@@ -150,9 +174,17 @@ object RecordingStore {
         return purged
     }
 
-    fun list(context: Context, activeId: String?): List<RecordingSession> =
+    /** 녹음 목록(휴지통 제외) */
+    fun list(context: Context, activeId: String?): List<RecordingSession> = sessions(context, activeId, trashed = false)
+
+    /** 휴지통(최근에 버린 것부터) */
+    fun listTrash(context: Context): List<RecordingSession> =
+        sessions(context, activeId = null, trashed = true).sortedByDescending { it.trashedAt }
+
+    private fun sessions(context: Context, activeId: String?, trashed: Boolean): List<RecordingSession> =
         root(context).listFiles().orEmpty().filter { it.isDirectory }.mapNotNull { dir ->
             val m = read(dir) ?: return@mapNotNull null
+            if (m.has("trashedAt") != trashed) return@mapNotNull null
             val segs = audioFiles(dir)
             var status = m.optString("status")
             var duration = m.optLong("durationMs")
@@ -175,6 +207,7 @@ object RecordingStore {
                 audioDeleted = m.has("audioDeletedAt"),
                 attendees = attendees(m),
                 channel = m.optString("channel").ifEmpty { "recording" },
+                trashedAt = m.optLong("trashedAt").takeIf { m.has("trashedAt") },
             )
         }.sortedByDescending { it.startedAt }
 

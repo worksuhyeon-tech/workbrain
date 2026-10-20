@@ -42,4 +42,6 @@ object WbIcons {
     val Pause = line("pause", "M9 6v12", "M15 6v12")
     val Play = line("play", "M8 5.5v13l10-6.5z", fill = true)
     val Pencil = line("pencil", "M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z", "M13.5 6.5l4 4")
+    val Check = line("check", "M5 12.5l4.5 4.5L19 7.5")
+    val Trash = line("trash", "M4 7h16", "M9 7V4h6v3", "M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12", "M10 11v6", "M14 11v6")
 }

@@ -62,7 +62,16 @@ import com.workbrain.app.ui.isWideWindow
 import com.workbrain.app.ui.WbCard
 import com.workbrain.app.ui.WbChip
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SnackbarData
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.clickable
@@ -88,7 +97,21 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     var deleteTarget by remember { mutableStateOf<RecordingSession?>(null) }
     // 제목 고치기 창 대상
     var renameTarget by remember { mutableStateOf<RecordingSession?>(null) }
+    // 휴지통(DEC-51): 열려 있을 때만 목록을 읽는다
+    var trashItems by remember { mutableStateOf<List<RecordingSession>?>(null) }
     val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
+
+    fun refresh() { sessions = RecordingStore.list(context, rec.sessionId) }
+
+    // 지운 뒤 화면 아래에 잠깐 알린다. 되돌릴 수 있으면 '되돌리기'를 함께 보여 준다
+    fun announce(message: String, undo: (() -> Unit)? = null) {
+        scope.launch {
+            snackbar.currentSnackbarData?.dismiss()
+            val result = snackbar.showSnackbar(message, actionLabel = if (undo != null) "되돌리기" else null, duration = SnackbarDuration.Short)
+            if (result == SnackbarResult.ActionPerformed) undo?.invoke()
+        }
+    }
 
     // 파일 가져오기(DEC-40): 복사가 끝나면 바로 올리기 시트를 연다
     fun importAudio(uri: android.net.Uri, channel: String, mime: String? = null) {
@@ -171,6 +194,7 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("기기에 저장된 녹음 · 올리기", Modifier.weight(1f))
+                TextButton(onClick = { trashItems = RecordingStore.listTrash(context) }) { Text("휴지통", color = Wb.colors.link) }
                 TextButton(onClick = { pickAudio.launch(arrayOf("audio/*")) }) { Text("파일 가져오기", color = Wb.colors.link) }
             }
             if (sessions.isEmpty()) {
@@ -178,36 +202,80 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
             }
         }
         items(sessions, key = { it.id }) { s ->
-            SessionRow(
-                s = s,
-                progress = uploads[s.id],
-                isActive = s.id == rec.sessionId,
-                onUpload = { uploadTarget = s },
-                onResume = { UploadManager.resume(context, s) },
-                onOpen = { s.recordId?.let { onOpenRecord(it, s.title) } },
-                onDelete = { deleteTarget = s },
-                onRename = { renameTarget = s },
-            )
+            val isActive = s.id == rec.sessionId
+            val row = @Composable {
+                SessionRow(
+                    s = s,
+                    progress = uploads[s.id],
+                    isActive = isActive,
+                    onUpload = { uploadTarget = s },
+                    onResume = { UploadManager.resume(context, s) },
+                    onOpen = { s.recordId?.let { onOpenRecord(it, s.title) } },
+                    onRename = { renameTarget = s },
+                )
+            }
+            // 왼쪽으로 밀어 목록에서 지운다. 올리기·처리 중인 녹음은 지우면 처리가 멈추므로 밀 수 없다
+            val processed = s.serverState == "ready"
+            val localOnly = s.recordId == null && s.status != "recording"
+            if (!isActive && (processed || localOnly)) {
+                SwipeToDelete(onSwiped = {
+                    if (processed) {
+                        // 처리된 녹음: 휴지통으로(기기 음성은 지우고 서버 기록 연결만 30일 둔다)
+                        val dir = RecordingStore.dir(context, s.id)
+                        RecordingStore.trash(dir)
+                        refresh()
+                        announce("${s.title} 삭제되었어요") { RecordingStore.restore(dir); refresh() }
+                        true
+                    } else {
+                        // 올리지 않은 녹음은 되돌릴 수 없어 한 번 더 묻는다
+                        deleteTarget = s
+                        false
+                    }
+                }) { row() }
+            } else {
+                row()
+            }
         }
     }
 
     val listModifier = Modifier.fillMaxSize().background(Wb.colors.surface)
     val spacing = Arrangement.spacedBy(8.dp)
-    if (isWideWindow()) {
-        TwoPane(
-            leftWeight = 0.5f,
-            left = {
-                LazyColumn(listModifier, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = spacing) { recorderItems() }
-            },
-            right = {
-                LazyColumn(listModifier, contentPadding = PaddingValues(16.dp), verticalArrangement = spacing) { sessionItems() }
-            },
-        )
-    } else {
-        LazyColumn(listModifier, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = spacing) {
-            recorderItems()
-            sessionItems()
+    Box(Modifier.fillMaxSize()) {
+        if (isWideWindow()) {
+            TwoPane(
+                leftWeight = 0.5f,
+                left = {
+                    LazyColumn(listModifier, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = spacing) { recorderItems() }
+                },
+                right = {
+                    LazyColumn(listModifier, contentPadding = PaddingValues(16.dp), verticalArrangement = spacing) { sessionItems() }
+                },
+            )
+        } else {
+            LazyColumn(listModifier, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = spacing) {
+                recorderItems()
+                sessionItems()
+            }
         }
+        // 흐름을 막지 않게 화면 아래에 잠깐 떴다 사라진다
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(16.dp)) { DoneSnackbar(it) }
+    }
+
+    trashItems?.let { items ->
+        TrashSheet(
+            items = items,
+            onRestore = { s ->
+                RecordingStore.restore(RecordingStore.dir(context, s.id))
+                trashItems = RecordingStore.listTrash(context)
+                refresh()
+                announce("${s.title} 되살렸어요")
+            },
+            onDeleteForever = { s ->
+                RecordingStore.deleteSession(RecordingStore.dir(context, s.id))
+                trashItems = RecordingStore.listTrash(context)
+            },
+            onDismiss = { trashItems = null },
+        )
     }
 
     renameTarget?.let { r ->
@@ -228,19 +296,14 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     deleteTarget?.let { d ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text(if (d.serverHasAudio) "기기에서 음성 지우기" else "녹음 버리기") },
-            text = {
-                Text(
-                    if (d.serverHasAudio) "이 휴대폰에 있는 음성만 지워요. 서버에 올린 회의록·할 일은 그대로 볼 수 있어요."
-                    else "아직 올리지 않은 녹음이라 지우면 완전히 사라져요. 되돌릴 수 없어요.",
-                )
-            },
+            title = { Text("녹음 버리기") },
+            text = { Text("아직 올리지 않은 녹음이라 지우면 완전히 사라져요. 되돌릴 수 없어요.") },
             confirmButton = {
                 TextButton(onClick = {
-                    val dir = RecordingStore.dir(context, d.id)
-                    if (d.serverHasAudio) RecordingStore.deleteAudio(dir) else RecordingStore.deleteSession(dir)
+                    RecordingStore.deleteSession(RecordingStore.dir(context, d.id))
                     deleteTarget = null
-                    sessions = RecordingStore.list(context, rec.sessionId)
+                    refresh()
+                    announce("${d.title} 삭제되었어요")
                 }) { Text("지우기", color = Wb.colors.crit) }
             },
             dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("취소") } },
@@ -355,7 +418,6 @@ private fun SessionRow(
     onUpload: () -> Unit,
     onResume: () -> Unit,
     onOpen: () -> Unit,
-    onDelete: () -> Unit,
     onRename: () -> Unit,
 ) {
     val (badge, tone) = when {
@@ -387,7 +449,7 @@ private fun SessionRow(
                 WbChip(badge, tone)
             }
             // 기기 음성을 지운 뒤에도 서버에서 정리된 기록은 계속 열 수 있다
-            if (!isActive && (s.segments > 0 || s.serverHasAudio)) SessionActions(s, progress, onUpload, onResume, onOpen, onDelete)
+            if (!isActive && (s.segments > 0 || s.serverHasAudio)) SessionActions(s, progress, onUpload, onResume, onOpen)
         }
     }
 }
@@ -400,7 +462,6 @@ private fun SessionActions(
     onUpload: () -> Unit,
     onResume: () -> Unit,
     onOpen: () -> Unit,
-    onDelete: () -> Unit,
 ) {
     // 앱을 다시 열었는데 진행 표시가 없으면, 백그라운드 작업이 이어서 하는 중이다
     val shown = progress ?: if (s.recordId != null && s.serverState != "ready") {
@@ -429,9 +490,52 @@ private fun SessionActions(
             s.recordId != null -> SecondaryButton("이어서 처리", onClick = onResume)
             else -> SecondaryButton("올리기", onClick = onUpload)
         }
-        Spacer(Modifier.weight(1f))
-        if (s.segments > 0) TextButton(onClick = onDelete) { Text("지우기", color = Wb.colors.muted) }
     }
+}
+
+/** 지움·되살림 알림: 체크 표시 + 문구 + (있으면) 되돌리기 */
+@Composable
+private fun DoneSnackbar(data: SnackbarData) {
+    Surface(shape = ControlShape, color = Wb.colors.ink, shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(WbIcons.Check, contentDescription = null, tint = Wb.colors.surface, modifier = Modifier.size(18.dp))
+            Text(
+                data.visuals.message,
+                color = Wb.colors.surface,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(start = 10.dp, top = 8.dp, bottom = 8.dp),
+            )
+            data.visuals.actionLabel?.let { label ->
+                TextButton(onClick = data::performAction) { Text(label, color = Wb.colors.surface, fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
+}
+
+/** 왼쪽으로 살짝 밀면 빨간 휴지통이 보이고, 절반 넘게 밀면 지운다. onSwiped가 false면 제자리로 돌아온다 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToDelete(onSwiped: () -> Boolean, content: @Composable () -> Unit) {
+    val state = rememberSwipeToDismissBoxState(
+        confirmValueChange = { it == SwipeToDismissBoxValue.EndToStart && onSwiped() },
+        positionalThreshold = { total -> total * 0.5f },
+    )
+    SwipeToDismissBox(
+        state = state,
+        enableDismissFromStartToEnd = false,
+        backgroundContent = {
+            // 밀고 있을 때만 빨간 바탕을 그린다(둥근 모서리 틈으로 비치지 않게)
+            val dragging = state.dismissDirection == SwipeToDismissBoxValue.EndToStart
+            Box(
+                Modifier.fillMaxSize().background(if (dragging) Wb.colors.crit else Color.Transparent, ControlShape).padding(end = 24.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                if (dragging) Icon(WbIcons.Trash, contentDescription = "지우기", tint = Color.White, modifier = Modifier.size(26.dp))
+            }
+        },
+    ) { content() }
 }
 
 /** 기기에 남은 음성 크기와, 처리 완료 뒤 자동 삭제까지 남은 날 */

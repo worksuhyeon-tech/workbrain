@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.BuildConfig
 import com.workbrain.app.Supa
 import com.workbrain.app.data.Server
+import com.workbrain.app.record.AttendeesEditor
 import com.workbrain.app.record.RecStatus
 import com.workbrain.app.record.RecordingService
 import com.workbrain.app.ui.GlassIcon
@@ -79,9 +80,16 @@ private fun MoreMenu(onOpenVocab: () -> Unit) {
     val rec by RecordingService.state.collectAsStateWithLifecycle()
     var costKrw by remember { mutableStateOf<Int?>(null) }
     var license by remember { mutableStateOf<String?>(null) }
+    var myNames by remember { mutableStateOf<List<String>?>(null) }
+    var myNamesError by remember { mutableStateOf(false) }
+    var myNamesLoadFailed by remember { mutableStateOf(false) }
     val email = Supa.client.auth.currentUserOrNull()?.email.orEmpty()
 
-    LaunchedEffect(Unit) { costKrw = runCatching { Server.monthCostKrw() }.getOrNull() }
+    LaunchedEffect(Unit) {
+        costKrw = runCatching { Server.monthCostKrw() }.getOrNull()
+        myNames = runCatching { Server.myNames() }.getOrNull()
+        myNamesLoadFailed = myNames == null
+    }
 
     Column(
         Modifier.fillMaxSize().background(Wb.colors.surface).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
@@ -107,6 +115,36 @@ private fun MoreMenu(onOpenVocab: () -> Unit) {
             }
             if (rec.status != RecStatus.IDLE) {
                 Text("녹음 중에는 로그아웃할 수 없어요", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted, modifier = Modifier.padding(top = 8.dp))
+            }
+            HorizontalDivider(color = Wb.colors.border, modifier = Modifier.padding(vertical = 12.dp))
+            Text("내 이름·호칭", style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
+            Text(
+                "회의·통화에서 이 이름을 불러 맡긴 일은 담당이 '나'로 잡혀요. 새로 처리하는 기록부터 적용돼요.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Wb.colors.muted,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            myNames?.let { names ->
+                AttendeesEditor(
+                    names = names,
+                    onChange = { changed ->
+                        myNames = changed
+                        scope.launch {
+                            // 저장에 실패하면 화면을 서버 값으로 되돌린다
+                            myNamesError = runCatching { Server.saveMyNames(changed) }.isFailure
+                            if (myNamesError) myNames = names
+                        }
+                    },
+                    max = 5,
+                    placeholder = "이름·호칭 (예: 김하늘, 하늘)",
+                    showRecent = false,
+                )
+            }
+            if (myNamesLoadFailed) {
+                Text("불러오지 못했어요. 다시 열어 주세요", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+            }
+            if (myNamesError) {
+                Text("저장하지 못했어요. 다시 시도해 주세요", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted, modifier = Modifier.padding(top = 4.dp))
             }
         }
 

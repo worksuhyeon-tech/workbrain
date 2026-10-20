@@ -89,6 +89,14 @@ async function loadAttendees(db: SupabaseClient, uid: string, recordId: string):
   return (data?.attendees ?? []) as string[];
 }
 
+// 내 이름·호칭(DEC-49): 이름 표기 기준 + AI가 담당으로 뽑은 이름이 내 이름이면 담당을 '나'로 바꾼다
+async function loadMyNames(db: SupabaseClient, uid: string): Promise<string[]> {
+  const { data } = await db.from("settings").select("my_names").eq("user_id", uid).single();
+  return (data?.my_names ?? []) as string[];
+}
+// "하늘 님", "하늘씨"도 같은 사람으로 본다
+const normName = (s: string) => s.replace(/\s+/g, "").replace(/(님|씨)$/, "").toLowerCase();
+
 function splitSentences(text: string): string[] {
   return text.split(/(?<=[.?!])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
 }
@@ -130,8 +138,9 @@ async function runStt(db: SupabaseClient, uid: string, recordId: string, job: Jo
     owner_id: uid, source_record_id: recordId, kind: "stt-original", content: text, segments, retention_expires_at: expires.toISOString(),
   });
   if (insErr) throw new Error("전사 저장 실패");
-  // 용어집이나 참석자가 있으면 교정 단계를 거친다(DEC-36·39)
-  const next = (await loadVocab(db, uid)).length || (await loadAttendees(db, uid, recordId)).length ? "CORRECT" : "EXTRACT";
+  // 용어집·참석자·내 이름 중 하나라도 있으면 교정 단계를 거친다(DEC-36·39·49)
+  const needsCorrect = (await loadVocab(db, uid)).length || (await loadAttendees(db, uid, recordId)).length || (await loadMyNames(db, uid)).length;
+  const next = needsCorrect ? "CORRECT" : "EXTRACT";
   await db.from("processing_job").update({
     stage: next, stage_state: "PENDING", retry_count: 0, last_error: null, lease_until: null, updated_at: new Date().toISOString(),
   }).eq("id", job.id);
@@ -169,7 +178,8 @@ async function runCorrect(db: SupabaseClient, uid: string, recordId: string, job
     .order("created_at", { ascending: false }).limit(1).single();
   if (!tv) throw new Error("전사를 찾지 못했어요");
   const vocab = await loadVocab(db, uid);
-  const attendees = await loadAttendees(db, uid, recordId);
+  // 내 이름도 참석자처럼 표기 기준으로 넘긴다(DEC-49)
+  const attendees = [...new Set([...await loadAttendees(db, uid, recordId), ...await loadMyNames(db, uid)])];
   const original = String(tv.content ?? "");
 
   let corrected = original;
@@ -289,6 +299,7 @@ async function runExtract(db: SupabaseClient, uid: string, recordId: string, job
   ];
   const validIds = new Set(places.map((p) => p.id));
   const vocab = await loadVocab(db, uid);
+  const myNames = new Set((await loadMyNames(db, uid)).map(normName).filter(Boolean));
 
   // 녹음 시각은 서울 기준 날짜·요일로 준다(기한 계산의 기준)
   const at = new Date(rec.occurred_at ?? rec.ingested_at);
@@ -329,8 +340,10 @@ async function runExtract(db: SupabaseClient, uid: string, recordId: string, job
     const assignee = ownerKind === "other" && typeof a.assignee === "string" && a.assignee.trim() ? a.assignee.trim().slice(0, 40) : null;
     if (ownerKind === "other" && !assignee) ownerKind = "unknown";
     if (ownerKind === "me" && rec.record_kind !== "memo") ownerKind = "unknown";   // 회의·통화에서 '나'는 추정 금지(DEC-27)
+    // 이름으로 불러 맡긴 일이 내 이름이면 '나'(DEC-49). 대화 순서 추측이 아니라 불린 이름만 본다
+    const isMine = ownerKind === "other" && myNames.has(normName(assignee!));
     const after: Record<string, unknown> = {
-      title, owner_kind: ownerKind, assignee,
+      title, owner_kind: isMine ? "me" : ownerKind, assignee: isMine ? null : assignee,
       project_id: typeof a.project_id === "string" && validIds.has(a.project_id) ? a.project_id : null,
       due_date: null, due_time: null, due_ambiguous: false, due_text: null,
     };

@@ -89,6 +89,7 @@ import kotlinx.serialization.json.put
 @Serializable data class CostRow(@SerialName("confirmed_krw") val krw: Int = 0)
 
 @Serializable data class MeetingRow(val id: String, val fields: JsonObject)
+@Serializable data class MyNamesRow(@SerialName("my_names") val myNames: List<String>)
 
 @Serializable data class TranscriptRow(val id: String, val kind: String = "", val content: String? = null)
 
@@ -283,6 +284,15 @@ object Server {
     /** 기록 제목 바꾸기. 회의록·검토함은 기록 제목을 따라 보여 준다 */
     suspend fun renameRecord(recordId: String, title: String) {
         db.from("source_record").update({ set("title", title) }) { filter { eq("id", recordId) } }
+    }
+
+    /** 내 이름·호칭(DEC-49): 회의에서 이 이름으로 맡긴 일은 처리 함수가 담당을 '나'로 바꾼다 */
+    suspend fun myNames(): List<String> =
+        db.from("settings").select(Columns.list("my_names")).decodeSingle<MyNamesRow>().myNames
+
+    /** 설정 행은 가입 때 만들어지고 RLS가 본인 행만 바꾼다. 상한(5개)은 DB 제약이 지킨다 */
+    suspend fun saveMyNames(names: List<String>) {
+        db.from("settings").update({ set("my_names", names) }) { filter { eq("user_id", uid()) } }
     }
 
     /** 내 용어집(DEC-33), 클로바노트처럼 최신순 */

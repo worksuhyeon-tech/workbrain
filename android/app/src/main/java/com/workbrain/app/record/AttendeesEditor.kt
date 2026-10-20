@@ -57,18 +57,26 @@ object RecentAttendees {
 /**
  * 참석자 입력(Design S04 Attendees, DEC-39): 넣은 사람은 칩(누르면 빼기), 아래에 이름 입력과 최근 참석자.
  * 참석자는 회의록의 참석자 칸과 이름 표기 교정에만 쓴다. 명단만으로 담당자를 정하지 않는다.
+ * 더보기 '내 이름·호칭'(DEC-49)도 같은 입력을 쓴다(상한 5개, 최근 참석자 없음).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun AttendeesEditor(names: List<String>, onChange: (List<String>) -> Unit, modifier: Modifier = Modifier) {
+fun AttendeesEditor(
+    names: List<String>,
+    onChange: (List<String>) -> Unit,
+    modifier: Modifier = Modifier,
+    max: Int = MAX_ATTENDEES,
+    placeholder: String = "이름 (예: 박지훈)",
+    showRecent: Boolean = true,
+) {
     val context = LocalContext.current
     var input by remember { mutableStateOf("") }
-    val recent = remember { RecentAttendees.get(context) }.filter { it !in names }
+    val recent = if (showRecent) remember { RecentAttendees.get(context) }.filter { it !in names } else emptyList()
 
     fun add(raw: String) {
         // 호칭은 떼고 이름만 남긴다("박지훈님" → "박지훈")
         val name = raw.trim().removeSuffix("님").trim().take(MAX_NAME)
-        if (name.isEmpty() || name in names || names.size >= MAX_ATTENDEES) return
+        if (name.isEmpty() || name in names || names.size >= max) return
         onChange(names + name)
         input = ""
     }
@@ -90,7 +98,7 @@ fun AttendeesEditor(names: List<String>, onChange: (List<String>) -> Unit, modif
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it.take(MAX_NAME + 1) },
-                placeholder = { Text("이름 (예: 박지훈)") },
+                placeholder = { Text(placeholder) },
                 singleLine = true,
                 shape = ControlShape,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -98,7 +106,7 @@ fun AttendeesEditor(names: List<String>, onChange: (List<String>) -> Unit, modif
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(8.dp))
-            SecondaryButton("추가", enabled = input.isNotBlank() && names.size < MAX_ATTENDEES, onClick = { add(input) })
+            SecondaryButton("추가", enabled = input.isNotBlank() && names.size < max, onClick = { add(input) })
         }
         if (recent.isNotEmpty()) {
             Text("최근 참석자", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
