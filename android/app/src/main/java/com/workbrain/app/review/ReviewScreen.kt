@@ -10,9 +10,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.triStateToggleable
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TriStateCheckbox
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,7 +39,6 @@ import com.workbrain.app.ui.EmptyState
 import com.workbrain.app.ui.PageHeader
 import com.workbrain.app.ui.PrimaryButton
 import com.workbrain.app.ui.SecondaryButton
-import com.workbrain.app.ui.SectionLabel
 import com.workbrain.app.ui.Tone
 import com.workbrain.app.ui.TwoPane
 import com.workbrain.app.ui.Wb
@@ -90,7 +97,16 @@ fun ReviewScreen(
                     EmptyState("검토 끝! 깔끔해요", "녹음을 올리면 할 일 후보가 여기에 모여요.", icon = WbIcons.Review, tint = GlassTint.Green)
                 }
                 list.groupBy { it.recordId to it.recordTitle }.forEach { (record, rows) ->
-                    item(key = "h-${record.first}") { SectionLabel("${record.second} · ${rows.size}") }
+                    item(key = "h-${record.first}") {
+                        val count = rows.count { checked[it.id] == true }
+                        GroupHeader(
+                            label = "${record.second} · ${rows.size}",
+                            state = when (count) { rows.size -> ToggleableState.On; 0 -> ToggleableState.Off; else -> ToggleableState.Indeterminate },
+                            enabled = !busy,
+                            // 전부 체크돼 있으면 모두 풀고, 아니면(일부·없음) 모두 체크한다
+                            onToggle = { val all = count == rows.size; rows.forEach { checked[it.id] = !all } },
+                        )
+                    }
                     items(rows, key = { it.id }) { row ->
                         CandidateCard(
                             after = JsonObject(row.after + edits[row.id].orEmpty()),
@@ -160,5 +176,25 @@ fun ReviewScreen(
             onDismiss = { editing = null },
             onApply = { edits[row.id] = it; checked[row.id] = true; editing = null },
         )
+    }
+}
+
+/** 녹음별 묶음 제목: 왼쪽 체크로 그 녹음의 후보를 한 번에 고르거나 푼다(일부만 골랐으면 '–') */
+@Composable
+private fun GroupHeader(label: String, state: ToggleableState, enabled: Boolean, onToggle: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 8.dp)
+            .triStateToggleable(state = state, enabled = enabled, role = Role.Checkbox, onClick = onToggle),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // 카드 안 체크와 같은 세로줄에 오도록 카드 안쪽 여백(4dp)만큼 띄운다
+        TriStateCheckbox(
+            state = state,
+            onClick = null,
+            enabled = enabled,
+            colors = CheckboxDefaults.colors(checkedColor = Wb.colors.primary, uncheckedColor = Wb.colors.borderStrong),
+            modifier = Modifier.padding(start = 4.dp).size(48.dp),
+        )
+        Text(label, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, color = Wb.colors.muted)
     }
 }
