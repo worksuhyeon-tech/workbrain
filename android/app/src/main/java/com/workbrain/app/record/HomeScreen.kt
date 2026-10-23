@@ -116,20 +116,25 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     }
 
     // 파일 가져오기(DEC-40): 복사가 끝나면 바로 올리기 시트를 연다
-    fun importAudio(uri: android.net.Uri, channel: String, mime: String? = null) {
+    fun runImport(work: () -> FileImporter.Result) {
         scope.launch {
-            when (val r = withContext(Dispatchers.IO) { FileImporter.import(context, uri, channel, mime) }) {
+            when (val r = withContext(Dispatchers.IO) { work() }) {
                 is FileImporter.Result.Ok -> { notice = null; sessions = RecordingStore.list(context, rec.sessionId); uploadTarget = r.session }
                 is FileImporter.Result.Rejected -> notice = r.reason
             }
         }
     }
     val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) importAudio(uri, "upload")
+        if (uri != null) runImport { FileImporter.import(context, uri, "upload") }
     }
-    val shared by SharedAudio.pending.collectAsStateWithLifecycle()
+    val shared by SharedImport.pending.collectAsStateWithLifecycle()
     LaunchedEffect(shared) {
-        shared?.let { SharedAudio.pending.value = null; importAudio(it.uri, "call-share", it.mime) }
+        val item = shared ?: return@LaunchedEffect
+        SharedImport.pending.value = null
+        when (item) {
+            is SharedImport.Item.File -> runImport { FileImporter.import(context, item.uri, "call-share", item.mime) }
+            is SharedImport.Item.Text -> runImport { FileImporter.importSharedText(context, item.text, item.subject) }
+        }
     }
 
     // 처리 완료 후 7일 지난 기기 음성 정리(앱을 열 때)

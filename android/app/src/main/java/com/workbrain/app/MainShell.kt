@@ -31,7 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.workbrain.app.record.UploadManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.workbrain.app.record.SharedAudio
+import com.workbrain.app.record.SharedImport
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -80,8 +80,8 @@ fun MainShell() {
     // 앱을 열 때: 결과가 아직 없는 녹음은 백그라운드 처리를 다시 건다(강제 중지 뒤에도 이어 가기, DEC-37)
     val context = LocalContext.current
     LaunchedEffect(Unit) { UploadManager.ensureRunning(context) }
-    // 다른 앱에서 음성을 공유하면 녹음 화면으로 와서 가져오기를 이어 간다(DEC-40)
-    val shared by SharedAudio.pending.collectAsStateWithLifecycle()
+    // 다른 앱에서 음성·글을 공유하면 녹음 화면으로 와서 가져오기를 이어 간다(DEC-40·53)
+    val shared by SharedImport.pending.collectAsStateWithLifecycle()
     LaunchedEffect(shared) { if (shared != null) { tab = Tab.RECORD; detailId = null } }
 
     // 펼친 화면(두 칸, DEC-47): 메뉴는 왼쪽 세로, 검토함에서 연 기록은 전체 화면 대신 오른쪽 칸에 연다.

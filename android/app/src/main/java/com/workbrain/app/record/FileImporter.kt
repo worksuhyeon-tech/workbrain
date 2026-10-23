@@ -76,10 +76,24 @@ object FileImporter {
             context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
         }.getOrNull() ?: return Result.Rejected("파일을 읽지 못했어요. 다시 골라 주세요.")
         if (raw.size > TEXT_MAX_BYTES) return Result.Rejected("글 파일이 1MB를 넘어요.")
-        val parsed = TranscriptText.parse(raw.toString(Charsets.UTF_8))
-        if (parsed.body.isBlank()) return Result.Rejected("파일에 받아쓴 글이 없어요.")
+        return saveText(context, raw.toString(Charsets.UTF_8), name?.substringBeforeLast('.'), modified)
+    }
 
-        val title = (parsed.title ?: name?.substringBeforeLast('.'))?.trim()?.take(80)?.ifEmpty { null } ?: "가져온 받아쓰기"
+    /** 파일이 아니라 글 자체(EXTRA_TEXT)로 공유받았을 때. subject는 공유한 앱이 붙인 제목 */
+    fun importSharedText(context: Context, text: String, subject: String?): Result {
+        if (text.toByteArray().size > TEXT_MAX_BYTES) return Result.Rejected("공유한 글이 1MB를 넘어요.")
+        // 클로바노트 '링크 공유'처럼 주소만 오면 내용을 받을 수 없다
+        if (text.trim().let { it.startsWith("http") && it.none(Char::isWhitespace) }) {
+            return Result.Rejected("링크는 가져올 수 없어요. 클로바노트에서 txt 파일로 내보내 공유해 주세요.")
+        }
+        return saveText(context, text, subject, modified = null)
+    }
+
+    private fun saveText(context: Context, raw: String, fallbackTitle: String?, modified: Long?): Result {
+        val parsed = TranscriptText.parse(raw)
+        if (parsed.body.isBlank()) return Result.Rejected("받아쓴 글이 없어요.")
+
+        val title = (parsed.title ?: fallbackTitle)?.trim()?.take(80)?.ifEmpty { null } ?: "가져온 받아쓰기"
         val dir = RecordingStore.createImported(context, title, parsed.startedAt ?: modified ?: System.currentTimeMillis(), parsed.durationMs ?: 0L, TEXT_CHANNEL)
         File(dir, "import.$TEXT_EXT").writeText(parsed.body)
         val session = RecordingStore.list(context, activeId = null).first { it.id == dir.name }
@@ -92,8 +106,11 @@ object FileImporter {
     private const val TEXT_MAX_BYTES = 1024L * 1024
 }
 
-/** 다른 앱에서 '공유 → WorkBrain'으로 받은 파일을 녹음 화면에 넘기는 통로(MainActivity → HomeScreen) */
-object SharedAudio {
-    data class Item(val uri: Uri, val mime: String?)
+/** 다른 앱에서 '공유 → WorkBrain'으로 받은 파일·글을 녹음 화면에 넘기는 통로(MainActivity → HomeScreen) */
+object SharedImport {
+    sealed interface Item {
+        data class File(val uri: Uri, val mime: String?) : Item
+        data class Text(val text: String, val subject: String?) : Item
+    }
     val pending = kotlinx.coroutines.flow.MutableStateFlow<Item?>(null)
 }

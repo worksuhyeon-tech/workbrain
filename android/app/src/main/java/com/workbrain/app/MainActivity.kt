@@ -17,7 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.auth.LoginScreen
-import com.workbrain.app.record.SharedAudio
+import com.workbrain.app.record.SharedImport
 import com.workbrain.app.ui.WorkBrainTheme
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.handleDeeplinks
@@ -39,11 +39,17 @@ class MainActivity : ComponentActivity() {
         receiveShared(intent)
     }
 
-    // 다른 앱의 '공유'로 받은 음성 파일: 녹음 화면이 가져오기를 이어서 한다(파일 읽기 권한은 이 화면이 살아 있는 동안 유효)
+    // 다른 앱의 '공유'로 받은 음성·글: 녹음 화면이 가져오기를 이어서 한다(파일 읽기 권한은 이 화면이 살아 있는 동안 유효).
+    // 글은 파일(EXTRA_STREAM)로 오기도, 본문(EXTRA_TEXT)으로 오기도 해서 둘 다 받는다(DEC-53)
     private fun receiveShared(intent: Intent) {
         if (intent.action != Intent.ACTION_SEND) return
-        val uri = androidx.core.content.IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java) ?: return
-        SharedAudio.pending.value = SharedAudio.Item(uri, intent.type)
+        val uri = androidx.core.content.IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java)
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+        SharedImport.pending.value = when {
+            uri != null -> SharedImport.Item.File(uri, intent.type)
+            !text.isNullOrBlank() -> SharedImport.Item.Text(text, intent.getStringExtra(Intent.EXTRA_SUBJECT))
+            else -> return
+        }
     }
 }
 
