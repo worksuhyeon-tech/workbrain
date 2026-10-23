@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -47,9 +50,15 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AppRoot() {
     val status by Supa.client.auth.sessionStatus.collectAsStateWithLifecycle()
-    when (status) {
-        is SessionStatus.Authenticated -> MainShell()
-        is SessionStatus.Initializing -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    // 앱이 다시 앞으로 올 때(파일 고르기에서 돌아올 때 등) 로그인 라이브러리가 저장된 세션을 다시 읽느라 잠깐 Initializing이 된다.
+    // 이때 MainShell을 내리면 화면 상태와 진행 중인 작업(가져온 파일의 올리기 창 열기 등)이 모두 취소되므로,
+    // 한 번 로그인된 뒤의 Initializing은 화면을 그대로 둔다
+    var wasAuthenticated by remember { mutableStateOf(false) }
+    if (status is SessionStatus.Authenticated) wasAuthenticated = true
+    else if (status !is SessionStatus.Initializing) wasAuthenticated = false
+    when {
+        status is SessionStatus.Authenticated || (status is SessionStatus.Initializing && wasAuthenticated) -> MainShell()
+        status is SessionStatus.Initializing -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
         else -> LoginScreen()

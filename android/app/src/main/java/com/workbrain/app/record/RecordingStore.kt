@@ -31,6 +31,8 @@ data class RecordingSession(
     val channel: String = "recording",
     /** 휴지통에 넣은 시각(DEC-51). 있으면 녹음 목록에서 빠지고 휴지통에만 보인다 */
     val trashedAt: Long? = null,
+    /** 목록에 들어온 시각. 가져온 파일은 startedAt이 파일 날짜(몇 달 전일 수 있음)라, 방금 가져온 것이 맨 위에 오도록 이 값으로 줄 세운다 */
+    val addedAt: Long = startedAt,
 ) {
     /** 서버에 음성이 다 올라가 있어 기기 사본이 없어도 되는 상태 */
     val serverHasAudio get() = serverState == "uploaded" || serverState == "ready"
@@ -73,6 +75,7 @@ object RecordingStore {
             .put("id", dir.name)
             .put("title", title)
             .put("startedAt", startedAt)
+            .put("addedAt", System.currentTimeMillis())
             .put("status", "imported")
             .put("durationMs", durationMs)
             .put("channel", channel))
@@ -208,8 +211,9 @@ object RecordingStore {
                 attendees = attendees(m),
                 channel = m.optString("channel").ifEmpty { "recording" },
                 trashedAt = m.optLong("trashedAt").takeIf { m.has("trashedAt") },
+                addedAt = m.optLong("addedAt", m.optLong("startedAt")),
             )
-        }.sortedByDescending { it.startedAt }
+        }.sortedByDescending { it.addedAt }
 
     private fun read(dir: File): JSONObject? =
         runCatching { JSONObject(File(dir, META).readText()) }.getOrNull()

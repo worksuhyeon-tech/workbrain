@@ -74,6 +74,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.clickable
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
@@ -97,11 +98,12 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     var deleteTarget by remember { mutableStateOf<RecordingSession?>(null) }
     // 제목 고치기 창 대상
     var renameTarget by remember { mutableStateOf<RecordingSession?>(null) }
+    // 이 화면에서 정지를 누른 녹음. 저장이 끝나면 올리기 시트를 바로 연다(제목·종류·참석자를 기억할 때 바로 넣도록)
+    var stoppedId by remember { mutableStateOf<String?>(null) }
     // 휴지통(DEC-51): 열려 있을 때만 목록을 읽는다
     var trashItems by remember { mutableStateOf<List<RecordingSession>?>(null) }
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-
     fun refresh() { sessions = RecordingStore.list(context, rec.sessionId) }
 
     // 지운 뒤 화면 아래에 잠깐 알린다. 되돌릴 수 있으면 '되돌리기'를 함께 보여 준다
@@ -139,10 +141,21 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     // 녹음이 시작·정지되거나 조각이 확정되거나 올리기 단계가 바뀔 때 목록을 다시 읽는다
     LaunchedEffect(rec.status, rec.sessionId, rec.confirmedMs, uploads) {
         sessions = RecordingStore.list(context, rec.sessionId)
+        // 서비스가 마지막 조각을 닫고 IDLE로 돌아온 뒤에 연다. 저장된 소리가 없으면(바로 정지 등) 올릴 것이 없어 열지 않는다
+        if (rec.status == RecStatus.IDLE) {
+            stoppedId?.let { id ->
+                stoppedId = null
+                sessions.firstOrNull { it.id == id && it.status == "stopped" && it.segments > 0 }?.let { uploadTarget = it }
+            }
+        }
     }
+    // 시트는 바로 열고 동의 여부는 시트 안에서 기다린다. 서버 요청 한도(150초)를 그대로 기다리면 창이 안 뜬 것처럼 보이므로
+    // 5초 안에 답이 없거나 실패하면 '동의 필요'로 보고 동의 칸을 보여 준다
     LaunchedEffect(uploadTarget) {
         needConsent = null
-        if (uploadTarget != null) needConsent = runCatching { !Server.hasConsent() }.getOrDefault(true)
+        if (uploadTarget != null) {
+            needConsent = runCatching { withTimeoutOrNull(5_000) { !Server.hasConsent() } }.getOrNull() ?: true
+        }
     }
 
     val permissions = buildList {
@@ -171,7 +184,10 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
                 onStart = ::startRecording,
                 onPause = { RecordingService.pause(context) },
                 onResume = { RecordingService.resume(context) },
-                onStop = { RecordingService.stop(context) },
+                onStop = {
+                    stoppedId = rec.sessionId
+                    RecordingService.stop(context)
+                },
             )
             (notice ?: rec.error)?.let { Banner(it, Tone.Crit, Modifier.padding(top = 8.dp)) }
         }
@@ -195,7 +211,8 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("기기에 저장된 녹음 · 올리기", Modifier.weight(1f))
                 TextButton(onClick = { trashItems = RecordingStore.listTrash(context) }) { Text("휴지통", color = Wb.colors.link) }
-                TextButton(onClick = { pickAudio.launch(arrayOf("audio/*")) }) { Text("파일 가져오기", color = Wb.colors.link) }
+                // 음성 또는 클로바노트 등에서 받아쓴 txt(DEC-53)
+                TextButton(onClick = { pickAudio.launch(arrayOf("audio/*", "text/plain")) }) { Text("파일 가져오기", color = Wb.colors.link) }
             }
             if (sessions.isEmpty()) {
                 Text("아직 녹음이 없어요. 올리기를 누르기 전까지는 이 휴대폰 안에만 있어요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
@@ -310,12 +327,10 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
         )
     }
 
-    val target = uploadTarget
-    val consentNeeded = needConsent
-    if (target != null && consentNeeded != null) {
+    uploadTarget?.let { target ->
         UploadSheet(
             title = target.title,
-            needConsent = consentNeeded,
+            needConsent = needConsent,
             initialAttendees = target.attendees,
             // 통화 녹음 공유나 '통화'가 들어간 파일 이름이면 처음부터 '통화'로 고른다
             initialKind = if (target.channel == "call-share" || "통화" in target.title) "call" else "meeting",

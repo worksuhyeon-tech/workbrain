@@ -86,7 +86,18 @@ object UploadManager {
         if (!Server.hasConsent()) error("WB403")
 
         var recordId = session.recordId
-        if (session.serverState == null) {
+        if (session.serverState == null && session.channel == FileImporter.TEXT_CHANNEL) {
+            // 받아쓴 글(DEC-53): 음성 없이 글만 보내고 서버는 받아쓰기를 건너뛴다
+            val text = RecordingStore.importedFile(dir)?.readText() ?: error("가져온 글 파일이 없어요")
+            if (recordId == null) {
+                recordId = UUID.randomUUID().toString()
+                Server.createRecord(newRecord(recordId, session, kind, permission))
+                RecordingStore.setServer(dir, recordId, null)
+            }
+            set(sessionId, UploadProgress("글 올리는 중", busy = true))
+            Server.recordTextReady(recordId, text)
+            RecordingStore.setServer(dir, recordId, "uploaded")
+        } else if (session.serverState == null) {
             // 가져온 파일은 그대로, 앱 녹음은 조각을 하나로 합쳐 올린다
             val imported = RecordingStore.importedFile(dir)
             val merged = File(dir, "upload.m4a")
@@ -103,16 +114,7 @@ object UploadManager {
             }
             if (recordId == null) {
                 recordId = UUID.randomUUID().toString()
-                Server.createRecord(SourceRecordInsert(
-                    id = recordId,
-                    workspaceId = Server.workspaceId(),
-                    channel = session.channel,
-                    title = session.title,
-                    occurredAt = Instant.ofEpochMilli(session.startedAt).toString(),
-                    storagePermission = permission,
-                    recordKind = kind,
-                    attendees = session.attendees,
-                ))
+                Server.createRecord(newRecord(recordId, session, kind, permission))
                 RecordingStore.setServer(dir, recordId, null)
             }
             set(sessionId, UploadProgress("올리는 중 · %.1fMB".format(bytes.size / 1_048_576.0), busy = true))
@@ -160,6 +162,17 @@ object UploadManager {
         set(id, UploadProgress("아직 처리 중이에요. 자동으로 이어서 할게요", busy = true))
         return RunOutcome.LATER
     }
+
+    private suspend fun newRecord(recordId: String, session: RecordingSession, kind: String, permission: String) = SourceRecordInsert(
+        id = recordId,
+        workspaceId = Server.workspaceId(),
+        channel = session.channel,
+        title = session.title,
+        occurredAt = Instant.ofEpochMilli(session.startedAt).toString(),
+        storagePermission = permission,
+        recordKind = kind,
+        attendees = session.attendees,
+    )
 
     private fun sha256(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }

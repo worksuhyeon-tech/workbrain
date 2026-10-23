@@ -60,13 +60,14 @@ private val PERMISSIONS = listOf(
 
 /**
  * 올리기 전 확인(목업 .sheet): 제목(Q2), 기록 종류, 클라우드 저장 허용(M11), 처음 한 번 외부 전사·분석 동의(FR-17).
+ * needConsent가 null이면 서버에 동의 여부를 묻는 중이라 '올리기'를 잠시 막는다.
  * onConfirm(title, kind, permission, consentGiven, attendees) — title은 앞뒤 공백을 뗀 값, 비우면 원래 제목
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UploadSheet(
     title: String,
-    needConsent: Boolean,
+    needConsent: Boolean?,
     initialAttendees: List<String>,
     initialKind: String,
     onDismiss: () -> Unit,
@@ -77,7 +78,7 @@ fun UploadSheet(
     var attendees by remember { mutableStateOf(initialAttendees) }
     var permission by remember { mutableStateOf<String?>(null) }
     var consent by remember { mutableStateOf(false) }
-    val canSend = permission != null && permission != "deny" && (!needConsent || consent)
+    val canSend = permission != null && permission != "deny" && (needConsent == false || (needConsent == true && consent))
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -126,7 +127,9 @@ fun UploadSheet(
             Text("앱이 내용을 보고 자동으로 판단하지 않아요. 직접 골라 주세요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
             PERMISSIONS.forEach { opt -> PermissionCard(opt, selected = permission == opt.value) { permission = opt.value } }
 
-            if (needConsent) {
+            if (needConsent == null) {
+                Text("외부 AI 처리 동의 여부를 확인하고 있어요…", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+            } else if (needConsent) {
                 Spacer(Modifier.height(8.dp))
                 Text("외부 AI 처리 동의 (처음 한 번)", style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
                 Text(

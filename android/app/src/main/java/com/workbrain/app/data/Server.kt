@@ -175,6 +175,14 @@ object Server {
         })
     }
 
+    /** 받아쓴 글 가져오기(DEC-53): 원문을 저장하고 받아쓰기 없이 교정 단계부터 처리를 건다(서버 0022) */
+    suspend fun recordTextReady(recordId: String, text: String) {
+        db.postgrest.rpc("wb_record_text_ready", buildJsonObject {
+            put("p_record_id", recordId)
+            put("p_text", text)
+        })
+    }
+
     /**
      * 서버를 부르기 전에 로그인 토큰을 확보한다.
      * 자동 갱신이 잠깐 실패하면(인터넷 끊김 등) 라이브러리는 세션을 저장소에 둔 채 상태만 RefreshFailure로 바꾸고,
