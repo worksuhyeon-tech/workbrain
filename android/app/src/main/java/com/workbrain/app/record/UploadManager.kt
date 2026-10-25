@@ -59,7 +59,7 @@ object UploadManager {
      */
     fun ensureRunning(context: Context) {
         RecordingStore.list(context, activeId = null)
-            .filter { it.recordId != null && it.serverState != "ready" }
+            .filter { it.recordId != null && it.serverState != "ready" && it.serverState != "failed" }
             .forEach { enqueue(context, it.id, "meeting", "personal", false, ExistingWorkPolicy.KEEP) }
     }
 
@@ -145,6 +145,8 @@ object UploadManager {
                     return RunOutcome.STOPPED
                 }
                 s.state == "FAILED" && (s.error?.contains("세 번") == true || s.error?.contains("말소리") == true) -> {
+                    // 서버가 더 시도하지 않는 실패: 기기에도 남겨 목록에서 밀어 지울 수 있게 한다
+                    RecordingStore.setServer(dir, recordId, "failed")
                     set(id, UploadProgress(s.error ?: "처리에 실패했어요", busy = false, isError = true))
                     return RunOutcome.STOPPED
                 }

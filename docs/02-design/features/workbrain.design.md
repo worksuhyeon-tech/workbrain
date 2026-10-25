@@ -507,7 +507,7 @@ create table audio_asset (
   duration_sec  int,                           -- <= 120분 계획 상한
   mime          text not null,                 -- m4a/mp3/wav/webm (검사 후 허용)
   retention_expires_at timestamptz not null,
-  unique (owner_id, file_hash)                 -- 중복 업로드 멱등(NFR-03)
+  unique (owner_id, source_record_id)          -- 같은 기록 올리기 재시도 멱등(NFR-03). 같은 파일을 다른 기록으로 올리면 다시 처리(DEC-55)
 );
 
 create table source_project_link (             -- 기록의 '항목'↔프로젝트 연결(FR-06, M16)

@@ -3,6 +3,14 @@ package com.workbrain.app.record
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import com.workbrain.app.ui.CardShape
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -110,7 +118,10 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     fun announce(message: String, undo: (() -> Unit)? = null) {
         scope.launch {
             snackbar.currentSnackbarData?.dismiss()
-            val result = snackbar.showSnackbar(message, actionLabel = if (undo != null) "되돌리기" else null, duration = SnackbarDuration.Short)
+            // 남은 시간을 게이지로 보여 주려면 사라지는 시점을 앱이 정해야 한다(기본 Short는 접근성 설정에 따라 늘어남)
+            val result = withTimeoutOrNull(TOAST_MS) {
+                snackbar.showSnackbar(message, actionLabel = if (undo != null) "되돌리기" else null, duration = SnackbarDuration.Indefinite)
+            }
             if (result == SnackbarResult.ActionPerformed) undo?.invoke()
         }
     }
@@ -236,8 +247,9 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
                     onRename = { renameTarget = s },
                 )
             }
-            // 왼쪽으로 밀어 목록에서 지운다. 올리기·처리 중인 녹음은 지우면 처리가 멈추므로 밀 수 없다
-            val processed = s.serverState == "ready"
+            // 왼쪽으로 밀어 목록에서 지운다. 올리기·처리 중인 녹음은 지우면 처리가 멈추므로 밀 수 없다.
+            // 서버가 실패로 멈춘 녹음은 더 처리되지 않으므로 정리 완료처럼 휴지통으로 보낸다
+            val processed = s.serverState == "ready" || s.serverState == "failed"
             val localOnly = s.recordId == null && s.status != "recording"
             if (!isActive && (processed || localOnly)) {
                 SwipeToDelete(onSwiped = {
@@ -450,6 +462,7 @@ private fun SessionRow(
         s.status == "interrupted" -> "중단됨 · 확정분만 남음" to Tone.Warn
         s.status == "failed" -> "시작 실패" to Tone.Crit
         s.serverState == "ready" -> "정리 완료" to Tone.Good
+        s.serverState == "failed" -> "처리 실패" to Tone.Crit
         s.recordId != null -> "올림" to Tone.Info
         s.status == "imported" -> "가져온 파일" to Tone.Mute
         else -> "기기에만 있음" to Tone.Mute
@@ -474,7 +487,7 @@ private fun SessionRow(
                 WbChip(badge, tone)
             }
             // 기기 음성을 지운 뒤에도 서버에서 정리된 기록은 계속 열 수 있다
-            if (!isActive && (s.segments > 0 || s.serverHasAudio)) SessionActions(s, progress, onUpload, onResume, onOpen)
+            if (!isActive && (s.segments > 0 || s.serverHasAudio || s.serverState == "failed")) SessionActions(s, progress, onUpload, onResume, onOpen)
         }
     }
 }
@@ -489,9 +502,11 @@ private fun SessionActions(
     onOpen: () -> Unit,
 ) {
     // 앱을 다시 열었는데 진행 표시가 없으면, 백그라운드 작업이 이어서 하는 중이다
-    val shown = progress ?: if (s.recordId != null && s.serverState != "ready") {
-        UploadProgress("백그라운드에서 처리 중 · 결과가 나오면 알려 드릴게요", busy = true)
-    } else null
+    val shown = progress ?: when {
+        s.serverState == "failed" -> UploadProgress("처리하지 못했어요 · 왼쪽으로 밀어 지우고 다시 올려 주세요", busy = false, isError = true)
+        s.recordId != null && s.serverState != "ready" -> UploadProgress("백그라운드에서 처리 중 · 결과가 나오면 알려 드릴게요", busy = true)
+        else -> null
+    }
     val busy = shown?.busy == true
     shown?.let {
         Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -508,7 +523,8 @@ private fun SessionActions(
         }
     }
     // 지금 이 화면에서 돌고 있는 작업이면 버튼을 숨기고, 백그라운드 추정 표시일 때는 '이어서 처리'로 바로 다시 돌릴 수 있게 둔다
-    if (busy && progress != null) return
+    // 실패로 멈춘 녹음은 다시 돌려도 같으니 버튼 없이 안내만 둔다
+    if ((busy && progress != null) || s.serverState == "failed") return
     Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         when {
             s.serverState == "ready" -> PrimaryButton("회의록·할 일 보기", onClick = onOpen)
@@ -518,22 +534,38 @@ private fun SessionActions(
     }
 }
 
-/** 지움·되살림 알림: 체크 표시 + 문구 + (있으면) 되돌리기 */
+/** 알림이 떠 있는 시간(DEC-51, 10/26 사용자 요청으로 4초 → 3초). 게이지도 같은 시간 동안 줄어든다 */
+private const val TOAST_MS = 3_000L
+
+/**
+ * 지움·되살림 알림: 체크 표시 + 문구 + (있으면) 되돌리기 + 아래 남은 시간 게이지.
+ * 바탕은 불투명(반투명은 글씨가 덜 보여 사용자가 되돌림, 10/26)
+ */
 @Composable
 private fun DoneSnackbar(data: SnackbarData) {
-    Surface(shape = ControlShape, color = Wb.colors.ink, shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(WbIcons.Check, contentDescription = null, tint = Wb.colors.surface, modifier = Modifier.size(18.dp))
-            Text(
-                data.visuals.message,
-                color = Wb.colors.surface,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(start = 10.dp, top = 8.dp, bottom = 8.dp),
-            )
-            data.visuals.actionLabel?.let { label ->
-                TextButton(onClick = data::performAction) { Text(label, color = Wb.colors.surface, fontWeight = FontWeight.Bold) }
+    val remaining = remember(data) { Animatable(1f) }
+    LaunchedEffect(data) { remaining.animateTo(0f, tween(TOAST_MS.toInt(), easing = LinearEasing)) }
+    // 글자 길이만큼만 차지하고 가운데 둔다(화면 폭 전체는 너무 큼, 10/26 사용자 요청). 모서리는 카드와 같은 둥글기
+    Surface(shape = CardShape, color = Wb.colors.ink, shadowElevation = 4.dp, modifier = Modifier.widthIn(max = 360.dp)) {
+        // 게이지가 글줄과 같은 폭이 되도록 가장 넓은 줄에 맞춘다
+        Column(Modifier.width(IntrinsicSize.Max)) {
+            Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(WbIcons.Check, contentDescription = null, tint = Wb.colors.surface, modifier = Modifier.size(18.dp))
+                Text(
+                    data.visuals.message,
+                    color = Wb.colors.surface,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false).padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 8.dp),
+                )
+                data.visuals.actionLabel?.let { label ->
+                    TextButton(onClick = data::performAction) { Text(label, color = Wb.colors.surface, fontWeight = FontWeight.Bold) }
+                }
+            }
+            // 남은 시간: 다 줄어들면 알림이 사라지고 되돌리기도 끝난다
+            Box(Modifier.fillMaxWidth().height(3.dp).background(Wb.colors.surface.copy(alpha = 0.15f))) {
+                Box(Modifier.fillMaxWidth(remaining.value).fillMaxHeight().background(Wb.colors.surface.copy(alpha = 0.75f)))
             }
         }
     }
