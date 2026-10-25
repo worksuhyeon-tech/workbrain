@@ -172,8 +172,20 @@ async function correctChunk(text: string, vocab: string[], attendees: string[]):
   return { text: ratio >= 0.85 && ratio <= 1.15 ? out : text, usage: { input_tokens: d.usage?.input_tokens ?? 0, output_tokens: d.usage?.output_tokens ?? 0 } };
 }
 
+type Segment = { idx: number; text: string; speaker?: string; offsetMs?: number };
+
+// 화면 표시용 화자(DEC-54)를 교정본 문장에 순서대로 옮긴다. 교정은 용어만 바꾸므로 문장 수가 같으면 같은 문장이다.
+// 수가 다르면 어느 문장이 누구 말인지 알 수 없어 화자 없이 둔다(잘못 붙이는 것보다 안전)
+function carrySpeakers(original: Segment[], correctedSentences: string[]): Segment[] {
+  const plain = correctedSentences.map((text, idx) => ({ idx, text }));
+  if (!original.some((s) => s.speaker)) return plain;
+  const perSentence = original.flatMap((s) => splitSentences(s.text).map(() => ({ speaker: s.speaker, offsetMs: s.offsetMs })));
+  if (perSentence.length !== correctedSentences.length) return plain;
+  return plain.map((s, i) => ({ ...s, ...perSentence[i] }));
+}
+
 async function runCorrect(db: SupabaseClient, uid: string, recordId: string, job: Job, cycle: string) {
-  const { data: tv } = await db.from("transcript_version").select("content,retention_expires_at")
+  const { data: tv } = await db.from("transcript_version").select("content,segments,retention_expires_at")
     .eq("source_record_id", recordId).eq("owner_id", uid).eq("kind", "stt-original")
     .order("created_at", { ascending: false }).limit(1).single();
   if (!tv) throw new Error("전사를 찾지 못했어요");
@@ -197,7 +209,7 @@ async function runCorrect(db: SupabaseClient, uid: string, recordId: string, job
 
   // 고칠 것이 없었으면 교정본을 따로 만들지 않는다(원문 그대로 정리 단계로)
   if (corrected.replace(/\s+/g, " ") !== original.replace(/\s+/g, " ")) {
-    const segments = splitSentences(corrected).map((t, idx) => ({ idx, text: t }));
+    const segments = carrySpeakers(tv.segments ?? [], splitSentences(corrected));
     const { error } = await db.from("transcript_version").insert({
       owner_id: uid, source_record_id: recordId, kind: "term-corrected", content: corrected, segments, retention_expires_at: tv.retention_expires_at,
     });

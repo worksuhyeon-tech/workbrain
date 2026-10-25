@@ -534,7 +534,7 @@ create table transcript_version (
   kind          text not null,                 -- 'stt-original' | 'user-edited'
   parent_version_id uuid references transcript_version(id),
   content       text,                          -- 전사 수명 만료 시 본문 제거, 메타만 유지
-  segments      jsonb,                         -- [{idx, offsetMs?, text, sourceChunkId}]
+  segments      jsonb,                         -- [{idx, offsetMs?, text, sourceChunkId, speaker?}] speaker는 화면 표시 전용(DEC-54)
   retention_expires_at timestamptz not null,
   created_at    timestamptz not null default now()
 );
@@ -928,6 +928,7 @@ create table tombstone (
 
 - 녹음 목록 머리 오른쪽 '파일 가져오기'(문서 선택기 audio/*) · 다른 앱 공유(ACTION_SEND audio/*) → `FileImporter`가 이름·크기·수정 시각·길이를 읽고 `recordings/import-…/import.<ext>`로 복사 → 목록에 '가져온 파일' → 올리기 시트 자동 열림(종류 기본값: 공유·'통화' 이름이면 통화). 업로드는 합치지 않고 그대로, 경로 `audio.<ext>`. 목록은 들어온 순서(`addedAt`, 앱 녹음은 시작 시각)로 최신이 위, 표시 날짜는 파일 날짜.
 - 받아쓴 글 가져오기(DEC-53): 같은 '파일 가져오기'에서 txt도 고른다. `TranscriptText`가 클로바노트 형식이면 제목·회의 시각·길이를 읽고 화자·시각 줄을 뗀 말한 문장만 `import.txt`로 저장(채널 `text-import`). 올리기 시트는 같고, 올릴 때 음성 대신 `wb_record_text_ready(기록, 글)` → 서버가 원문 전사 저장 후 CORRECT부터 처리(STT 없음, 음성 자산 없음). 다른 앱 '공유'(text/plain)로도 받는다: 파일이면 같은 경로, 글 본문이면 `importSharedText`(제목은 공유 제목, 주소 한 줄은 거절).
+- 전문 보기 화자 표시(DEC-54): 클로바·삼성 txt의 화자·시각을 `[화자, 시각, 말한 문장]` 묶음(`import.turns.json`)으로 따로 저장해 `wb_record_text_ready(기록, 글, 묶음)`으로 보낸다. 서버는 `segments`에 `speaker`·`offsetMs`를 함께 저장하고 본문(`content`)은 화자 없는 글 그대로. 정리 단계는 `[번호] 문장`만 AI에 넘기므로 화자는 AI 입력에 들어가지 않는다(DEC-27). 교정 단계는 교정본 문장 수가 원문 문장 수와 같을 때만 순서대로 화자를 이어받고, 다르면 화자 없이 저장한다. 기록 상세 전사는 `speaker`가 있으면 말한 사람 차례마다 '화자 · 시각' 줄 + 문장으로, 없으면 본문 그대로 보여 준다. 나중에 앱 녹음 화자 분리도 같은 칸을 쓴다.
 - 앱 녹음도 녹음 화면의 정지 버튼으로 끝내면 저장 직후 올리기 시트가 자동으로 열린다(사용자 요청 2026-10-23: 제목·종류·참석자를 기억할 때 입력). 취소하면 목록에 남아 나중에 '올리기'. 알림의 정지·강제 종료·소리 없는 녹음은 열지 않는다.
 
 ### 6.12 제목 고치기 (S04 TitleField)

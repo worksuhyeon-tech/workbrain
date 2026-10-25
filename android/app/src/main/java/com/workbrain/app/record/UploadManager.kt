@@ -95,7 +95,7 @@ object UploadManager {
                 RecordingStore.setServer(dir, recordId, null)
             }
             set(sessionId, UploadProgress("글 올리는 중", busy = true))
-            Server.recordTextReady(recordId, text)
+            Server.recordTextReady(recordId, text, FileImporter.savedTurns(dir))
             RecordingStore.setServer(dir, recordId, "uploaded")
         } else if (session.serverState == null) {
             // 가져온 파일은 그대로, 앱 녹음은 조각을 하나로 합쳐 올린다

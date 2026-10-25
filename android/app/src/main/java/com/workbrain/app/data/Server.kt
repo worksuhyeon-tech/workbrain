@@ -1,6 +1,7 @@
 package com.workbrain.app.data
 
 import com.workbrain.app.Supa
+import com.workbrain.app.record.TranscriptText
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.exceptions.RestException
 import io.github.jan.supabase.functions.functions
@@ -18,6 +19,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -98,7 +100,13 @@ import kotlinx.serialization.json.put
 @Serializable data class MeetingRow(val id: String, val fields: JsonObject)
 @Serializable data class MyNamesRow(@SerialName("my_names") val myNames: List<String>)
 
-@Serializable data class TranscriptRow(val id: String, val kind: String = "", val content: String? = null)
+@Serializable data class TranscriptRow(val id: String, val kind: String = "", val content: String? = null, val segments: List<TranscriptSegment>? = null)
+
+/** 전사 문장 구간. speaker·offsetMs는 가져온 txt의 화자·시각으로 화면 표시 전용(DEC-54) */
+@Serializable data class TranscriptSegment(val idx: Int, val text: String, val speaker: String? = null, val offsetMs: Long? = null)
+
+/** 한 전사 버전: 본문과 문장 구간 */
+data class Transcript(val content: String, val segments: List<TranscriptSegment>)
 
 @Serializable data class TaskRow(
     val id: String,
@@ -175,11 +183,15 @@ object Server {
         })
     }
 
-    /** 받아쓴 글 가져오기(DEC-53): 원문을 저장하고 받아쓰기 없이 교정 단계부터 처리를 건다(서버 0022) */
-    suspend fun recordTextReady(recordId: String, text: String) {
+    /**
+     * 받아쓴 글 가져오기(DEC-53): 원문을 저장하고 받아쓰기 없이 교정 단계부터 처리를 건다(서버 0022).
+     * turns: 전문 보기용 화자·시각(DEC-54, 서버 0023). 서버는 AI 입력에 넣지 않는다
+     */
+    suspend fun recordTextReady(recordId: String, text: String, turns: List<TranscriptText.Turn>) {
         db.postgrest.rpc("wb_record_text_ready", buildJsonObject {
             put("p_record_id", recordId)
             put("p_text", text)
+            if (turns.isNotEmpty()) put("p_turns", Json.encodeToJsonElement(turns))
         })
     }
 
@@ -231,14 +243,14 @@ object Server {
         }.decodeList<IdRow>().map { it.id }
 
     /** 종류별 최신 전사: stt-original(받아쓴 원문) · term-corrected(용어 교정본, DEC-36) */
-    suspend fun transcripts(recordId: String): Map<String, String> =
-        db.from("transcript_version").select(Columns.list("id", "kind", "content")) {
+    suspend fun transcripts(recordId: String): Map<String, Transcript> =
+        db.from("transcript_version").select(Columns.list("id", "kind", "content", "segments")) {
             filter { eq("source_record_id", recordId) }
             order("created_at", Order.DESCENDING)
         }.decodeList<TranscriptRow>()
             .filter { it.content != null }
             .distinctBy { it.kind }
-            .associate { it.kind to it.content!! }
+            .associate { it.kind to Transcript(it.content!!, it.segments.orEmpty()) }
 
     suspend fun meeting(recordId: String): MeetingRow? {
         val tv = transcriptIds(recordId).ifEmpty { return null }

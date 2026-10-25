@@ -7,6 +7,7 @@ import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
 import com.workbrain.app.data.Server
+import kotlinx.serialization.json.Json
 import java.io.File
 
 /**
@@ -115,11 +116,18 @@ object FileImporter {
         val title = (parsed.title ?: fallbackTitle)?.trim()?.take(80)?.ifEmpty { null } ?: "가져온 받아쓰기"
         val dir = RecordingStore.createImported(context, title, parsed.startedAt ?: modified ?: System.currentTimeMillis(), parsed.durationMs ?: 0L, TEXT_CHANNEL)
         File(dir, "import.$TEXT_EXT").writeText(parsed.body)
+        // 화자·시각은 전문 보기 표시용으로만 따로 둔다(DEC-54). 이름이 'import.'으로 시작하면 가져온 파일로 오인된다
+        if (parsed.turns.isNotEmpty()) File(dir, TURNS_FILE).writeText(Json.encodeToString(parsed.turns))
         val session = RecordingStore.list(context, activeId = null).first { it.id == dir.name }
         return Result.Ok(session)
     }
 
+    /** 가져온 글의 화자 차례. 없거나 읽지 못하면 화자 없이 올린다 */
+    fun savedTurns(dir: File): List<TranscriptText.Turn> =
+        runCatching { Json.decodeFromString<List<TranscriptText.Turn>>(File(dir, TURNS_FILE).readText()) }.getOrDefault(emptyList())
+
     const val TEXT_EXT = "txt"
+    private const val TURNS_FILE = "turns.json"
     const val TEXT_CHANNEL = "text-import"
     // 서버 상한 30만 자(한글 UTF-8 약 3바이트)에 맞춘 값
     private const val TEXT_MAX_BYTES = 1024L * 1024

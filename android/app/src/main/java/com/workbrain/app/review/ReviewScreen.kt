@@ -82,11 +82,35 @@ fun ReviewScreen(
 
     val list = items.orEmpty()
     val selected = list.filter { checked[it.id] == true }
+    var confirmDiscard by remember { mutableStateOf(false) }
+
+    // 버리기·추가 모두 체크한 후보에만 적용한다(사용자 요청 10/26: '체크 안 한 것을 버리는' 방식은 알아보기 어려움)
+    fun discardSelected() {
+        busy = true
+        scope.launch {
+            val drop = selected
+            message = runCatching { drop.forEach { Server.reject(it.proposal(), "inbox") } }
+                .fold({ "후보 ${drop.size}개를 버렸어요" to Tone.Mute }, { "버리지 못했어요. 다시 시도해 주세요" to Tone.Crit })
+            load(); busy = false; onChanged()
+        }
+    }
 
     val inbox: @Composable () -> Unit = {
         Column(Modifier.fillMaxSize().background(Wb.colors.surface)) {
             PageHeader("검토함", "꼼꼼히 살펴봐요", Modifier.padding(horizontal = 16.dp)) {
                 TextButton(onClick = { scope.launch { message = null; load() } }) { Text("새로고침", color = Wb.colors.link) }
+            }
+            // 전체 선택: 같은 녹음을 여러 번 올려 후보가 쌓였을 때 한 번에 고르고 버린다(사용자 요청 10/26).
+            // 목록 항목으로 넣으면 묶음 간격이 겹쳐 여백이 커져서 제목 아래 고정 줄로 둔다
+            if (list.isNotEmpty()) {
+                GroupHeader(
+                    label = "전체 선택 · ${selected.size}/${list.size}",
+                    state = when (selected.size) { list.size -> ToggleableState.On; 0 -> ToggleableState.Off; else -> ToggleableState.Indeterminate },
+                    enabled = !busy,
+                    onToggle = { val all = selected.size == list.size; list.forEach { checked[it.id] = !all } },
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+                HorizontalDivider(color = Wb.colors.border, modifier = Modifier.padding(horizontal = 16.dp))
             }
             LazyColumn(
                 modifier = Modifier.weight(1f),
@@ -133,17 +157,9 @@ fun ReviewScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     SecondaryButton(
-                        "나머지 버리기",
-                        enabled = !busy && selected.size < list.size,
-                        onClick = {
-                            busy = true
-                            scope.launch {
-                                val drop = list.filter { checked[it.id] != true }
-                                message = runCatching { drop.forEach { Server.reject(it.proposal(), "inbox") } }
-                                    .fold({ "후보 ${drop.size}개를 버렸어요" to Tone.Mute }, { "버리지 못했어요. 다시 시도해 주세요" to Tone.Crit })
-                                load(); busy = false; onChanged()
-                            }
-                        },
+                        "버리기",
+                        enabled = !busy && selected.isNotEmpty(),
+                        onClick = { if (selected.size > 1) confirmDiscard = true else discardSelected() },
                     )
                     PrimaryButton(
                         "선택한 할 일 추가 (${selected.size})",
@@ -170,6 +186,10 @@ fun ReviewScreen(
 
     if (detailPane != null) TwoPane(leftWeight = 0.45f, left = inbox, right = detailPane) else inbox()
 
+    if (confirmDiscard) {
+        DiscardConfirmDialog(selected.size, onDismiss = { confirmDiscard = false }) { confirmDiscard = false; discardSelected() }
+    }
+
     editing?.let { (row, field) ->
         CandidateEditSheet(
             current = JsonObject(row.after + edits[row.id].orEmpty()),
@@ -182,9 +202,9 @@ fun ReviewScreen(
 
 /** 녹음별 묶음 제목: 왼쪽 체크로 그 녹음의 후보를 한 번에 고르거나 푼다(일부만 골랐으면 '–') */
 @Composable
-private fun GroupHeader(label: String, state: ToggleableState, enabled: Boolean, onToggle: () -> Unit) {
+private fun GroupHeader(label: String, state: ToggleableState, enabled: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier.padding(top = 8.dp)) {
     Row(
-        Modifier.fillMaxWidth().padding(top = 8.dp)
+        modifier.fillMaxWidth()
             .triStateToggleable(state = state, enabled = enabled, role = Role.Checkbox, onClick = onToggle),
         verticalAlignment = Alignment.CenterVertically,
     ) {

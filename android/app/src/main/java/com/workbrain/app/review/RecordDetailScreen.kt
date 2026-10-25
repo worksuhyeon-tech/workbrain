@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import com.workbrain.app.data.MeetingRow
 import com.workbrain.app.data.ProposalRow
 import com.workbrain.app.data.Server
+import com.workbrain.app.data.Transcript
 import com.workbrain.app.ui.Banner
 import com.workbrain.app.ui.HandAccent
 import com.workbrain.app.ui.PrimaryButton
@@ -88,7 +89,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     var firstLoad by remember { mutableStateOf(true) }
     var meeting by remember { mutableStateOf<MeetingRow?>(null) }
     var proposals by remember { mutableStateOf<List<ProposalRow>>(emptyList()) }
-    var transcripts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var transcripts by remember { mutableStateOf<Map<String, Transcript>>(emptyMap()) }
     var showTranscript by remember { mutableStateOf(false) }
     var showOriginal by remember { mutableStateOf(false) }
     val checked = remember { mutableStateMapOf<String, Boolean>() }
@@ -129,6 +130,18 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     val updates = proposals.filter { it.status == "pending" && it.isUpdate }
     val done = proposals.filter { it.status != "pending" }
     val selected = pending.filter { checked[it.id] == true }
+    var confirmDiscard by remember { mutableStateOf(false) }
+
+    // 버리기·추가 모두 체크한 후보에만 적용한다(검토함과 같은 규칙)
+    fun discardSelected() {
+        busy = true
+        scope.launch {
+            val drop = selected
+            message = runCatching { drop.forEach { Server.reject(it, "record") } }
+                .fold({ "후보 ${drop.size}개를 버렸어요" to Tone.Mute }, { "버리지 못했어요. 다시 시도해 주세요" to Tone.Crit })
+            load(); busy = false; onChanged()
+        }
+    }
 
     @Composable
     fun candidate(p: ProposalRow) = CandidateCard(
@@ -227,7 +240,8 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                 SectionLabel(if (corrected != null && !showOriginal) "전사 · 업무 용어 교정본" else "받아쓴 원문")
                 WbCard {
                     if (showTranscript) {
-                        Text(shown ?: "원문이 없어요", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body)
+                        if (shown == null) Text("원문이 없어요", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body)
+                        else TranscriptBody(shown)
                     }
                     Row {
                         TextButton(onClick = { showTranscript = !showTranscript }) {
@@ -251,17 +265,9 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 SecondaryButton(
-                    "나머지 버리기",
-                    enabled = !busy && selected.size < pending.size,
-                    onClick = {
-                        busy = true
-                        scope.launch {
-                            val drop = pending.filter { checked[it.id] != true }
-                            message = runCatching { drop.forEach { Server.reject(it, "record") } }
-                                .fold({ "후보 ${drop.size}개를 버렸어요" to Tone.Mute }, { "버리지 못했어요. 다시 시도해 주세요" to Tone.Crit })
-                            load(); busy = false; onChanged()
-                        }
-                    },
+                    "버리기",
+                    enabled = !busy && selected.isNotEmpty(),
+                    onClick = { if (selected.size > 1) confirmDiscard = true else discardSelected() },
                 )
                 PrimaryButton(
                     "선택한 할 일 추가 (${selected.size})",
@@ -284,6 +290,10 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                 )
             }
         }
+    }
+
+    if (confirmDiscard) {
+        DiscardConfirmDialog(selected.size, onDismiss = { confirmDiscard = false }) { confirmDiscard = false; discardSelected() }
     }
 
     if (renaming) {
@@ -356,4 +366,52 @@ private fun MeetingSection(title: String, note: String?, lines: List<String>) {
     Text(title, style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
     note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted) }
     lines.forEach { Text("· $it", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body, modifier = Modifier.padding(top = 4.dp)) }
+}
+
+/**
+ * 전사 본문. 가져온 txt처럼 화자가 있으면 말한 사람 차례마다 '화자 · 시각' 줄 + 문장으로(DEC-54, 사용자 선택 1안),
+ * 없으면 본문 그대로 보여 준다.
+ */
+@Composable
+private fun TranscriptBody(transcript: Transcript) {
+    val turns = speakerTurns(transcript)
+    if (turns.isEmpty()) {
+        Text(transcript.content, style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body)
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        turns.forEach { turn ->
+            Column {
+                Text(
+                    listOfNotNull(turn.speaker, turn.offsetMs?.let(::clockText)).joinToString(" · "),
+                    style = MaterialTheme.typography.labelMedium, color = Wb.colors.muted,
+                )
+                Text(turn.text, style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body, modifier = Modifier.padding(top = 2.dp))
+            }
+        }
+    }
+}
+
+private data class SpeakerTurn(val speaker: String?, val offsetMs: Long?, val text: String)
+
+/** 같은 화자·시각이 이어지는 문장을 한 차례로 묶는다. 화자가 하나도 없으면 빈 목록 */
+private fun speakerTurns(transcript: Transcript): List<SpeakerTurn> {
+    if (transcript.segments.none { it.speaker != null }) return emptyList()
+    val turns = mutableListOf<SpeakerTurn>()
+    for (s in transcript.segments) {
+        val last = turns.lastOrNull()
+        if (last != null && last.speaker == s.speaker && last.offsetMs == s.offsetMs) {
+            turns[turns.lastIndex] = last.copy(text = last.text + " " + s.text)
+        } else {
+            turns += SpeakerTurn(s.speaker, s.offsetMs, s.text)
+        }
+    }
+    return turns
+}
+
+// 00:03, 1:02:03
+private fun clockText(ms: Long): String {
+    val total = ms / 1000
+    val (h, m, sec) = Triple(total / 3600, total % 3600 / 60, total % 60)
+    return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%02d:%02d".format(m, sec)
 }
