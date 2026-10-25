@@ -34,6 +34,15 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="audio/*" />
                 <data android:mimeType="text/plain" />
+                <data android:mimeType="application/txt" />
+            </intent-filter>
+            <!-- 삼성 음성 녹음은 파일이 하나여도 '여러 개 보내기'로, 텍스트 변환 txt는 비표준 형식 application/txt로 보낸다 -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="application/txt" />
             </intent-filter>
             <!-- Google 로그인 뒤 돌아오는 주소: workbrain://login-callback -->
             <intent-filter>

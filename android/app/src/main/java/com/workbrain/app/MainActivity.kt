@@ -40,10 +40,14 @@ class MainActivity : ComponentActivity() {
     }
 
     // 다른 앱의 '공유'로 받은 음성·글: 녹음 화면이 가져오기를 이어서 한다(파일 읽기 권한은 이 화면이 살아 있는 동안 유효).
-    // 글은 파일(EXTRA_STREAM)로 오기도, 본문(EXTRA_TEXT)으로 오기도 해서 둘 다 받는다(DEC-53)
+    // 글은 파일(EXTRA_STREAM)로 오기도, 본문(EXTRA_TEXT)으로 오기도 해서 둘 다 받는다(DEC-53).
+    // 삼성 음성 녹음은 한 파일도 SEND_MULTIPLE로 보내므로 첫 파일만 가져온다(여러 개를 한 번에 올리는 기능은 아직 없음)
     private fun receiveShared(intent: Intent) {
-        if (intent.action != Intent.ACTION_SEND) return
-        val uri = androidx.core.content.IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java)
+        val uri = when (intent.action) {
+            Intent.ACTION_SEND -> androidx.core.content.IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java)
+            Intent.ACTION_SEND_MULTIPLE -> androidx.core.content.IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java)?.firstOrNull()
+            else -> return
+        }
         val text = intent.getStringExtra(Intent.EXTRA_TEXT)
         SharedImport.pending.value = when {
             uri != null -> SharedImport.Item.File(uri, intent.type)

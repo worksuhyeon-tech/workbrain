@@ -76,7 +76,26 @@ object FileImporter {
             context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
         }.getOrNull() ?: return Result.Rejected("파일을 읽지 못했어요. 다시 골라 주세요.")
         if (raw.size > TEXT_MAX_BYTES) return Result.Rejected("글 파일이 1MB를 넘어요.")
-        return saveText(context, raw.toString(Charsets.UTF_8), name?.substringBeforeLast('.'), modified)
+        return saveText(context, decodeText(raw), name?.substringBeforeLast('.'), modified)
+    }
+
+    /**
+     * 클로바는 UTF-8, 삼성 음성 녹음은 UTF-16(리틀 엔디언)으로 내보낸다.
+     * BOM을 먼저 보고, 없으면 0바이트 위치로 가린다: UTF-8 글에는 0바이트가 없고,
+     * UTF-16은 공백·숫자·줄바꿈의 위쪽 바이트가 0이라 리틀 엔디언이면 홀수 자리, 빅 엔디언이면 짝수 자리에 생긴다
+     */
+    private fun decodeText(raw: ByteArray): String {
+        fun startsWith(vararg b: Int) = raw.size >= b.size && b.indices.all { raw[it] == b[it].toByte() }
+        val zeroOdd = raw.indices.count { it % 2 == 1 && raw[it] == 0.toByte() }
+        val zeroEven = raw.indices.count { it % 2 == 0 && raw[it] == 0.toByte() }
+        return when {
+            startsWith(0xEF, 0xBB, 0xBF) -> String(raw, 3, raw.size - 3, Charsets.UTF_8)
+            startsWith(0xFF, 0xFE) -> String(raw, 2, raw.size - 2, Charsets.UTF_16LE)
+            startsWith(0xFE, 0xFF) -> String(raw, 2, raw.size - 2, Charsets.UTF_16BE)
+            zeroOdd > zeroEven -> raw.toString(Charsets.UTF_16LE)
+            zeroEven > zeroOdd -> raw.toString(Charsets.UTF_16BE)
+            else -> raw.toString(Charsets.UTF_8)
+        }
     }
 
     /** 파일이 아니라 글 자체(EXTRA_TEXT)로 공유받았을 때. subject는 공유한 앱이 붙인 제목 */
