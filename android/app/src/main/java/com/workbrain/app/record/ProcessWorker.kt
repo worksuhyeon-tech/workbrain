@@ -1,19 +1,8 @@
 package com.workbrain.app.record
 
-import android.Manifest
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.workbrain.app.MainActivity
-import com.workbrain.app.R
 import com.workbrain.app.Supa
 import kotlinx.coroutines.CancellationException
 import io.github.jan.supabase.auth.auth
@@ -57,25 +46,8 @@ class ProcessWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     }
 
     private fun notifyReady(sessionId: String) {
-        val ctx = applicationContext
-        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        val nm = ctx.getSystemService(NotificationManager::class.java)
-        if (nm.getNotificationChannel(CHANNEL_ID) == null) {
-            nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "처리 결과", NotificationManager.IMPORTANCE_DEFAULT))
-        }
-        val title = RecordingStore.title(RecordingStore.dir(ctx, sessionId))
-        val open = PendingIntent.getActivity(
-            ctx, 0, Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val n = NotificationCompat.Builder(ctx, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("회의록·할 일 후보가 나왔어요")
-            .setContentText(title)
-            .setContentIntent(open)
-            .setAutoCancel(true)
-            .build()
-        NotificationManagerCompat.from(ctx).notify(sessionId.hashCode(), n)
+        val title = RecordingStore.title(RecordingStore.dir(applicationContext, sessionId))
+        ResultNotifier.notify(applicationContext, sessionId.hashCode(), "할 일 후보가 나왔어요", title)
     }
 
     companion object {
@@ -83,6 +55,5 @@ class ProcessWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         const val KIND = "kind"
         const val PERMISSION = "permission"
         const val CONSENT = "consent"
-        private const val CHANNEL_ID = "processing"
     }
 }

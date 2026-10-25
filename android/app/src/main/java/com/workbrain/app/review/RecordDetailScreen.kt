@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +41,7 @@ import com.workbrain.app.ui.HandAccent
 import com.workbrain.app.ui.PrimaryButton
 import com.workbrain.app.ui.SecondaryButton
 import com.workbrain.app.ui.SectionLabel
+import com.workbrain.app.ui.SegmentPills
 import com.workbrain.app.ui.Tone
 import com.workbrain.app.ui.Wb
 import com.workbrain.app.ui.WbCard
@@ -105,6 +107,8 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     var openTaskTitles by remember { mutableStateOf<Set<String>>(emptySet()) }
     // 결정 밑에 접은 후보를 펼친 결정 번호
     val expanded = remember { mutableStateMapOf<Int, Boolean>() }
+    // 목업 S05: 추출 항목(할 일·결정 후보) ↔ 회의록 문서(FR-30)
+    var view by remember { mutableStateOf("fields") }
     val context = LocalContext.current
 
     suspend fun load() {
@@ -143,6 +147,16 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         }
     }
 
+    // 회의록은 버튼을 눌렀을 때만 백그라운드 작업으로 만든다(DEC-56). 화면을 나갔다 와도 '만드는 중'이 이어지고 끝나면 알림이 온다
+    val minutes by remember(recordId) { MinutesWorker.state(context, recordId) }.collectAsState(MinutesWorker.State.Idle)
+    LaunchedEffect(minutes) {
+        when (val m = minutes) {
+            MinutesWorker.State.Done -> load()
+            is MinutesWorker.State.Failed -> if (meeting?.document == null) message = m.message to Tone.Crit
+            else -> Unit
+        }
+    }
+
     @Composable
     fun candidate(p: ProposalRow) = CandidateCard(
         JsonObject(p.after + edits[p.id].orEmpty()), p.rationale, p.status, checked[p.id] == true,
@@ -167,6 +181,13 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                 fontSize = 20.sp,
                 color = Wb.colors.muted,
             )
+            if (meeting != null) {
+                SegmentPills(
+                    listOf("fields" to "추출 항목", "doc" to "회의록 문서"),
+                    value = view,
+                    modifier = Modifier.padding(top = 8.dp),
+                ) { view = it }
+            }
         }
         if (firstLoad) {
             Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Wb.colors.primary) }
@@ -175,81 +196,90 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             verticalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(16.dp),
         ) {
-            val fields = meeting?.fields
-            val questions = fields?.texts("open_questions").orEmpty()
-            // 이미 있는 할 일이라 새로 만들지 않은 것(DEC-38)
-            val tracked = (fields?.get("already_tracked") as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.str("title") }
-            val attendees = (fields?.get("attendees") as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-            if (attendees.isNotEmpty()) item {
-                Text("참석자 · ${attendees.joinToString(", ")}", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body)
-            }
-            if (decisions.isNotEmpty() || questions.isNotEmpty()) item {
-                WbCard {
-                    if (decisions.isNotEmpty()) {
-                        Text("결정 후보", style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
-                        Text("회의에서 정한 것처럼 들린 말이에요. 확정은 아니에요. 챙길 일이면 할 일로 옮겨요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+            if (view == "doc") {
+                item {
+                    MinutesPane(meeting?.document, making = minutes == MinutesWorker.State.Making) {
+                        message = null
+                        MinutesWorker.start(context, recordId, shownTitle)
                     }
-                    decisions.forEachIndexed { i, d ->
-                        val overlaps = folded[i].orEmpty()
-                        DecisionRow(
-                            text = d.text,
-                            alreadyTask = d.text.trim() in openTaskTitles,
-                            overlapCount = overlaps.size,
-                            expanded = expanded[i] == true,
-                            onMakeTask = { creatingFrom = d.text },
-                            onToggle = { expanded[i] = expanded[i] != true },
-                        )
-                        if (expanded[i] == true) overlaps.forEach { p -> Box(Modifier.padding(top = 6.dp)) { candidate(p) } }
-                    }
-                    if (decisions.isNotEmpty() && questions.isNotEmpty()) HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Wb.colors.border)
-                    MeetingSection("정하지 못한 것", null, questions)
                 }
-            }
-            item {
-                SectionLabel("할 일 후보 ${loose.size}")
-                if (pending.isEmpty() && done.isEmpty() && updates.isEmpty() && tracked.isEmpty()) {
-                    Text("이 녹음에서는 할 일을 찾지 못했어요.", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.muted)
-                } else if (pending.isNotEmpty()) {
-                    Text(
-                        "체크한 것만 할 일로 추가돼요. 제목·담당·기한을 누르면 바꿔서 추가할 수 있어요." +
-                            if (loose.size < pending.size) " 결정과 겹치는 후보는 결정 밑에 접어 뒀어요." else "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Wb.colors.muted,
-                    )
+            } else {
+                val fields = meeting?.fields
+                val questions = fields?.texts("open_questions").orEmpty()
+                // 이미 있는 할 일이라 새로 만들지 않은 것(DEC-38)
+                val tracked = (fields?.get("already_tracked") as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.str("title") }
+                val attendees = (fields?.get("attendees") as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                if (attendees.isNotEmpty()) item {
+                    Text("참석자 · ${attendees.joinToString(", ")}", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body)
                 }
-            }
-            items(loose, key = { it.id }) { p -> candidate(p) }
-            if (updates.isNotEmpty()) item {
-                SectionLabel("기존 할 일 변경 ${updates.size}")
-                Text("이미 있는 할 일의 담당·기한이 이번 녹음에서 달라졌어요. 검토함에서 전후를 보고 반영해요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
-            }
-            items(updates, key = { it.id }) { p -> CandidateCard(p.after, p.rationale, p.status, checked = false, onChecked = null, before = p.before) }
-            if (tracked.isNotEmpty()) item {
-                SectionLabel("이미 있는 할 일 ${tracked.size}")
-                WbCard {
-                    Text("이번 녹음에도 나왔지만 이미 할 일에 있어서 새로 만들지 않았어요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
-                    tracked.forEach { Text("· $it", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.ink, modifier = Modifier.padding(top = 6.dp)) }
-                }
-            }
-            items(done, key = { it.id }) { p -> CandidateCard(p.after, p.rationale, p.status, checked = false, onChecked = null, before = p.before) }
-            item {
-                // 교정본이 있으면 그것을 먼저 보여 주고, 받아쓴 원문은 따로 볼 수 있게 둔다(원문은 고치지 않음, DEC-36)
-                val corrected = transcripts["term-corrected"]
-                val original = transcripts["stt-original"]
-                val shown = if (corrected != null && !showOriginal) corrected else original
-                SectionLabel(if (corrected != null && !showOriginal) "전사 · 업무 용어 교정본" else "받아쓴 원문")
-                WbCard {
-                    if (showTranscript) {
-                        if (shown == null) Text("원문이 없어요", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body)
-                        else TranscriptBody(shown)
-                    }
-                    Row {
-                        TextButton(onClick = { showTranscript = !showTranscript }) {
-                            Text(if (showTranscript) "접기" else "전사 펼치기", color = Wb.colors.link)
+                if (decisions.isNotEmpty() || questions.isNotEmpty()) item {
+                    WbCard {
+                        if (decisions.isNotEmpty()) {
+                            Text("결정 후보", style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
+                            Text("회의에서 정한 것처럼 들린 말이에요. 확정은 아니에요. 챙길 일이면 할 일로 옮겨요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
                         }
-                        if (showTranscript && corrected != null) {
-                            TextButton(onClick = { showOriginal = !showOriginal }) {
-                                Text(if (showOriginal) "교정본 보기" else "받아쓴 원문 보기", color = Wb.colors.link)
+                        decisions.forEachIndexed { i, d ->
+                            val overlaps = folded[i].orEmpty()
+                            DecisionRow(
+                                text = d.text,
+                                alreadyTask = d.text.trim() in openTaskTitles,
+                                overlapCount = overlaps.size,
+                                expanded = expanded[i] == true,
+                                onMakeTask = { creatingFrom = d.text },
+                                onToggle = { expanded[i] = expanded[i] != true },
+                            )
+                            if (expanded[i] == true) overlaps.forEach { p -> Box(Modifier.padding(top = 6.dp)) { candidate(p) } }
+                        }
+                        if (decisions.isNotEmpty() && questions.isNotEmpty()) HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Wb.colors.border)
+                        MeetingSection("정하지 못한 것", null, questions)
+                    }
+                }
+                item {
+                    SectionLabel("할 일 후보 ${loose.size}")
+                    if (pending.isEmpty() && done.isEmpty() && updates.isEmpty() && tracked.isEmpty()) {
+                        Text("이 녹음에서는 할 일을 찾지 못했어요.", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.muted)
+                    } else if (pending.isNotEmpty()) {
+                        Text(
+                            "체크한 것만 할 일로 추가돼요. 제목·담당·기한을 누르면 바꿔서 추가할 수 있어요." +
+                                if (loose.size < pending.size) " 결정과 겹치는 후보는 결정 밑에 접어 뒀어요." else "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Wb.colors.muted,
+                        )
+                    }
+                }
+                items(loose, key = { it.id }) { p -> candidate(p) }
+                if (updates.isNotEmpty()) item {
+                    SectionLabel("기존 할 일 변경 ${updates.size}")
+                    Text("이미 있는 할 일의 담당·기한이 이번 녹음에서 달라졌어요. 검토함에서 전후를 보고 반영해요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+                }
+                items(updates, key = { it.id }) { p -> CandidateCard(p.after, p.rationale, p.status, checked = false, onChecked = null, before = p.before) }
+                if (tracked.isNotEmpty()) item {
+                    SectionLabel("이미 있는 할 일 ${tracked.size}")
+                    WbCard {
+                        Text("이번 녹음에도 나왔지만 이미 할 일에 있어서 새로 만들지 않았어요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+                        tracked.forEach { Text("· $it", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.ink, modifier = Modifier.padding(top = 6.dp)) }
+                    }
+                }
+                items(done, key = { it.id }) { p -> CandidateCard(p.after, p.rationale, p.status, checked = false, onChecked = null, before = p.before) }
+                item {
+                    // 교정본이 있으면 그것을 먼저 보여 주고, 받아쓴 원문은 따로 볼 수 있게 둔다(원문은 고치지 않음, DEC-36)
+                    val corrected = transcripts["term-corrected"]
+                    val original = transcripts["stt-original"]
+                    val shown = if (corrected != null && !showOriginal) corrected else original
+                    SectionLabel(if (corrected != null && !showOriginal) "전사 · 업무 용어 교정본" else "받아쓴 원문")
+                    WbCard {
+                        if (showTranscript) {
+                            if (shown == null) Text("원문이 없어요", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body)
+                            else TranscriptBody(shown)
+                        }
+                        Row {
+                            TextButton(onClick = { showTranscript = !showTranscript }) {
+                                Text(if (showTranscript) "접기" else "전사 펼치기", color = Wb.colors.link)
+                            }
+                            if (showTranscript && corrected != null) {
+                                TextButton(onClick = { showOriginal = !showOriginal }) {
+                                    Text(if (showOriginal) "교정본 보기" else "받아쓴 원문 보기", color = Wb.colors.link)
+                                }
                             }
                         }
                     }
@@ -257,7 +287,8 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             }
         }
         message?.let { (text, tone) -> Banner(text, tone, Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) }
-        if (!firstLoad && pending.isNotEmpty()) {
+        // 버리기·추가는 할 일 후보에 쓰는 것이라 추출 항목을 볼 때만 둔다
+        if (!firstLoad && pending.isNotEmpty() && view == "fields") {
             HorizontalDivider(color = Wb.colors.border)
             Row(
                 Modifier.fillMaxWidth().background(Wb.colors.card).padding(horizontal = 16.dp, vertical = 10.dp),

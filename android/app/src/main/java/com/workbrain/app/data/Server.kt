@@ -97,7 +97,18 @@ import kotlinx.serialization.json.put
 
 @Serializable data class CostRow(@SerialName("confirmed_krw") val krw: Int = 0)
 
-@Serializable data class MeetingRow(val id: String, val fields: JsonObject)
+@Serializable data class MeetingRow(
+    val id: String,
+    val fields: JsonObject,
+    // 사람이 읽는 회의록(FR-30). '회의록 만들기'를 누르기 전에는 없다
+    val document: MinutesDocument? = null,
+    @SerialName("guideline_rev") val guidelineRev: Int? = null,
+)
+
+/** 회의록 문서: 섹션마다 글줄과 (있으면) 표. 서버 document.ts의 MinutesDocument와 같은 모양 */
+@Serializable data class MinutesDocument(val title: String = "", val sections: List<MinutesSection> = emptyList())
+@Serializable data class MinutesSection(val heading: String, val lines: List<String> = emptyList(), val table: MinutesTable? = null)
+@Serializable data class MinutesTable(val columns: List<String>, val rows: List<List<String>> = emptyList())
 @Serializable data class MyNamesRow(@SerialName("my_names") val myNames: List<String>)
 
 @Serializable data class TranscriptRow(val id: String, val kind: String = "", val content: String? = null, val segments: List<TranscriptSegment>? = null)
@@ -219,6 +230,25 @@ object Server {
     }
 
     /** 처리 함수를 한 번 불러 다음 단계를 진행한다 */
+    /**
+     * 회의록 만들기(FR-30, DEC-56): 처리 함수가 이 호출 안에서 문서를 만든다(짧은 회의도 1~2분).
+     * 실패하면 사용자에게 보여 줄 문구를, 성공하면 null을 돌려준다
+     */
+    suspend fun makeMinutes(recordId: String): String? {
+        val body = buildJsonObject { put("record_id", recordId); put("action", "document") }
+        ensureSession()
+        val res = try {
+            db.functions.invoke("process-record", body = body)
+        } catch (e: RestException) {
+            if (e.statusCode != 401) throw e
+            ensureSession(force = true)
+            db.functions.invoke("process-record", body = body)
+        }
+        val json = Json.parseToJsonElement(res.bodyAsText()) as JsonObject
+        return if (json["document"]?.jsonPrimitive?.content == "DONE") null
+        else json["error"]?.jsonPrimitive?.content ?: "회의록을 만들지 못했어요"
+    }
+
     suspend fun process(recordId: String): ProcessStatus {
         val body = buildJsonObject { put("record_id", recordId) }
         ensureSession()

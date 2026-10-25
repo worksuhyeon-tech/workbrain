@@ -1,5 +1,6 @@
 // 기록 처리 (P1 2단계, Design §2.3·§3.1, DEC-28/30)
-// 호출 한 번에 한 단계만 진행한다: STT(gpt-transcribe) → CORRECT(용어 교정, 용어집 있을 때) → EXTRACT(gpt-6-luna) → DOCUMENT(회의록 문서) → REVIEWABLE.
+// 호출 한 번에 한 단계만 진행한다: STT(gpt-transcribe) → CORRECT(용어 교정, 용어집 있을 때) → EXTRACT(gpt-6-luna) → REVIEWABLE.
+// 회의록 문서는 사용자가 '회의록 만들기'를 눌렀을 때만 따로 만든다(action: "document", DEC-56).
 // 무료 플랜의 함수 실행 시간 제한 안에 들도록 단계를 나눴고, 앱이 끝날 때까지 다시 부른다(같은 작업은 한 번만 잡힘).
 // AI 결과는 초안·제안으로만 저장한다. 할 일은 사용자가 승인해야 생긴다(§3.4).
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
@@ -32,14 +33,15 @@ Deno.serve(async (req) => {
   const uid = who?.user?.id;
   if (!uid) return reply(401, { error: "로그인이 필요해요" });
 
-  let recordId = "";
-  try { recordId = String((await req.json()).record_id ?? ""); } catch { /* 아래에서 거부 */ }
+  let recordId = "", action = "";
+  try { const body = await req.json(); recordId = String(body.record_id ?? ""); action = String(body.action ?? ""); } catch { /* 아래에서 거부 */ }
   if (!/^[0-9a-f-]{36}$/i.test(recordId)) return reply(400, { error: "기록 ID가 올바르지 않아요" });
 
   const { data: job } = await db.from("processing_job").select("id,stage,stage_state,retry_count")
     .eq("source_record_id", recordId).eq("owner_id", uid).maybeSingle<Job>();
   if (!job) return reply(404, { error: "처리할 작업이 없어요" });
-  if (job.stage === "REVIEWABLE") return reply(200, { stage: "REVIEWABLE", state: "DONE" });
+  if (job.stage === "REVIEWABLE" && action !== "document") return reply(200, { stage: "REVIEWABLE", state: "DONE" });
+  if (action === "document" && job.stage !== "REVIEWABLE") return reply(200, { error: "할 일 정리가 끝난 뒤에 만들 수 있어요" });
   if (!OPENAI_KEY) return reply(200, { stage: job.stage, state: "WAITING_KEY", error: "AI 키가 아직 설정되지 않았어요" });
   if (job.stage_state === "FAILED" && job.retry_count >= 3) return reply(200, { stage: job.stage, state: "FAILED", error: "세 번 실패해 멈췄어요" });
 
@@ -49,11 +51,24 @@ Deno.serve(async (req) => {
   const { data: spent } = await db.from("cost_ledger").select("confirmed_krw").eq("owner_id", uid).eq("billing_cycle", cycle);
   const spentKrw = (spent ?? []).reduce((n, r) => n + (r.confirmed_krw ?? 0), 0);
   if (spentKrw >= (setting?.budget_wait_krw ?? 24000)) {
+    // 회의록 만들기는 끝난 처리 작업의 상태를 건드리지 않고 알리기만 한다
+    if (action === "document") return reply(200, { error: "이번 달 AI 예산 대기선을 넘어 지금은 만들 수 없어요" });
     await db.from("processing_job").update({ stage_state: "BUDGET_WAIT", updated_at: new Date().toISOString() }).eq("id", job.id);
     return reply(200, { stage: job.stage, state: "BUDGET_WAIT" });
   }
   if (job.stage_state === "BUDGET_WAIT") {
     await db.from("processing_job").update({ stage_state: "PENDING" }).eq("id", job.id);
+  }
+
+  // 회의록 만들기(FR-30): 작업 단계와 별개로 이 호출 안에서 바로 만든다
+  if (action === "document") {
+    try {
+      await writeDocument(db, uid, recordId, cycle);
+      return reply(200, { document: "DONE" });
+    } catch (e) {
+      console.error("document failed", String(e));
+      return reply(200, { error: "회의록을 만들지 못했어요. 다시 시도해 주세요" });
+    }
   }
 
   const { data: claimed } = await db.rpc("wb_claim_job", { p_job_id: job.id });
@@ -62,7 +77,6 @@ Deno.serve(async (req) => {
   try {
     if (job.stage === "STT") await runStt(db, uid, recordId, job, cycle);
     else if (job.stage === "CORRECT") await runCorrect(db, uid, recordId, job, cycle);
-    else if (job.stage === "DOCUMENT") await runDocument(db, uid, recordId, job, cycle);
     else await runExtract(db, uid, recordId, job, cycle);
     const { data: after } = await db.from("processing_job").select("stage,stage_state,last_error").eq("id", job.id).single();
     return reply(200, { stage: after?.stage, state: after?.stage_state, error: after?.last_error ?? undefined });
@@ -465,30 +479,13 @@ async function runExtract(db: SupabaseClient, uid: string, recordId: string, job
   if (["work", "personal", "uncertain"].includes(out.classification as string)) {
     await db.from("source_record").update({ classification: out.classification }).eq("id", recordId);
   }
-  // 할 일 후보는 이미 저장됐다. 이어서 사람이 읽는 회의록 문서를 만든다(FR-30)
-  await db.from("processing_job").update({
-    stage: "DOCUMENT", stage_state: "PENDING", retry_count: 0, last_error: null, lease_until: null, updated_at: new Date().toISOString(),
-  }).eq("id", job.id);
-}
-
-// 회의록 문서(FR-30, Design §3.8): 검증된 추출 항목 + 전사 + 지침으로 사람이 읽는 회의록을 만든다.
-// 문서가 실패해도 할 일 후보는 이미 검토할 수 있으므로, 마지막 시도에서는 문서 없이 검토 가능 상태로 넘긴다
-async function runDocument(db: SupabaseClient, uid: string, recordId: string, job: Job, cycle: string) {
-  try {
-    await writeDocument(db, uid, recordId, cycle);
-  } catch (e) {
-    if (job.retry_count < 2) throw e;
-    console.error("document failed", String(e));
-    await db.from("processing_job").update({
-      stage: "REVIEWABLE", stage_state: "DONE", retry_count: 0, last_error: "회의록 문서를 만들지 못했어요", lease_until: null, updated_at: new Date().toISOString(),
-    }).eq("id", job.id);
-    return;
-  }
   await db.from("processing_job").update({
     stage: "REVIEWABLE", stage_state: "DONE", retry_count: 0, last_error: null, lease_until: null, updated_at: new Date().toISOString(),
   }).eq("id", job.id);
 }
 
+// 회의록 문서(FR-30, Design §3.8): 검증된 추출 항목 + 전사 + 지침으로 사람이 읽는 회의록을 만든다.
+// 같은 기록에서 다시 누르면 최신 회의록 초안의 문서를 새로 덮어쓴다
 async function writeDocument(db: SupabaseClient, uid: string, recordId: string, cycle: string) {
   const { data: rec } = await db.from("source_record").select("title,record_kind,occurred_at,ingested_at,attendees")
     .eq("id", recordId).eq("owner_id", uid).single();
