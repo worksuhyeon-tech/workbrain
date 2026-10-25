@@ -1,9 +1,10 @@
 // 기록 처리 (P1 2단계, Design §2.3·§3.1, DEC-28/30)
-// 호출 한 번에 한 단계만 진행한다: STT(gpt-transcribe) → CORRECT(용어 교정, 용어집 있을 때) → EXTRACT(gpt-6-luna) → REVIEWABLE.
+// 호출 한 번에 한 단계만 진행한다: STT(gpt-transcribe) → CORRECT(용어 교정, 용어집 있을 때) → EXTRACT(gpt-6-luna) → DOCUMENT(회의록 문서) → REVIEWABLE.
 // 무료 플랜의 함수 실행 시간 제한 안에 들도록 단계를 나눴고, 앱이 끝날 때까지 다시 부른다(같은 작업은 한 번만 잡힘).
 // AI 결과는 초안·제안으로만 저장한다. 할 일은 사용자가 승인해야 생긴다(§3.4).
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { OUTPUT_SCHEMA, PROMPT_VERSION, SYSTEM_PROMPT } from "./prompt.ts";
+import { cleanDocument, DEFAULT_GUIDELINE, DOCUMENT_SCHEMA, DOCUMENT_SYSTEM_RULES, sha256Hex } from "./document.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -61,6 +62,7 @@ Deno.serve(async (req) => {
   try {
     if (job.stage === "STT") await runStt(db, uid, recordId, job, cycle);
     else if (job.stage === "CORRECT") await runCorrect(db, uid, recordId, job, cycle);
+    else if (job.stage === "DOCUMENT") await runDocument(db, uid, recordId, job, cycle);
     else await runExtract(db, uid, recordId, job, cycle);
     const { data: after } = await db.from("processing_job").select("stage,stage_state,last_error").eq("id", job.id).single();
     return reply(200, { stage: after?.stage, state: after?.stage_state, error: after?.last_error ?? undefined });
@@ -463,7 +465,90 @@ async function runExtract(db: SupabaseClient, uid: string, recordId: string, job
   if (["work", "personal", "uncertain"].includes(out.classification as string)) {
     await db.from("source_record").update({ classification: out.classification }).eq("id", recordId);
   }
+  // 할 일 후보는 이미 저장됐다. 이어서 사람이 읽는 회의록 문서를 만든다(FR-30)
+  await db.from("processing_job").update({
+    stage: "DOCUMENT", stage_state: "PENDING", retry_count: 0, last_error: null, lease_until: null, updated_at: new Date().toISOString(),
+  }).eq("id", job.id);
+}
+
+// 회의록 문서(FR-30, Design §3.8): 검증된 추출 항목 + 전사 + 지침으로 사람이 읽는 회의록을 만든다.
+// 문서가 실패해도 할 일 후보는 이미 검토할 수 있으므로, 마지막 시도에서는 문서 없이 검토 가능 상태로 넘긴다
+async function runDocument(db: SupabaseClient, uid: string, recordId: string, job: Job, cycle: string) {
+  try {
+    await writeDocument(db, uid, recordId, cycle);
+  } catch (e) {
+    if (job.retry_count < 2) throw e;
+    console.error("document failed", String(e));
+    await db.from("processing_job").update({
+      stage: "REVIEWABLE", stage_state: "DONE", retry_count: 0, last_error: "회의록 문서를 만들지 못했어요", lease_until: null, updated_at: new Date().toISOString(),
+    }).eq("id", job.id);
+    return;
+  }
   await db.from("processing_job").update({
     stage: "REVIEWABLE", stage_state: "DONE", retry_count: 0, last_error: null, lease_until: null, updated_at: new Date().toISOString(),
   }).eq("id", job.id);
+}
+
+async function writeDocument(db: SupabaseClient, uid: string, recordId: string, cycle: string) {
+  const { data: rec } = await db.from("source_record").select("title,record_kind,occurred_at,ingested_at,attendees")
+    .eq("id", recordId).eq("owner_id", uid).single();
+  const { data: tv } = await db.from("transcript_version").select("id,content")
+    .eq("source_record_id", recordId).eq("owner_id", uid).order("created_at", { ascending: false }).limit(1).single();
+  if (!rec || !tv) throw new Error("전사를 찾지 못했어요");
+  const { data: mv } = await db.from("meeting_version").select("id,fields")
+    .eq("transcript_version_id", tv.id).eq("owner_id", uid).order("created_at", { ascending: false }).limit(1).single();
+  if (!mv) throw new Error("회의록 초안을 찾지 못했어요");
+  const { data: runs } = await db.from("analysis_run").select("id").eq("input_transcript_version_id", tv.id).eq("owner_id", uid);
+  const { data: proposals } = await db.from("change_proposal").select("after_json,target_id")
+    .in("analysis_run_id", (runs ?? []).map((r) => r.id)).eq("owner_id", uid);
+
+  // 지침: 가져온 SKILL.md(없으면 기본 지침). 참고 파일(인물 사전 등)은 따로 동의했을 때만 보낸다(DEC-21 Q10)
+  const { data: st } = await db.from("settings").select("minutes_guideline,minutes_guideline_refs,guideline_rev,guideline_imported_at")
+    .eq("user_id", uid).single();
+  const guideline = st?.minutes_guideline || DEFAULT_GUIDELINE;
+  const { data: refsConsent } = await db.from("consent_grant").select("purpose")
+    .eq("owner_id", uid).eq("purpose", "minutes-guideline-refs").is("revoked_at", null).limit(1);
+  const refs = st?.minutes_guideline && refsConsent?.length
+    ? ((st.minutes_guideline_refs ?? []) as { name: string; content: string }[]) : [];
+
+  const fields = (mv.fields ?? {}) as Record<string, unknown>;
+  const list = (xs: unknown) => (Array.isArray(xs) ? xs : []).map((x: { text?: string; title?: string }) => `- ${x.text ?? x.title ?? ""}`).join("\n") || "- (없음)";
+  const tasks = (proposals ?? []).filter((p) => !p.target_id).map((p) => `- ${taskLine(p.after_json)}`).join("\n") || "- (없음)";
+  const at = new Date(rec.occurred_at ?? rec.ingested_at);
+  const seoul = new Date(at.getTime() + 9 * 3600 * 1000);
+  const input = [
+    `[회의록 지침]\n${guideline}`,
+    ...(refs.length ? [`[참고 자료]\n${refs.map((r) => `## ${r.name}\n${r.content}`).join("\n\n")}`] : []),
+    `[기록 정보]\n제목: ${rec.title ?? "(없음)"}\n종류: ${rec.record_kind}\n일시: ${seoul.toISOString().slice(0, 16).replace("T", " ")} (Asia/Seoul)`,
+    `[참석자 명단] ${(rec.attendees ?? []).join(", ") || "(입력 없음)"}`,
+    `[추출 항목]\n결정 후보:\n${list(fields.decisions)}\n미결 사항:\n${list(fields.open_questions)}\n할 일 후보:\n${tasks}\n이미 있는 할 일:\n${list(fields.already_tracked)}`,
+    `[전사]\n${tv.content ?? ""}`,
+  ].join("\n\n");
+
+  const r = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "content-type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
+    body: JSON.stringify({
+      model: LLM_MODEL, instructions: DOCUMENT_SYSTEM_RULES, input,
+      text: { format: { type: "json_schema", name: "minutes_document", schema: DOCUMENT_SCHEMA, strict: true } },
+    }),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error("회의록 문서 실패: " + (d?.error?.message ?? r.status));
+  await addCost(db, uid, cycle, ((d.usage?.input_tokens ?? 0) * LLM_USD_PER_1M.input + (d.usage?.output_tokens ?? 0) * LLM_USD_PER_1M.output) / 1e6);
+  const raw = d.output_text ?? d.output?.flatMap((o: { content?: unknown[] }) => o.content ?? [])
+    .find((c: { type?: string }) => c.type === "output_text")?.text;
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { throw new Error("회의록 문서 형식이 맞지 않아요"); }
+  const document = cleanDocument(parsed);
+  if (!document) throw new Error("회의록 문서가 비어 있어요");
+
+  // 어떤 지침으로 만들었는지 고정해 둔다(지침을 다시 가져와도 이 문서는 그대로, M20)
+  const { error } = await db.from("meeting_version").update({
+    document,
+    guideline_rev: st?.minutes_guideline ? st.guideline_rev : 0,
+    guideline_imported_at: st?.minutes_guideline ? st.guideline_imported_at : null,
+    guideline_input_hash: await sha256Hex(guideline + refs.map((x) => x.content).join("")),
+  }).eq("id", mv.id).eq("owner_id", uid);
+  if (error) throw new Error("회의록 문서 저장 실패");
 }
