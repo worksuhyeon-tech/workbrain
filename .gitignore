@@ -30,3 +30,6 @@ android/local.properties
 *.apk
 *.apk.zip
 workbrain-apk*.zip
+
+# Supabase CLI 캐시(npx supabase 실행 시 생김)
+supabase/.temp/
