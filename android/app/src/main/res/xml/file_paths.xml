@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 공유 창으로 넘기는 파일 위치(FR-29 회의록 Word). 앱 캐시의 shared/ 아래만 다른 앱에 보인다 -->
+<paths>
+    <cache-path name="shared" path="shared/" />
+</paths>

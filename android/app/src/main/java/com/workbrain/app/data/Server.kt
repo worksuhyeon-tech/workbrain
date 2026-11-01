@@ -10,6 +10,7 @@ import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.storage.storage
+import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import kotlinx.serialization.SerialName
@@ -128,6 +129,9 @@ class GuidelineRejected(reason: String) : Exception(reason)
 @Serializable data class MinutesTable(val columns: List<String>, val rows: List<List<String>> = emptyList())
 @Serializable data class MyNamesRow(@SerialName("my_names") val myNames: List<String>)
 @Serializable data class AttendeesRow(val attendees: List<String>? = null)
+
+/** 서버가 만든 회의록 Word. meetingDate = 회의 날짜(서울, YYYY-MM-DD), draft = 승인 전 문서 */
+class MinutesWord(val bytes: ByteArray, val meetingDate: String, val draft: Boolean)
 
 @Serializable data class TranscriptRow(val id: String, val kind: String = "", val content: String? = null, val segments: List<TranscriptSegment>? = null)
 
@@ -289,6 +293,23 @@ object Server {
         val json = Json.parseToJsonElement(res.bodyAsText()) as JsonObject
         return if (json["document"]?.jsonPrimitive?.content == "DONE") null
         else json["error"]?.jsonPrimitive?.content ?: "회의록을 만들지 못했어요"
+    }
+
+    /**
+     * 회의록 Word(FR-29, DEC-60): 화면에 보이는 회의록 버전을 서버가 .docx로 만들어 준다(M14).
+     * 회의 날짜(서울)는 파일 이름·메일 제목에 쓴다. 문서가 없거나 남의 것이면 서버가 404로 거부한다
+     */
+    suspend fun minutesWord(meetingVersionId: String): MinutesWord {
+        val body = buildJsonObject { put("meeting_version_id", meetingVersionId) }
+        ensureSession()
+        val res = try {
+            db.functions.invoke("minutes-word", body = body)
+        } catch (e: RestException) {
+            if (e.statusCode != 401) throw e
+            ensureSession(force = true)
+            db.functions.invoke("minutes-word", body = body)
+        }
+        return MinutesWord(res.bodyAsBytes(), res.headers["x-wb-meeting-date"].orEmpty(), res.headers["x-wb-draft"] != "false")
     }
 
     suspend fun process(recordId: String): ProcessStatus {

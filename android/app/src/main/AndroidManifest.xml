@@ -59,5 +59,16 @@
             android:name=".record.RecordingService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- 회의록 Word를 공유 창으로 다른 앱(Gmail 등)에 넘길 때 쓰는 파일 주소(FR-29) -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

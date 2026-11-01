@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -48,7 +47,10 @@ import com.workbrain.app.ui.Tone
 import com.workbrain.app.ui.Wb
 import com.workbrain.app.ui.WbCard
 import androidx.compose.foundation.clickable
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.platform.LocalContext
 import com.workbrain.app.ui.TitleDialog
@@ -166,6 +168,24 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             else -> Unit
         }
     }
+    fun remakeMinutes() {
+        message = null
+        MinutesWorker.start(context, recordId, shownTitle)
+    }
+
+    // ↪ 공유: 화면에 보이는 회의록 버전으로 Word를 만들어 공유 창을 띄운다(FR-29, DEC-60)
+    var sharing by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+    fun shareWord(meetingVersionId: String) {
+        sharing = true
+        message = null
+        scope.launch {
+            runCatching { Server.minutesWord(meetingVersionId) }
+                .onSuccess { MinutesShare.share(context, it, shownTitle) }
+                .onFailure { message = "Word를 만들지 못했어요. 인터넷 연결을 확인하고 다시 눌러 주세요" to Tone.Crit }
+            sharing = false
+        }
+    }
 
     @Composable
     fun candidate(p: ProposalRow) = CandidateCard(
@@ -175,10 +195,34 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     )
 
     Column(Modifier.fillMaxSize().background(Wb.colors.surface)) {
-        if (onBack != null) {
-            TextButton(onClick = onBack, modifier = Modifier.padding(horizontal = 4.dp)) { Text("← 녹음", color = Wb.colors.link) }
-        } else {
-            Spacer(Modifier.height(16.dp))
+        // 맨 위 줄(클로바 노트처럼): 왼쪽 뒤로 가기, 오른쪽 ↪ 공유(Word)·⋮ 메뉴. 회의록 문서가 있을 때만 아이콘을 둔다(DEC-60)
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (onBack != null) TextButton(onClick = onBack) { Text("← 녹음", color = Wb.colors.link) }
+            Spacer(Modifier.weight(1f))
+            val version = meeting?.takeIf { it.document != null }
+            if (version != null) {
+                if (sharing) {
+                    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Wb.colors.primary)
+                    }
+                } else {
+                    IconButton(onClick = { shareWord(version.id) }) {
+                        Icon(WbIcons.Share, contentDescription = "회의록 Word 공유", tint = Wb.colors.ink)
+                    }
+                }
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(WbIcons.More, contentDescription = "더보기", tint = Wb.colors.ink)
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("다시 만들기") },
+                            enabled = minutes != MinutesWorker.State.Making,
+                            onClick = { menuOpen = false; remakeMinutes() },
+                        )
+                    }
+                }
+            }
         }
         Column(Modifier.padding(horizontal = 16.dp)) {
             Row(Modifier.clickable { renaming = true }, verticalAlignment = Alignment.CenterVertically) {
@@ -218,10 +262,8 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                         making = minutes == MinutesWorker.State.Making,
                         madeWith = madeWith,
                         outdated = currentGuidelineRev?.let { it != madeRev } == true,
-                    ) {
-                        message = null
-                        MinutesWorker.start(context, recordId, shownTitle)
-                    }
+                        onMake = ::remakeMinutes,
+                    )
                 }
             } else {
                 val fields = meeting?.fields

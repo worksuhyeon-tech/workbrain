@@ -83,10 +83,9 @@ fun MinutesPane(document: MinutesDocument?, making: Boolean, madeWith: String, o
 }
 
 /**
- * 문서 머리 한 줄: 왼쪽은 상태·지침 출처, 오른쪽은 다시 만들기 글자 버튼.
+ * 문서 머리 한 줄: 왼쪽은 상태·지침 출처, 오른쪽은 만드는 중 표시 또는 (지침이 바뀐 문서만) '새 지침으로 다시 만들기 ›'.
  * 안내를 여러 줄로 쌓으면 본문이 화면 중간부터 시작해서 한 줄로 줄였다.
- * 다시 만들기는 항상 둔다: 지침 번호는 그대로인데 참고 파일 동의만 바꾼 경우에도 다시 만들 수 있어야 해서다.
- * 지침이 바뀐 문서만 눈에 띄게(파란 굵은 글씨) 알린다. 다시 만들어도 새 할 일 후보는 생기지 않는다
+ * 평소의 '다시 만들기'는 맨 위 줄 ⋮ 메뉴에 있다(DEC-60). 지침이 바뀐 경우만 눈에 띄게 여기서 알린다
  */
 @Composable
 private fun DocHeader(madeWith: String, making: Boolean, outdated: Boolean, onMake: () -> Unit) {
@@ -96,19 +95,14 @@ private fun DocHeader(madeWith: String, making: Boolean, outdated: Boolean, onMa
             CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp, color = Wb.colors.primary)
             Spacer(Modifier.width(6.dp))
             Text("다시 만드는 중", style = MaterialTheme.typography.labelMedium, color = Wb.colors.primary)
-        } else {
+        } else if (outdated) {
             // 글자만 있는 버튼은 누르는 영역이 좁아 실기기에서 눌리지 않은 적이 있어 최소 크기를 둔다
             TextButton(
                 onClick = onMake,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 modifier = Modifier.heightIn(min = 48.dp),
             ) {
-                Text(
-                    if (outdated) "새 지침으로 다시 만들기 ›" else "다시 만들기",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = if (outdated) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (outdated) Wb.colors.link else Wb.colors.muted,
-                )
+                Text("새 지침으로 다시 만들기 ›", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Wb.colors.link)
             }
         }
     }
