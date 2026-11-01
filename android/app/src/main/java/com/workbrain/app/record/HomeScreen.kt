@@ -140,11 +140,13 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     }
     val shared by SharedImport.pending.collectAsStateWithLifecycle()
     LaunchedEffect(shared) {
-        val item = shared ?: return@LaunchedEffect
+        // 지침 zip은 더보기 화면이 받아야 하므로 여기서 비우지 않는다
+        val item = shared?.takeUnless { it is SharedImport.Item.SkillZip } ?: return@LaunchedEffect
         SharedImport.pending.value = null
         when (item) {
             is SharedImport.Item.File -> runImport { FileImporter.import(context, item.uri, "call-share", item.mime) }
             is SharedImport.Item.Text -> runImport { FileImporter.importSharedText(context, item.text, item.subject) }
+            is SharedImport.Item.SkillZip -> Unit
         }
     }
 

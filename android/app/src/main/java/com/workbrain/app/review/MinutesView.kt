@@ -6,11 +6,13 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,6 +21,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -43,9 +46,10 @@ import com.workbrain.app.ui.WbCard
 /**
  * 기록 상세의 '회의록 문서'(FR-30, 목업 S05 mview-doc). 문서가 없으면 '회의록 만들기' 버튼만 둔다(DEC-56).
  * making: 만드는 중(1~2분 걸려 진행 표시를 둔다)
+ * madeWith: 이 문서를 만들 때 쓴 지침 안내(머리 줄). outdated: 그 뒤 지침이 바뀌어 새 지침으로 다시 만들 수 있음
  */
 @Composable
-fun MinutesPane(document: MinutesDocument?, making: Boolean, onMake: () -> Unit) {
+fun MinutesPane(document: MinutesDocument?, making: Boolean, madeWith: String, outdated: Boolean, onMake: () -> Unit) {
     WbCard {
         if (document == null) {
             Text("아직 회의록이 없어요", style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
@@ -58,7 +62,7 @@ fun MinutesPane(document: MinutesDocument?, making: Boolean, onMake: () -> Unit)
             if (making) MakingRow() else PrimaryButton("회의록 만들기", onClick = onMake, modifier = Modifier.fillMaxWidth())
             return@WbCard
         }
-        Text("초안 — 검토 전", style = MaterialTheme.typography.labelMedium, color = Wb.colors.muted)
+        DocHeader(madeWith, making, outdated, onMake)
         if (document.title.isNotBlank()) {
             Text(document.title, style = MaterialTheme.typography.titleMedium, color = Wb.colors.ink, modifier = Modifier.padding(top = 4.dp))
         }
@@ -74,6 +78,27 @@ fun MinutesPane(document: MinutesDocument?, making: Boolean, onMake: () -> Unit)
                 Text(marked(line), style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body, modifier = Modifier.padding(vertical = 2.dp))
             }
             section.table?.let { MinutesTableView(it) }
+        }
+    }
+}
+
+/**
+ * 문서 머리 한 줄: 왼쪽은 상태·지침 출처, 오른쪽은 지침이 바뀌었을 때만 다시 만들기 글자 버튼.
+ * 안내를 여러 줄로 쌓으면 본문이 화면 중간부터 시작해서 한 줄로 줄였다.
+ * 새 지침은 다시 만들 때만 적용되고(이미 만든 문서는 그대로), 다시 만들어도 새 할 일 후보는 생기지 않는다
+ */
+@Composable
+private fun DocHeader(madeWith: String, making: Boolean, outdated: Boolean, onMake: () -> Unit) {
+    Row(Modifier.heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("초안 · $madeWith", style = MaterialTheme.typography.labelMedium, color = Wb.colors.muted, modifier = Modifier.weight(1f))
+        if (making) {
+            CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp, color = Wb.colors.primary)
+            Spacer(Modifier.width(6.dp))
+            Text("다시 만드는 중", style = MaterialTheme.typography.labelMedium, color = Wb.colors.primary)
+        } else if (outdated) {
+            TextButton(onClick = onMake, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text("새 지침으로 다시 만들기 ›", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Wb.colors.link)
+            }
         }
     }
 }

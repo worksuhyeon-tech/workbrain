@@ -97,12 +97,29 @@ import kotlinx.serialization.json.put
 
 @Serializable data class CostRow(@SerialName("confirmed_krw") val krw: Int = 0)
 
+/** 가져온 지침의 참고 파일 하나(references 폴더의 .md) */
+@Serializable data class GuidelineRef(val name: String, val content: String)
+
+/** 설정에 저장된 회의록 지침. guideline이 null이면 앱 기본 지침(rev 0)을 쓰는 중 */
+@Serializable data class GuidelineRow(
+    @SerialName("minutes_guideline") val guideline: String? = null,
+    @SerialName("minutes_guideline_refs") val refs: List<GuidelineRef>? = null,
+    @SerialName("guideline_rev") val rev: Int = 0,
+    @SerialName("guideline_imported_at") val importedAt: String? = null,
+    @SerialName("guideline_source_name") val sourceName: String? = null,
+)
+
+/** 서버가 지침을 거부했을 때(WB400): 사용자에게 그대로 보여 줄 이유 */
+class GuidelineRejected(reason: String) : Exception(reason)
+
 @Serializable data class MeetingRow(
     val id: String,
     val fields: JsonObject,
     // 사람이 읽는 회의록(FR-30). '회의록 만들기'를 누르기 전에는 없다
     val document: MinutesDocument? = null,
+    // 문서를 만들 때 쓴 지침 번호(0 = 기본 지침)와 가져온 시각
     @SerialName("guideline_rev") val guidelineRev: Int? = null,
+    @SerialName("guideline_imported_at") val guidelineImportedAt: String? = null,
 )
 
 /** 회의록 문서: 섹션마다 글줄과 (있으면) 표. 서버 document.ts의 MinutesDocument와 같은 모양 */
@@ -136,6 +153,7 @@ data class Transcript(val content: String, val segments: List<TranscriptSegment>
 data class ProcessStatus(val stage: String, val state: String, val error: String?)
 
 const val CONSENT_POLICY_VERSION = "2026-10-18"
+private const val REFS_CONSENT_PURPOSE = "minutes-guideline-refs"
 
 /** 저장된 로그인도 없거나 서버가 거부해, 사용자가 다시 로그인해야 하는 상태 */
 class LoginRequired : Exception("WB401")
@@ -163,6 +181,29 @@ object Server {
 
     suspend fun grantConsent() {
         db.from("consent_grant").insert(listOf("voice-stt", "text-ai").map { ConsentInsert(it, provider = "openai", policyVersion = CONSENT_POLICY_VERSION) })
+    }
+
+    /** 참고 파일(인물 사전 등)을 회의록 만들 때 OpenAI로 함께 보내도 되는지(DEC-21 Q10). 음성·텍스트 동의와 별도 */
+    suspend fun refsConsent(): Boolean =
+        db.from("consent_grant").select {
+            filter {
+                eq("purpose", REFS_CONSENT_PURPOSE)
+                exact("revoked_at", null)
+            }
+        }.decodeList<JsonObject>().isNotEmpty()
+
+    /** 켤 때는 새 동의 행을, 끌 때는 살아 있는 동의 행의 철회 시각을 채운다(행을 지우지 않아 이력이 남는다) */
+    suspend fun setRefsConsent(on: Boolean) {
+        if (on) {
+            if (!refsConsent()) db.from("consent_grant").insert(ConsentInsert(REFS_CONSENT_PURPOSE, provider = "openai", policyVersion = CONSENT_POLICY_VERSION))
+        } else {
+            db.from("consent_grant").update({ set("revoked_at", java.time.Instant.now().toString()) }) {
+                filter {
+                    eq("purpose", REFS_CONSENT_PURPOSE)
+                    exact("revoked_at", null)
+                }
+            }
+        }
     }
 
     suspend fun createRecord(row: SourceRecordInsert) {
@@ -358,6 +399,29 @@ object Server {
     /** 설정 행은 가입 때 만들어지고 RLS가 본인 행만 바꾼다. 상한(5개)은 DB 제약이 지킨다 */
     suspend fun saveMyNames(names: List<String>) {
         db.from("settings").update({ set("my_names", names) }) { filter { eq("user_id", uid()) } }
+    }
+
+    suspend fun guideline(): GuidelineRow =
+        db.from("settings").select(
+            Columns.list("minutes_guideline", "minutes_guideline_refs", "guideline_rev", "guideline_imported_at", "guideline_source_name"),
+        ).decodeSingle<GuidelineRow>()
+
+    /**
+     * 지침을 통째로 바꾼다(검사 후 교체, 번호 +1). 새 번호를 돌려준다.
+     * 서버가 상한 등으로 거부(WB400)하면 이유를 GuidelineRejected로 던지고 기존 지침은 그대로다
+     */
+    suspend fun setGuideline(skill: String, refs: List<GuidelineRef>, sourceName: String): Int {
+        val result = try {
+            db.postgrest.rpc("wb_guideline_set", buildJsonObject {
+                put("p_guideline", skill)
+                put("p_refs", Json.encodeToJsonElement(refs))
+                put("p_source_name", sourceName)
+            }).decodeAs<JsonObject>()
+        } catch (e: RestException) {
+            val reason = Regex("WB400: ([^\"\\n}]+)").find(e.message.orEmpty())?.groupValues?.get(1)?.trim()
+            throw if (reason != null) GuidelineRejected(reason) else e
+        }
+        return result["guideline_rev"]?.jsonPrimitive?.intOrNull ?: error("지침 번호를 받지 못했어요")
     }
 
     /** 내 용어집(DEC-33), 클로바노트처럼 최신순 */

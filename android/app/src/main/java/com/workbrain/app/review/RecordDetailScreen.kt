@@ -36,6 +36,7 @@ import com.workbrain.app.data.MeetingRow
 import com.workbrain.app.data.ProposalRow
 import com.workbrain.app.data.Server
 import com.workbrain.app.data.Transcript
+import com.workbrain.app.more.guidelineStamp
 import com.workbrain.app.ui.Banner
 import com.workbrain.app.ui.HandAccent
 import com.workbrain.app.ui.PrimaryButton
@@ -90,6 +91,8 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     val scope = rememberCoroutineScope()
     var firstLoad by remember { mutableStateOf(true) }
     var meeting by remember { mutableStateOf<MeetingRow?>(null) }
+    // 지금 설정의 지침 번호: 문서를 만들 때 쓴 번호와 다르면 '새 지침으로 다시 만들기'를 보여 준다
+    var currentGuidelineRev by remember { mutableStateOf<Int?>(null) }
     var proposals by remember { mutableStateOf<List<ProposalRow>>(emptyList()) }
     var transcripts by remember { mutableStateOf<Map<String, Transcript>>(emptyMap()) }
     var showTranscript by remember { mutableStateOf(false) }
@@ -117,6 +120,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             proposals = Server.proposals(recordId)
             transcripts = Server.transcripts(recordId)
             openTaskTitles = Server.openTasks().map { it.title.trim() }.toSet()
+            currentGuidelineRev = Server.guideline().rev
         }.onFailure { message = "불러오지 못했어요. 인터넷 연결을 확인해 주세요." to Tone.Crit }
         // 결정과 겹치는 후보는 결정과 중복일 가능성이 커서 처음에는 체크하지 않는다(DEC-48)
         val decisions = meeting?.fields?.decisions().orEmpty()
@@ -198,7 +202,17 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         ) {
             if (view == "doc") {
                 item {
-                    MinutesPane(meeting?.document, making = minutes == MinutesWorker.State.Making) {
+                    // 문서의 지침 번호 0 = 앱 기본 지침. 번호가 있으면 가져온 지침으로 만든 것
+                    val madeRev = meeting?.guidelineRev ?: 0
+                    val madeWith = if (madeRev > 0) {
+                        listOfNotNull(guidelineStamp(meeting?.guidelineImportedAt, "MM/dd"), "가져온 지침 적용").joinToString(" ")
+                    } else "기본 지침으로 만듦"
+                    MinutesPane(
+                        meeting?.document,
+                        making = minutes == MinutesWorker.State.Making,
+                        madeWith = madeWith,
+                        outdated = currentGuidelineRev?.let { it != madeRev } == true,
+                    ) {
                         message = null
                         MinutesWorker.start(context, recordId, shownTitle)
                     }

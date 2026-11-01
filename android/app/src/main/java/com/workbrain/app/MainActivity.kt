@@ -50,6 +50,7 @@ class MainActivity : ComponentActivity() {
         }
         val text = intent.getStringExtra(Intent.EXTRA_TEXT)
         SharedImport.pending.value = when {
+            uri != null && SharedImport.isSkillZip(this, uri, intent.type) -> SharedImport.Item.SkillZip(uri)
             uri != null -> SharedImport.Item.File(uri, intent.type)
             !text.isNullOrBlank() -> SharedImport.Item.Text(text, intent.getStringExtra(Intent.EXTRA_SUBJECT))
             else -> return

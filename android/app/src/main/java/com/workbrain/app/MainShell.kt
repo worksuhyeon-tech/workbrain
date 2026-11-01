@@ -80,9 +80,13 @@ fun MainShell() {
     // 앱을 열 때: 결과가 아직 없는 녹음은 백그라운드 처리를 다시 건다(강제 중지 뒤에도 이어 가기, DEC-37)
     val context = LocalContext.current
     LaunchedEffect(Unit) { UploadManager.ensureRunning(context) }
-    // 다른 앱에서 음성·글을 공유하면 녹음 화면으로 와서 가져오기를 이어 간다(DEC-40·53)
+    // 다른 앱에서 음성·글을 공유하면 녹음 화면으로 와서 가져오기를 이어 간다(DEC-40·53). 지침 zip은 더보기로(FR-30)
     val shared by SharedImport.pending.collectAsStateWithLifecycle()
-    LaunchedEffect(shared) { if (shared != null) { tab = Tab.RECORD; detailId = null } }
+    LaunchedEffect(shared) {
+        val item = shared ?: return@LaunchedEffect
+        tab = if (item is SharedImport.Item.SkillZip) Tab.MORE else Tab.RECORD
+        detailId = null
+    }
 
     // 펼친 화면(두 칸, DEC-47): 메뉴는 왼쪽 세로, 검토함에서 연 기록은 전체 화면 대신 오른쪽 칸에 연다.
     // 열린 기록은 detailId 하나로 들고 있어서, 접으면 같은 기록이 한 칸 전체 화면으로 이어진다

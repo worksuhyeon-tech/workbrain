@@ -38,8 +38,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.BuildConfig
 import com.workbrain.app.Supa
+import com.workbrain.app.data.GuidelineRow
 import com.workbrain.app.data.Server
 import com.workbrain.app.record.AttendeesEditor
+import com.workbrain.app.record.SharedImport
 import com.workbrain.app.record.RecStatus
 import com.workbrain.app.record.RecordingService
 import com.workbrain.app.ui.GlassIcon
@@ -56,25 +58,40 @@ import com.workbrain.app.ui.WbCard
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
 
-/** 더보기: 계정·내 용어집·이번 달 AI 비용·앱 정보·글꼴 라이선스·로그아웃. 펼친 화면은 왼쪽 메뉴 / 오른쪽 고른 항목(목업 S09) */
+private enum class MorePage { VOCAB, GUIDELINE }
+
+/** 더보기: 계정·내 용어집·회의록 지침·이번 달 AI 비용·앱 정보·글꼴 라이선스·로그아웃. 펼친 화면은 왼쪽 메뉴 / 오른쪽 고른 항목(목업 S09) */
 @Composable
 fun MoreScreen() {
-    var vocabOpen by rememberSaveable { mutableStateOf(false) }
+    var opened by rememberSaveable { mutableStateOf<MorePage?>(null) }
+    // '공유 → WorkBrain'으로 받은 스킬 zip은 지침 화면이 열어서 확인 시트까지 이어 간다
+    val shared by SharedImport.pending.collectAsStateWithLifecycle()
+    val incomingZip = (shared as? SharedImport.Item.SkillZip)?.uri
+    LaunchedEffect(incomingZip) { if (incomingZip != null) opened = MorePage.GUIDELINE }
+
+    val page: @Composable (onBack: (() -> Unit)?) -> Unit = { onBack ->
+        when (opened) {
+            MorePage.VOCAB -> VocabScreen(onBack)
+            MorePage.GUIDELINE -> GuidelineScreen(onBack, incomingZip, onIncomingHandled = { SharedImport.pending.value = null })
+            null -> Unit
+        }
+    }
     if (isWideWindow()) {
         TwoPane(
             leftWeight = 0.4f,
-            left = { MoreMenu(onOpenVocab = { vocabOpen = true }) },
-            right = { if (vocabOpen) VocabScreen(onBack = null) else PanePlaceholder("왼쪽에서 항목을 고르면 여기에 열려요") },
+            left = { MoreMenu(openedPage = opened, onOpen = { opened = it }) },
+            right = { if (opened != null) page(null) else PanePlaceholder("왼쪽에서 항목을 고르면 여기에 열려요") },
         )
-    } else if (vocabOpen) {
-        VocabScreen(onBack = { vocabOpen = false })
+    } else if (opened != null) {
+        page { opened = null }
     } else {
-        MoreMenu(onOpenVocab = { vocabOpen = true })
+        MoreMenu(openedPage = null, onOpen = { opened = it })
     }
 }
 
+/** openedPage: 지침 화면에서 바꾼 상태를 펼친 화면의 왼쪽 메뉴에도 바로 보이게, 열린 화면이 바뀔 때 다시 읽는다 */
 @Composable
-private fun MoreMenu(onOpenVocab: () -> Unit) {
+private fun MoreMenu(openedPage: MorePage?, onOpen: (MorePage) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val rec by RecordingService.state.collectAsStateWithLifecycle()
@@ -83,6 +100,7 @@ private fun MoreMenu(onOpenVocab: () -> Unit) {
     var myNames by remember { mutableStateOf<List<String>?>(null) }
     var myNamesError by remember { mutableStateOf(false) }
     var myNamesLoadFailed by remember { mutableStateOf(false) }
+    var guideline by remember { mutableStateOf<GuidelineRow?>(null) }
     val email = Supa.client.auth.currentUserOrNull()?.email.orEmpty()
 
     LaunchedEffect(Unit) {
@@ -90,6 +108,7 @@ private fun MoreMenu(onOpenVocab: () -> Unit) {
         myNames = runCatching { Server.myNames() }.getOrNull()
         myNamesLoadFailed = myNames == null
     }
+    LaunchedEffect(openedPage) { guideline = runCatching { Server.guideline() }.getOrNull() }
 
     Column(
         Modifier.fillMaxSize().background(Wb.colors.surface).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
@@ -150,7 +169,17 @@ private fun MoreMenu(onOpenVocab: () -> Unit) {
 
         SectionLabel("받아쓰기")
         WbCard(padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
-            InfoRow("내 용어집", "업무 단어 등록 ›", onOpenVocab)
+            InfoRow("내 용어집", "업무 단어 등록 ›") { onOpen(MorePage.VOCAB) }
+        }
+
+        SectionLabel("회의록")
+        WbCard(padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
+            val status = when {
+                guideline == null -> "›"
+                guideline?.guideline.isNullOrBlank() -> "기본 지침 ›"
+                else -> "가져온 지침 ›"
+            }
+            InfoRow("회의록 지침", status) { onOpen(MorePage.GUIDELINE) }
         }
 
         SectionLabel("AI 사용")

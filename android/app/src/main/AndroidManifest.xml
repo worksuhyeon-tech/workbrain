@@ -28,13 +28,15 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- 통화 녹음·다른 앱 녹음(DEC-40), 클로바노트 등에서 받아쓴 글(DEC-53)을 '공유 → WorkBrain'으로 받는다 -->
+            <!-- 통화 녹음·다른 앱 녹음(DEC-40), 클로바노트 등에서 받아쓴 글(DEC-53), 회의록 지침 스킬 zip(FR-30)을 '공유 → WorkBrain'으로 받는다 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="audio/*" />
                 <data android:mimeType="text/plain" />
                 <data android:mimeType="application/txt" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
             </intent-filter>
             <!-- 삼성 음성 녹음은 파일이 하나여도 '여러 개 보내기'로, 텍스트 변환 txt는 비표준 형식 application/txt로 보낸다 -->
             <intent-filter>

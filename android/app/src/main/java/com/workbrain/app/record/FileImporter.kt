@@ -126,6 +126,14 @@ object FileImporter {
     fun savedTurns(dir: File): List<TranscriptText.Turn> =
         runCatching { Json.decodeFromString<List<TranscriptText.Turn>>(File(dir, TURNS_FILE).readText()) }.getOrDefault(emptyList())
 
+    /** 공유·선택한 파일의 이름(확장자 포함). 읽지 못하면 null */
+    fun displayName(context: Context, uri: Uri): String? =
+        runCatching {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            }
+        }.getOrNull()
+
     const val TEXT_EXT = "txt"
     private const val TURNS_FILE = "turns.json"
     const val TEXT_CHANNEL = "text-import"
@@ -133,11 +141,21 @@ object FileImporter {
     private const val TEXT_MAX_BYTES = 1024L * 1024
 }
 
-/** 다른 앱에서 '공유 → WorkBrain'으로 받은 파일·글을 녹음 화면에 넘기는 통로(MainActivity → HomeScreen) */
+/**
+ * 다른 앱에서 '공유 → WorkBrain'으로 받은 파일·글을 화면에 넘기는 통로(MainActivity → HomeScreen / MoreScreen).
+ * 음성·글은 녹음 화면이, 회의록 지침 zip은 더보기의 지침 화면이 받는다
+ */
 object SharedImport {
     sealed interface Item {
         data class File(val uri: Uri, val mime: String?) : Item
         data class Text(val text: String, val subject: String?) : Item
+        data class SkillZip(val uri: Uri) : Item
     }
     val pending = kotlinx.coroutines.flow.MutableStateFlow<Item?>(null)
+
+    private val ZIP_MIMES = setOf("application/zip", "application/x-zip-compressed")
+
+    /** 공유한 앱이 zip 형식을 정확히 알려 주지 않을 수 있어(application/octet-stream 등) 파일 이름도 본다 */
+    fun isSkillZip(context: Context, uri: Uri, mime: String?): Boolean =
+        mime in ZIP_MIMES || (mime?.startsWith("audio/") != true && FileImporter.displayName(context, uri)?.endsWith(".zip", ignoreCase = true) == true)
 }
