@@ -1,6 +1,6 @@
 # 실사용 개선 Plan — UX 메모 v1.2
 
-버전 0.1 · 2026-10-19 (Asia/Seoul) · 상태: **Plan 작성, 사용자 검토 전**
+버전 0.1 · 2026-10-19 (Asia/Seoul) · 상태: **사용자 승인(2026-11-01, DEC-57)**
 
 근거: [UX 고도화 메모 v1.2](../../WorkBrain-UX-고도화-메모-v1.2.md) · [대조 검토](../../03-analysis/ux-memo-v1.2-review.md) · 결정 DEC-41~46([결정 기록](../../06-RISK-AND-DECISIONS.md))
 
