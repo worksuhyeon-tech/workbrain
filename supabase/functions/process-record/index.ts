@@ -484,14 +484,47 @@ async function runExtract(db: SupabaseClient, uid: string, recordId: string, job
   }).eq("id", job.id);
 }
 
+/**
+ * 회의록 문서용 전사: 같은 화자의 이어진 문장을 '[화자] 발언' 한 줄로 묶는다(DEC-58).
+ * 회의록은 누가 무엇을 말했는지로 참석자 이름을 추정하므로 화자가 필요하다. 할 일 정리(EXTRACT) 입력에는 지금처럼 화자를 넣지 않는다(DEC-54).
+ * 최신 전사(교정본)에 화자가 없으면 교정 중 문장 수가 바뀐 경우라, 화자가 있는 원문을 쓰고 용어집으로 표기를 보완한다.
+ * 화자 정보가 아예 없으면(앱 녹음 등) null: 기존처럼 최신 전사를 그대로 쓴다
+ */
+async function speakerTranscript(db: SupabaseClient, uid: string, recordId: string, latest: Segment[]):
+  Promise<{ text: string; fromOriginal: boolean; vocab: string[] } | null> {
+  const hasSpeakers = (segs: Segment[]) => segs.some((s) => s.speaker?.trim());
+  let segs = latest;
+  let fromOriginal = false;
+  if (!hasSpeakers(segs)) {
+    const { data } = await db.from("transcript_version").select("segments")
+      .eq("source_record_id", recordId).eq("owner_id", uid).eq("kind", "stt-original")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    segs = (data?.segments ?? []) as Segment[];
+    if (!hasSpeakers(segs)) return null;
+    fromOriginal = true;
+  }
+  const lines: string[] = [];
+  let speaker = "";
+  let said: string[] = [];
+  for (const s of segs) {
+    const who = s.speaker?.trim() || "화자 미상";
+    if (who !== speaker && said.length) { lines.push(`[${speaker}] ${said.join(" ")}`); said = []; }
+    speaker = who;
+    said.push(s.text);
+  }
+  if (said.length) lines.push(`[${speaker}] ${said.join(" ")}`);
+  return { text: lines.join("\n"), fromOriginal, vocab: fromOriginal ? await loadVocab(db, uid) : [] };
+}
+
 // 회의록 문서(FR-30, Design §3.8): 검증된 추출 항목 + 전사 + 지침으로 사람이 읽는 회의록을 만든다.
 // 같은 기록에서 다시 누르면 최신 회의록 초안의 문서를 새로 덮어쓴다
 async function writeDocument(db: SupabaseClient, uid: string, recordId: string, cycle: string) {
   const { data: rec } = await db.from("source_record").select("title,record_kind,occurred_at,ingested_at,attendees")
     .eq("id", recordId).eq("owner_id", uid).single();
-  const { data: tv } = await db.from("transcript_version").select("id,content")
+  const { data: tv } = await db.from("transcript_version").select("id,content,segments")
     .eq("source_record_id", recordId).eq("owner_id", uid).order("created_at", { ascending: false }).limit(1).single();
   if (!rec || !tv) throw new Error("전사를 찾지 못했어요");
+  const spoken = await speakerTranscript(db, uid, recordId, tv.segments ?? []);
   const { data: mv } = await db.from("meeting_version").select("id,fields")
     .eq("transcript_version_id", tv.id).eq("owner_id", uid).order("created_at", { ascending: false }).limit(1).single();
   if (!mv) throw new Error("회의록 초안을 찾지 못했어요");
@@ -519,7 +552,9 @@ async function writeDocument(db: SupabaseClient, uid: string, recordId: string, 
     `[기록 정보]\n제목: ${rec.title ?? "(없음)"}\n종류: ${rec.record_kind}\n일시: ${seoul.toISOString().slice(0, 16).replace("T", " ")} (Asia/Seoul)`,
     `[참석자 명단] ${(rec.attendees ?? []).join(", ") || "(입력 없음)"}`,
     `[추출 항목]\n결정 후보:\n${list(fields.decisions)}\n미결 사항:\n${list(fields.open_questions)}\n할 일 후보:\n${tasks}\n이미 있는 할 일:\n${list(fields.already_tracked)}`,
-    `[전사]\n${tv.content ?? ""}`,
+    // 화자 원문은 용어 교정 전이라, 교정 대신 용어집을 표기 기준으로 함께 준다
+    ...(spoken?.fromOriginal && spoken.vocab.length ? [`[내 용어집] 표기 기준. 전사에 비슷하게 잘못 들린 말이 있으면 이 표기로 쓴다: ${spoken.vocab.join(", ")}`] : []),
+    `[전사]\n${spoken?.text ?? tv.content ?? ""}`,
   ].join("\n\n");
 
   const r = await fetch("https://api.openai.com/v1/responses", {
