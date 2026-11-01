@@ -10,12 +10,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -122,4 +124,29 @@ fun AttendeesEditor(
             }
         }
     }
+}
+
+/**
+ * 기록 상세의 참석자 고치기 창(DEC-59). 회의록은 이 명단의 사람만 참석자로 쓰고,
+ * 받아쓰기 앱이 한 사람을 목소리 높낮이로 둘로 나눈 '참석자 4' 같은 화자는 따로 세지 않는다
+ */
+@Composable
+fun AttendeesDialog(current: List<String>, onDismiss: () -> Unit, onSave: (List<String>) -> Unit) {
+    var names by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("참석자 고치기") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "실제로 참석한 사람만 넣어 주세요. 회의록은 이 명단의 사람만 참석자로 써요.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Wb.colors.muted,
+                )
+                AttendeesEditor(names, onChange = { names = it })
+            }
+        },
+        confirmButton = { TextButton(enabled = names != current, onClick = { onSave(names) }) { Text("저장") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
+    )
 }

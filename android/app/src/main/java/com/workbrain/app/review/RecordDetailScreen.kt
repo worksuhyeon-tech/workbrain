@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -52,11 +53,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.platform.LocalContext
 import com.workbrain.app.ui.TitleDialog
 import com.workbrain.app.ui.WbIcons
+import com.workbrain.app.record.AttendeesDialog
+import com.workbrain.app.record.RecentAttendees
 import com.workbrain.app.record.RecordingStore
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
@@ -105,6 +107,9 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     var message by remember { mutableStateOf<Pair<String, Tone>?>(null) }
     var shownTitle by remember { mutableStateOf(title) }
     var renaming by remember { mutableStateOf(false) }
+    // 기록의 참석자 명단(null = 아직 못 읽음). 회의록 문서는 이 명단 기준으로 참석자를 쓴다(DEC-59)
+    var attendees by remember { mutableStateOf<List<String>?>(null) }
+    var editingAttendees by remember { mutableStateOf(false) }
     // 결정 카드 '할 일로 만들기'(DEC-48): 만들 결정 문장, 이미 있는 할 일 제목(같은 결정을 두 번 만들지 않게)
     var creatingFrom by remember { mutableStateOf<String?>(null) }
     var openTaskTitles by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -121,6 +126,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             transcripts = Server.transcripts(recordId)
             openTaskTitles = Server.openTasks().map { it.title.trim() }.toSet()
             currentGuidelineRev = Server.guideline().rev
+            attendees = Server.recordAttendees(recordId)
         }.onFailure { message = "불러오지 못했어요. 인터넷 연결을 확인해 주세요." to Tone.Crit }
         // 결정과 겹치는 후보는 결정과 중복일 가능성이 커서 처음에는 체크하지 않는다(DEC-48)
         val decisions = meeting?.fields?.decisions().orEmpty()
@@ -222,9 +228,22 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                 val questions = fields?.texts("open_questions").orEmpty()
                 // 이미 있는 할 일이라 새로 만들지 않은 것(DEC-38)
                 val tracked = (fields?.get("already_tracked") as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.str("title") }
-                val attendees = (fields?.get("attendees") as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-                if (attendees.isNotEmpty()) item {
-                    Text("참석자 · ${attendees.joinToString(", ")}", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body)
+                // 참석자는 처리 때 찍어 둔 값이 아니라 기록의 지금 명단을 보여 주고 여기서 고친다(DEC-59)
+                attendees?.let { names ->
+                    item {
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { editingAttendees = true },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                if (names.isEmpty()) "참석자 · 아직 없어요" else "참석자 · ${names.joinToString(", ")}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (names.isEmpty()) Wb.colors.muted else Wb.colors.body,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(if (names.isEmpty()) "넣기" else "고치기", style = MaterialTheme.typography.labelMedium, color = Wb.colors.link)
+                        }
+                    }
                 }
                 if (decisions.isNotEmpty() || questions.isNotEmpty()) item {
                     WbCard {
@@ -339,6 +358,22 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
 
     if (confirmDiscard) {
         DiscardConfirmDialog(selected.size, onDismiss = { confirmDiscard = false }) { confirmDiscard = false; discardSelected() }
+    }
+
+    if (editingAttendees) {
+        AttendeesDialog(attendees.orEmpty(), onDismiss = { editingAttendees = false }) { names ->
+            editingAttendees = false
+            scope.launch {
+                runCatching { Server.saveAttendees(recordId, names) }
+                    .onSuccess {
+                        attendees = names
+                        RecentAttendees.remember(context, names)
+                        // 이미 만든 회의록은 자동으로 바뀌지 않는다(다시 만들기를 눌러야 새 명단이 반영됨)
+                        message = (if (meeting?.document != null) "참석자를 바꿨어요 · 회의록 문서에서 '다시 만들기'를 누르면 반영돼요" else "참석자를 바꿨어요") to Tone.Good
+                    }
+                    .onFailure { message = "참석자를 바꾸지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit }
+            }
+        }
     }
 
     if (renaming) {

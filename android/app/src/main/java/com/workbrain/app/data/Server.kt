@@ -127,6 +127,7 @@ class GuidelineRejected(reason: String) : Exception(reason)
 @Serializable data class MinutesSection(val heading: String, val lines: List<String> = emptyList(), val table: MinutesTable? = null)
 @Serializable data class MinutesTable(val columns: List<String>, val rows: List<List<String>> = emptyList())
 @Serializable data class MyNamesRow(@SerialName("my_names") val myNames: List<String>)
+@Serializable data class AttendeesRow(val attendees: List<String>? = null)
 
 @Serializable data class TranscriptRow(val id: String, val kind: String = "", val content: String? = null, val segments: List<TranscriptSegment>? = null)
 
@@ -390,6 +391,16 @@ object Server {
     /** 기록 제목 바꾸기. 회의록·검토함은 기록 제목을 따라 보여 준다 */
     suspend fun renameRecord(recordId: String, title: String) {
         db.from("source_record").update({ set("title", title) }) { filter { eq("id", recordId) } }
+    }
+
+    /** 기록의 참석자 명단(DEC-39). 처리가 끝난 뒤에도 기록 상세에서 고칠 수 있다(DEC-59) */
+    suspend fun recordAttendees(recordId: String): List<String> =
+        db.from("source_record").select(Columns.list("attendees")) { filter { eq("id", recordId) } }
+            .decodeSingle<AttendeesRow>().attendees.orEmpty()
+
+    /** 고친 명단은 다음 회의록 만들기부터 쓰인다. 이미 뽑은 할 일 후보·교정본은 다시 만들지 않는다 */
+    suspend fun saveAttendees(recordId: String, names: List<String>) {
+        db.from("source_record").update({ set("attendees", names) }) { filter { eq("id", recordId) } }
     }
 
     /** 내 이름·호칭(DEC-49): 회의에서 이 이름으로 맡긴 일은 처리 함수가 담당을 '나'로 바꾼다 */
