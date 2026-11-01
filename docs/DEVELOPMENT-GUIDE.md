@@ -1,6 +1,6 @@
 # WorkBrain 공통 개발 지침
 
-버전 0.2 · 2026-10-16 · Codex/Claude Code 공통 원본
+버전 0.3 · 2026-11-01 · Codex/Claude Code 공통 원본
 
 ## 작업 원칙
 
@@ -11,6 +11,19 @@
 - 단일 에이전트로 진행한다. Plan은 PM·CTO, Design은 아키텍트·보안, Do는 개발, Check는 QA·리뷰 관점으로 검토한다.
 - 새로운 외부 서비스 생성·유료 가입·배포·실제 이메일 전송은 별도 사용자 승인이 필요하다.
 - 공개 저장소에는 개인 이메일 주소, 업무 원본, 음성, 전사, 비밀키, 실제 백업을 기록하지 않는다. 예시는 합성 데이터를 쓴다.
+
+## 모델 역할 분담 (Claude Code)
+
+사용량을 아끼기 위해 설계와 위험 구간은 Opus, 정해진 구현은 Sonnet으로 나눈다(2026-11-01 사용자 결정). 틀려도 겉으로 드러나지 않는 구간을 Sonnet 단독 결과로 끝내지 않기 위함이다.
+
+| 구분 | 대상 | 담당 |
+|---|---|---|
+| 위험 구간 | `supabase/migrations/*.sql`(RLS·승인·삭제·보관 함수), `supabase/functions/process-record/*`(특히 `prompt.ts`), `supabase/functions/purge-audio/*`, 동시성·승인 1회·삭제 규칙 | 설계·구현은 Opus. Sonnet이 구현했다면 Opus `/code-review` 필수 |
+| 일반 구간 | Android Compose 화면, 목업 반영, 문구, 단순 버그, 설계된 API 호출 코드 | Sonnet |
+
+흐름: Opus 계획 모드로 계획 → 승인 후 `/model`로 Sonnet 전환해 구현 → 위험 구간을 건드렸으면 Opus로 돌아와 `/code-review`.
+
+Sonnet으로 작업 중 위험 구간 파일을 수정하게 되면, 작업 끝에 "위험 구간 수정: Opus 검토 필요"와 해당 파일 목록을 사용자에게 알린다.
 
 ## 수준과 백엔드
 
@@ -49,3 +62,4 @@
 ## 변경 기록
 
 0.2: Plan 재검토 결과와 새 프로젝트 지침을 반영. 제품 코드는 아직 없다.
+0.3: 모델 역할 분담(Opus 설계·위험 구간, Sonnet 일반 구현) 추가.
