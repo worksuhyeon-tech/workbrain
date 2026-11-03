@@ -96,10 +96,13 @@ fun MainShell() {
     var inboxVersion by remember { mutableIntStateOf(0) }
     var detailVersion by remember { mutableIntStateOf(0) }
 
+    // 기록 상세 ⋮에서 녹음을 지우면 녹음 목록으로 가서 '삭제되었어요 · 되돌리기'를 보여 준다(검토함에서 열었어도 같음)
+    val afterTrash: () -> Unit = { detailId = null; tab = Tab.RECORD }
+
     val body: @Composable () -> Unit = {
         val openId = detailId
         when {
-            openId != null && !detailInPane -> RecordDetailScreen(openId, detailTitle, onBack = { detailId = null })
+            openId != null && !detailInPane -> RecordDetailScreen(openId, detailTitle, onBack = { detailId = null }, onTrashed = afterTrash)
             else -> when (tab) {
                 Tab.TODAY -> TodayScreen()
                 Tab.PROJECTS -> ProjectsScreen()
@@ -114,7 +117,7 @@ fun MainShell() {
                             if (openId == null) {
                                 PanePlaceholder("할 일 후보의 ‘회의록 보기’를 누르면\n여기에 기록이 열려요")
                             } else key(openId, detailVersion) {
-                                RecordDetailScreen(openId, detailTitle, onBack = null, onChanged = { inboxVersion++ })
+                                RecordDetailScreen(openId, detailTitle, onBack = null, onChanged = { inboxVersion++ }, onTrashed = afterTrash)
                             }
                         }
                     },

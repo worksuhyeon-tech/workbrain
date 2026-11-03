@@ -3,7 +3,7 @@
 > **요약**: 음성 기록을 수집·전사하고 기존 프로젝트와 비교해 변경을 제안하며, 사용자가 승인하면 근거·이력과 함께 업무 지식이 축적되는 개인 AI 프로젝트 매니저의 기술 설계.
 >
 > **프로젝트**: WorkBrain
-> **버전**: 0.1.8 (Draft)
+> **버전**: 0.1.9 (Draft) — v0.1.9 개정(FR-07 회의록 승인·Q5 3년 보관/근거 문장) 사용자 승인(2026-11-03, DEC-61)
 > **작성자**: Claude Code (PDCA Design)
 > **작성일**: 2026-10-16 (Asia/Seoul)
 > **상태**: **사용자 승인(2026-10-18, v0.1.7, Q5 → DEC-25)**. G1/G2 문서 근거 충족(2026-10-17): 백엔드 Supabase Free(DEC-20), 모델 저가 후보 비교 방침(DEC-19). 실측(격리·동시성·복원·한국어 품질·비용)은 P0에서 하며, 결과에 따라 이 문서를 고친다.
@@ -293,7 +293,7 @@ stateDiagram-v2
 - 파일명은 ASCII `meeting_minutes_YYYYMMDD.docx`(한글 파일명 다운로드 실패 사례 회피). 같은 날 여러 건이면 `_2`, `_3`.
 - 승인 전(`draft`/`user-edited`) 문서는 머리글에 **"초안 — 검토 전"**을 넣는다. `미지정`/`[확인 필요]` 표기는 그대로 둔다.
 - 웹은 브라우저 다운로드, Android는 시스템 저장 위치 선택(SAF) 또는 공유 시트로 저장한다(DEC-01 동등 제공). **Android는 공유 시트로 시작한다(DEC-60)**: 기록 상세 맨 위 줄 ↪ 공유 → 서버 `minutes-word`가 만든 .docx를 공유 창으로 넘긴다(Gmail 첨부 등).
-- **문서 보관(DEC-21, Q8)**: **승인한 회의록**의 `document`는 승인 지식 수명(기본 1년)을 따르고, **승인 전 초안**은 전사 수명(기본 6개월)을 따른다. 문서는 요약 중심이며 장문 원문 인용을 넣지 않는다(시스템 규칙, 인용으로 전사 만료를 우회하지 않음 — §4.4). 문서가 만료돼 비었으면 다운로드 대신 만료 안내를 표시한다.
+- **문서 보관(DEC-21, Q8 → DEC-45 개정)**: **승인한 회의록**의 `document`는 승인 회의록 수명(기본 3년, 승인 시각 기준)을 따르고, **승인 전 초안**은 전사 수명(기본 6개월)을 따른다. 문서는 요약 중심이며 장문 원문 인용을 넣지 않는다(시스템 규칙, 인용으로 전사 만료를 우회하지 않음 — §4.4). 문서가 만료돼 비었으면 다운로드 대신 만료 안내를 표시한다.
 - Word·메일은 사용자가 화면에서 본 **회의록 버전 ID**를 고정해 만든다. 그 사이 새 버전이 생기면 "새 버전이 있어요" 안내 후 사용자가 고른다(M14).
 
 **④ 본인 메일 발송 (FR-22 P1 범위)**
@@ -315,6 +315,18 @@ stateDiagram-v2
 - 승인본을 편집하거나 문서만 다시 만들면 **새 초안 버전**이 생기고, 승인본은 그대로 남는다(FR-11).
 - 용어 정리: §3.1의 입력은 "승인된 전사"가 아니라 **분석에 사용한 전사 버전**(원전사 또는 사용자 수정본)이다. 전사에는 별도 승인 상태가 없다.
 - 초안 Word 다운로드·메일 발송은 DEC-16대로 허용하며 '초안' 표시를 단다.
+
+**구현 규칙 (v0.1.9, Q5 포함 — 사용자 승인 2026-11-03, DEC-61)**
+
+- **승인 함수** `approve_meeting(p_meeting_version_id)`: SECURITY DEFINER 함수 하나로만 승인한다(Data API로 `state`를 직접 못 바꿈, M13). 한 트랜잭션에서 버전 잠금 → 소유 확인(남의 것은 '없음'과 같은 답) → 이미 승인됨 → 같은 기록에 더 새 버전이 있음 → 문서 없음 → 분석에 쓴 전사 본문 없음 순으로 검사한 뒤 승인한다. 결과: `approved` | `already-approved` | `stale-version`(화면을 다시 읽게) | `no-document` | `evidence-missing`.
+- **승인 처리**: `state='approved'`, `approved_at = now()`, `retention_expires_at = 승인 시각 + settings.retention_knowledge_years년`(기본 **3년**, DEC-45). 같은 기록의 이전 승인본은 `superseded_at`만 채운다(지우지 않음). `approval_event(target_type='meeting', context='record')` 1건(같은 버전은 unique로 1회), `activity_log` 1건.
+- **문서가 있어야 승인한다**: 사용자가 승인하는 것은 Word로 나가는 회의록이고, 문서는 '회의록 만들기'를 눌러야 생긴다(DEC-56). 같은 버전의 `fields`(추출 항목)도 함께 승인된다.
+- **근거 문장 저장(DEC-45 A안)**: 회의록을 승인하면 `fields`의 결정 후보·미결 사항마다 근거 구간을 `evidence_link`(`meeting_version_id`, `segment_ref = {item, n, idx}`)로 남기고, 앞 2구간의 문장을 300자까지 `quote`에 복사한다. 할 일 제안 승인(`approve_proposal`)도 그 제안의 근거 링크 `quote`를 같은 방식으로 채운다. 이미 승인한 할 일 제안은 마이그레이션 때 한 번 채운다(지금은 전사가 모두 남아 있음). 승인 전 후보·초안에는 복사하지 않는다.
+- **승인본 보호**: 승인한 버전의 `fields`·`document`·지침 정보·승인 시각·전사 연결은 DB 트리거가 바꾸지 못하게 막는다. 바뀔 수 있는 것은 `superseded_at`과, 보관 기한이 지난 뒤의 정리뿐이다(FR-11).
+- **승인 뒤 다시 만들기**(DEC-61): 승인본에 덮어쓰지 않고, 같은 전사·추출 항목으로 **새 초안 버전**(`parent_version_id` = 승인본)을 만들어 거기에 문서를 쓴다(처리 함수 v20). 만드는 도중에 승인한 경우에도 문서를 쓰는 순간 승인본이면 새 초안으로 돌린다. 화면은 최신 버전(새 초안)을 보여 주고 머리 줄에 '승인본 MM/DD 있음'을 함께 표시한다. 새 초안을 승인하면 이전 승인본은 `superseded`가 된다.
+- **화면**(DEC-61): '회의록 문서' 탭에서 **문서가 있고 초안일 때만** 화면 맨 아래 고정 줄에 [이 회의록 승인] 버튼을 둔다(추출 항목 탭의 '선택한 할 일 추가' 줄과 같은 자리, 문서를 다 읽고 누르는 흐름). 누르면 확인 창을 한 번 띄운다("승인하면 Word의 '초안' 표시가 빠지고 3년 보관돼요. 할 일은 바뀌지 않아요" + 승인/취소). 승인 뒤에는 이 줄이 사라진다. 승인하면 문서 머리 줄이 '초안 · …'에서 '승인 MM/DD · …'로 바뀌고, Word 머리글의 '초안 — 검토 전'이 빠진다(`minutes-word`가 이미 `state`로 판단). 회의록을 만드는 중에는 승인 버튼을 끈다. **승인 취소는 두지 않는다**: 고치려면 다시 만들어 새 버전을 승인한다.
+- **보관 기한의 실제 삭제**: 지금 자동 삭제는 음성뿐이다(DEC-35). 전사·회의록·근거 문장의 만료 정리와 '전사가 없으면 저장한 근거 문장 보여 주기'는 FR-15 삭제·보관 작업 때 만든다. 이번에는 기한 값만 바르게 기록한다.
+- API: §5.2 `POST /meeting-versions/:vid/approve` = RPC `approve_meeting`.
 
 ### 3.10 AI 분석 확신 정보 — FR-06/18 (M12)
 
@@ -405,7 +417,7 @@ create table settings (
   timezone             text not null default 'Asia/Seoul',
   retention_audio_days   int not null default 30,        -- 30/60/90
   retention_transcript_months int not null default 6,    -- 6/12
-  retention_knowledge_years   int not null default 1,     -- 1/2/3
+  retention_knowledge_years   int not null default 3,     -- 1/2/3. 승인 회의록·승인 지식(DEC-45, 기존 1)
   budget_warn_krw      int not null default 20000,
   budget_wait_krw      int not null default 24000,
   minutes_guideline    text check (char_length(minutes_guideline) <= 8000), -- 가져온 SKILL.md 본문(FR-30). null=시스템 기본 지침
@@ -555,7 +567,7 @@ create table meeting_version (
   guideline_input_hash text,                   -- SKILL.md + 실제 전송한 참고 파일 내용 해시
   approved_at   timestamptz,                   -- state='approved'일 때(M14)
   superseded_at timestamptz,                   -- 더 새 승인본이 생기면
-  retention_expires_at timestamptz not null,   -- 초안: 전사 수명 / 승인 시 지식 수명으로 재계산(DEC-21)
+  retention_expires_at timestamptz not null,   -- 초안: 전사 수명 / 승인 시 승인 시각 + 승인 회의록 수명(기본 3년)으로 재계산(DEC-21·45)
   created_at    timestamptz not null default now()
 );
 
@@ -662,7 +674,8 @@ create table evidence_link (
   source_project_link_id uuid references source_project_link(id), -- 항목 연결의 근거(M16)
   meeting_version_id uuid references meeting_version(id),
   transcript_version_id uuid not null references transcript_version(id),
-  segment_ref   jsonb not null,                -- {idx} 또는 {sentence}
+  segment_ref   jsonb not null,                -- {idx} 또는 {sentence}. 회의록 승인 근거는 {item, n, idx}
+  quote         text check (char_length(quote) <= 300), -- 승인한 항목만: 앞 2구간 문장(DEC-45 A안). 승인 전에는 null
   created_at    timestamptz not null default now()
 );
 
@@ -752,10 +765,11 @@ create table tombstone (
 | 음성 원본 | 30일(30/60/90) | 파일 삭제, '원본 음성 만료' 표시 | 근거 전사가 있으면 경고 후 허용 |
 | 전사(원본·수정본) | 6개월(6/12) | 본문 제거, ID·위치·만료 표시 유지 | 인용 근거가 모두 없어지면 승인 차단 |
 | 미승인 회의록 초안(fields·document) | 전사와 같음 | 본문 제거 | — |
-| 승인한 회의록(fields·document) | 지식 1년(1/2/3), 승인 시각 기준 | 본문 제거 | Word·메일 불가, 만료 안내 |
-| 승인된 운영 데이터(할 일·프로젝트 상태) | 지식 수명 | 근거 링크만 만료 표시 | — |
+| 승인한 회의록(fields·document) | 3년(1/2/3), 승인 시각 기준(DEC-45) | 본문 제거 | Word·메일 불가, 만료 안내 |
+| 승인한 항목의 근거 문장(`evidence_link.quote`) | 승인 회의록과 같음 | 문장 제거, 위치만 유지 | 전사 만료 뒤에도 근거 보기 가능 |
+| 승인된 운영 데이터(할 일·프로젝트 상태) | 승인 지식 수명(3년) | 근거 링크만 만료 표시 | — |
 - **STT 분할(아키텍처 계획 §4)**: 공급자 파일 상한(현재 문서상 25MB) 이하로 분할, 구간 인덱스·오프셋 저장. 문장 경계·겹침에서 중복 텍스트 제거. 완료 구간 재사용.
-- **근거 보존**: 전사에서 복사한 인용은 **전사 수명**을 따른다. 승인 지식에 장문 원문을 복사해 만료를 우회하지 않는다. 만료 후 ID·위치·만료 표시만 유지.
+- **근거 보존**: 전사에서 복사한 인용은 **전사 수명**을 따른다. 승인 지식에 장문 원문을 복사해 만료를 우회하지 않는다. 만료 후 ID·위치·만료 표시만 유지. **예외(DEC-45 A안)**: 사용자가 승인한 항목(회의록의 결정·미결, 할 일 제안)의 근거 문장만 근거당 앞 2구간·300자까지 승인 순간 `evidence_link.quote`에 복사해 승인 회의록과 같은 수명으로 둔다(§3.9).
 - **외부 전송 분리**: 음성 외부 전사 동의와 텍스트 AI 분석 동의는 별개. 공급자·처리 목적이 바뀌면 재확인(FR-17, UX 계획 §4).
 - **외부 STT/LLM 보관 약관**은 앱 삭제와 별개. G2에서 공급자별 조건 확인·표시.
 
@@ -1076,6 +1090,7 @@ Plan 로드맵에 정렬(마감일 임의 설정 금지):
 | 0.1.1 | 2026-10-17 | FR-28 검토 미루기 반영: §3.7, `change_proposal.snoozed_until`, `/snooze` API, S06 탭. PRD·추적표·로드맵(TC-23)·결정(DEC-15) 동반 갱신 | Claude Code |
 | 0.1.4 | 2026-10-17 | Codex 교차 검토(G절) 반영: 단계별 비용 상태 기계(C7)·수명표(Q8)·백업/삭제 원장(C9)·RLS 계약(M13)·저장 암호화(M10)·업로드 전 허용 확인(M11)·확신 등급(M12)·회의록 버전 승인(M14)·자료 최소 표현(M15)·항목 연결(M16)·삭제 API(M17)·리비전(M18)·동의 테이블(M19/Q10)·지침 메타 고정(M20)·메일 결과 불명(M21/Q9)·가져오기 확인 화면(U6) | Claude Code |
 | 0.1.3 | 2026-10-17 | bkend 제외(DEC-18)·Supabase Free 채택(DEC-20)·저가 모델 비교 방침(DEC-19), S03/S04/S07/S08 목업 추가 | Claude Code |
+| 0.1.9 | 2026-11-03 | DEC-61(사용자 승인): FR-07 회의록 승인 구현 규칙(§3.9 `approve_meeting`·승인본 보호·승인 뒤 다시 만들기는 새 초안), Q5/DEC-45 승인 회의록 3년(`retention_knowledge_years` 기본 1→3)·근거 문장 `evidence_link.quote`(§4.3 DDL, §4.4 수명표·근거 보존 예외), §3.8 ③ 문서 보관 수명 | Claude Code |
 | 0.1.8 | 2026-10-20 | DEC-47: §6.3 Fold 펼침 = 2패널 + 왼쪽 세로 메뉴, 3패널은 PC 웹만. 화면별 칸 나눔 | Claude Code |
 | 0.1.7 | 2026-10-18 | DEC-24: PARA 트리 깊이 고정(폴더 속 폴더 없음), 칸 이름 (+)로 칸에 맞는 항목만 추가, 끌어서 옮기기 4종(아카이브·복원, 할 일 소속, 기록 재배정, 자료 연결)과 되돌리기, AI 정리 제안은 P2(§4.2) | Claude Code |
 | 0.1.6 | 2026-10-17 | DEC-23: 동선·중복 점검 반영. 웹 '기록' = 기록 목록·파일 올리기(S05), Fold 녹음 목업을 S04 하나로 합침, 기록 상세에서 새 할 일 후보 바로 추가(§3.4), 오늘 화면을 오늘 할 일·검토 대기 요약·처리 중 기록으로 축소(승인 버튼·프로젝트 카드·비용 카드 제거), 모든 할 일 탭을 다음 7일·지연·전체로, 빠른 입력(규칙 해석), 캘린더·매트릭스 보기 자리(P4), `task.owner_kind`(내 할 일/팔로업/확인 필요). 목업 요일 오기 수정(10/16 금, 10/17 토) | Claude Code |

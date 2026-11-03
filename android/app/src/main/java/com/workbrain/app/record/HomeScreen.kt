@@ -58,6 +58,7 @@ import com.workbrain.app.ui.GlassIcon
 import com.workbrain.app.ui.GlassTint
 import com.workbrain.app.ui.WbIcons
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.workbrain.app.ui.PageHeader
 import com.workbrain.app.ui.PrimaryButton
@@ -112,7 +113,16 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     var trashItems by remember { mutableStateOf<List<RecordingSession>?>(null) }
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    val wide = isWideWindow()
     fun refresh() { sessions = RecordingStore.list(context, rec.sessionId) }
+
+    // 휴지통은 접어도 펴도 화면 오른쪽 위(기록 상세의 ↪ 공유 자리)에 아이콘으로 둔다(사용자 요청 11/03).
+    // 접은 화면은 '녹음' 제목 줄 끝, 펼친 화면은 오른쪽 칸(녹음 목록) 맨 위 줄 끝
+    val trashButton: @Composable () -> Unit = {
+        IconButton(onClick = { trashItems = RecordingStore.listTrash(context) }) {
+            Icon(WbIcons.Trash, contentDescription = "휴지통", tint = Wb.colors.ink)
+        }
+    }
 
     // 지운 뒤 화면 아래에 잠깐 알린다. 되돌릴 수 있으면 '되돌리기'를 함께 보여 준다
     fun announce(message: String, undo: (() -> Unit)? = null) {
@@ -148,6 +158,16 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
             is SharedImport.Item.Text -> runImport { FileImporter.importSharedText(context, item.text, item.subject) }
             is SharedImport.Item.SkillZip -> Unit
         }
+    }
+
+    // 기록 상세 ⋮에서 지운 녹음: 밀어 지우기와 같은 알림·되돌리기를 여기서 띄운다
+    val trashedFromDetail by TrashNotice.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(trashedFromDetail) {
+        val s = trashedFromDetail ?: return@LaunchedEffect
+        TrashNotice.pending.value = null
+        refresh()
+        val dir = RecordingStore.dir(context, s.id)
+        announce("${s.title} 삭제되었어요") { RecordingStore.restore(dir); refresh() }
     }
 
     // 처리 완료 후 7일 지난 기기 음성 정리(앱을 열 때)
@@ -196,7 +216,9 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     // 녹음 카드: 한 칸이면 맨 위, 두 칸이면 왼쪽
     fun LazyListScope.recorderItems() {
         item {
-            PageHeader("녹음", if (rec.status == RecStatus.IDLE) "말한 건 다 기억해 둘게요" else "잘 듣고 있어요")
+            PageHeader("녹음", if (rec.status == RecStatus.IDLE) "말한 건 다 기억해 둘게요" else "잘 듣고 있어요") {
+                if (!wide) trashButton()
+            }
             RecorderCard(
                 rec = rec,
                 onStart = ::startRecording,
@@ -228,9 +250,9 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("기기에 저장된 녹음 · 올리기", Modifier.weight(1f))
-                TextButton(onClick = { trashItems = RecordingStore.listTrash(context) }) { Text("휴지통", color = Wb.colors.link) }
                 // 음성 또는 클로바노트 등에서 받아쓴 txt(DEC-53)
                 TextButton(onClick = { pickAudio.launch(arrayOf("audio/*", "text/plain")) }) { Text("파일 가져오기", color = Wb.colors.link) }
+                if (wide) trashButton()
             }
             if (sessions.isEmpty()) {
                 Text("아직 녹음이 없어요. 올리기를 누르기 전까지는 이 휴대폰 안에만 있어요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
@@ -277,7 +299,7 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     val listModifier = Modifier.fillMaxSize().background(Wb.colors.surface)
     val spacing = Arrangement.spacedBy(8.dp)
     Box(Modifier.fillMaxSize()) {
-        if (isWideWindow()) {
+        if (wide) {
             TwoPane(
                 leftWeight = 0.5f,
                 left = {

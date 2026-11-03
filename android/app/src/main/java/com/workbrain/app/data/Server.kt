@@ -121,7 +121,14 @@ class GuidelineRejected(reason: String) : Exception(reason)
     // 문서를 만들 때 쓴 지침 번호(0 = 기본 지침)와 가져온 시각
     @SerialName("guideline_rev") val guidelineRev: Int? = null,
     @SerialName("guideline_imported_at") val guidelineImportedAt: String? = null,
-)
+    // 회의록 승인(FR-07, DEC-61): draft | user-edited | approved
+    val state: String = "draft",
+    @SerialName("approved_at") val approvedAt: String? = null,
+) {
+    val approved: Boolean get() = state == "approved"
+}
+
+@Serializable data class ApprovedAtRow(@SerialName("approved_at") val approvedAt: String? = null)
 
 /** 회의록 문서: 섹션마다 글줄과 (있으면) 표. 서버 document.ts의 MinutesDocument와 같은 모양 */
 @Serializable data class MinutesDocument(val title: String = "", val sections: List<MinutesSection> = emptyList())
@@ -353,6 +360,31 @@ object Server {
             limit(1)
         }.decodeList<MeetingRow>().firstOrNull()
     }
+
+    /**
+     * 이 기록의 지금 승인본(대체되지 않은 것)이 승인된 시각. 없으면 null.
+     * 승인 뒤 다시 만들면 새 초안이 화면에 나오므로, 승인본이 따로 있다는 것을 알리는 데 쓴다(DEC-61)
+     */
+    suspend fun approvedMeetingAt(recordId: String): String? {
+        val tv = transcriptIds(recordId).ifEmpty { return null }
+        return db.from("meeting_version").select(Columns.list("approved_at")) {
+            filter {
+                isIn("transcript_version_id", tv)
+                eq("state", "approved")
+                exact("superseded_at", null)
+            }
+            limit(1)
+        }.decodeList<ApprovedAtRow>().firstOrNull()?.approvedAt
+    }
+
+    /**
+     * 회의록 버전 승인(FR-07). 결과: approved | already-approved | stale-version | no-document | evidence-missing.
+     * 화면에 보이는 버전 ID를 보내 다른 기기에서 새로 만든 버전을 모르고 승인하지 않게 한다(M14)
+     */
+    suspend fun approveMeeting(meetingVersionId: String): String =
+        db.postgrest.rpc("approve_meeting", buildJsonObject {
+            put("p_meeting_version_id", meetingVersionId)
+        }).decodeAs<JsonObject>()["result"]?.jsonPrimitive?.content ?: ""
 
     suspend fun proposals(recordId: String): List<ProposalRow> {
         val tv = transcriptIds(recordId).ifEmpty { return emptyList() }

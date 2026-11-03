@@ -46,10 +46,11 @@ import com.workbrain.app.ui.WbCard
 /**
  * 기록 상세의 '회의록 문서'(FR-30, 목업 S05 mview-doc). 문서가 없으면 '회의록 만들기' 버튼만 둔다(DEC-56).
  * making: 만드는 중(1~2분 걸려 진행 표시를 둔다)
+ * status: 승인 상태('초안', '승인 11/03', '초안 · 승인본 11/03 있음', DEC-61)
  * madeWith: 이 문서를 만들 때 쓴 지침 안내(머리 줄). outdated: 그 뒤 지침이 바뀌어 새 지침으로 다시 만들 수 있음
  */
 @Composable
-fun MinutesPane(document: MinutesDocument?, making: Boolean, madeWith: String, outdated: Boolean, onMake: () -> Unit) {
+fun MinutesPane(document: MinutesDocument?, making: Boolean, status: String, madeWith: String, outdated: Boolean, onMake: () -> Unit) {
     WbCard {
         if (document == null) {
             Text("아직 회의록이 없어요", style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
@@ -62,7 +63,7 @@ fun MinutesPane(document: MinutesDocument?, making: Boolean, madeWith: String, o
             if (making) MakingRow() else PrimaryButton("회의록 만들기", onClick = onMake, modifier = Modifier.fillMaxWidth())
             return@WbCard
         }
-        DocHeader(madeWith, making, outdated, onMake)
+        DocHeader(status, madeWith, making, outdated, onMake)
         if (document.title.isNotBlank()) {
             Text(document.title, style = MaterialTheme.typography.titleMedium, color = Wb.colors.ink, modifier = Modifier.padding(top = 4.dp))
         }
@@ -88,9 +89,9 @@ fun MinutesPane(document: MinutesDocument?, making: Boolean, madeWith: String, o
  * 평소의 '다시 만들기'는 맨 위 줄 ⋮ 메뉴에 있다(DEC-60). 지침이 바뀐 경우만 눈에 띄게 여기서 알린다
  */
 @Composable
-private fun DocHeader(madeWith: String, making: Boolean, outdated: Boolean, onMake: () -> Unit) {
+private fun DocHeader(status: String, madeWith: String, making: Boolean, outdated: Boolean, onMake: () -> Unit) {
     Row(Modifier.heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("초안 · $madeWith", style = MaterialTheme.typography.labelMedium, color = Wb.colors.muted, modifier = Modifier.weight(1f))
+        Text("$status · $madeWith", style = MaterialTheme.typography.labelMedium, color = Wb.colors.muted, modifier = Modifier.weight(1f))
         if (making) {
             CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp, color = Wb.colors.primary)
             Spacer(Modifier.width(6.dp))

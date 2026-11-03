@@ -517,11 +517,11 @@ async function speakerTranscript(db: SupabaseClient, uid: string, recordId: stri
 }
 
 // 회의록 문서(FR-30, Design §3.8): 검증된 추출 항목 + 전사 + 지침으로 사람이 읽는 회의록을 만든다.
-// 같은 기록에서 다시 누르면 최신 회의록 초안의 문서를 새로 덮어쓴다
+// 같은 기록에서 다시 누르면 최신 회의록 초안의 문서를 새로 덮어쓴다. 최신이 승인본이면 덮지 않고 새 초안 버전을 만든다(DEC-61)
 async function writeDocument(db: SupabaseClient, uid: string, recordId: string, cycle: string) {
   const { data: rec } = await db.from("source_record").select("title,record_kind,occurred_at,ingested_at,attendees")
     .eq("id", recordId).eq("owner_id", uid).single();
-  const { data: tv } = await db.from("transcript_version").select("id,content,segments")
+  const { data: tv } = await db.from("transcript_version").select("id,content,segments,retention_expires_at")
     .eq("source_record_id", recordId).eq("owner_id", uid).order("created_at", { ascending: false }).limit(1).single();
   if (!rec || !tv) throw new Error("전사를 찾지 못했어요");
   const spoken = await speakerTranscript(db, uid, recordId, tv.segments ?? []);
@@ -576,11 +576,21 @@ async function writeDocument(db: SupabaseClient, uid: string, recordId: string, 
   if (!document) throw new Error("회의록 문서가 비어 있어요");
 
   // 어떤 지침으로 만들었는지 고정해 둔다(지침을 다시 가져와도 이 문서는 그대로, M20)
-  const { error } = await db.from("meeting_version").update({
+  const made = {
     document,
     guideline_rev: st?.minutes_guideline ? st.guideline_rev : 0,
     guideline_imported_at: st?.minutes_guideline ? st.guideline_imported_at : null,
     guideline_input_hash: await sha256Hex(guideline + refs.map((x) => x.content).join("")),
-  }).eq("id", mv.id).eq("owner_id", uid);
+  };
+  // 초안이면 그 자리에 덮어쓴다. 승인본은 고치지 않는다(DB 트리거도 막음, FR-11).
+  // 만드는 30초 사이에 승인된 경우도 여기서 걸린다: 승인본이라 0행이 바뀌면 같은 추출 항목으로 새 초안을 만든다
+  const { data: updated, error } = await db.from("meeting_version").update(made)
+    .eq("id", mv.id).eq("owner_id", uid).neq("state", "approved").select("id");
   if (error) throw new Error("회의록 문서 저장 실패");
+  if (updated?.length) return;
+  const { error: insertErr } = await db.from("meeting_version").insert({
+    owner_id: uid, transcript_version_id: tv.id, state: "draft", fields: mv.fields, parent_version_id: mv.id,
+    retention_expires_at: tv.retention_expires_at, ...made,
+  });
+  if (insertErr) throw new Error("회의록 새 초안 저장 실패");
 }

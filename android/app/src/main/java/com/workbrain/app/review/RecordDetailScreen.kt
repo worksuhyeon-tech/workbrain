@@ -57,7 +57,10 @@ import com.workbrain.app.ui.TitleDialog
 import com.workbrain.app.ui.WbIcons
 import com.workbrain.app.record.AttendeesDialog
 import com.workbrain.app.record.RecentAttendees
+import com.workbrain.app.record.RecordingSession
 import com.workbrain.app.record.RecordingStore
+import com.workbrain.app.record.TrashNotice
+import androidx.compose.foundation.layout.widthIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -88,13 +91,16 @@ private fun ProposalRow.overlappingDecision(decisions: List<Decision>): Int? =
  * S05 기록 상세: 회의 정리(결정 후보·미결정)와 할 일 후보.
  * 회의록을 본 자리에서 할 일을 골라 바로 추가한다. 승인 기록은 검토함과 같다(DEC-23). AI가 직접 할 일을 만들지 않는다.
  * onBack이 null이면 펼친 화면의 오른쪽 칸에 들어간 것이라 뒤로 가기가 없다. onChanged: 추가·버리기 뒤 옆 칸 목록을 다시 읽게 알린다.
+ * onTrashed: ⋮에서 이 녹음을 휴지통으로 보낸 뒤 화면을 닫고 녹음 목록으로 가게 한다
  */
 @Composable
-fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, onChanged: () -> Unit = {}) {
+fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, onChanged: () -> Unit = {}, onTrashed: () -> Unit = {}) {
     BackHandler(enabled = onBack != null) { onBack?.invoke() }
     val scope = rememberCoroutineScope()
     var firstLoad by remember { mutableStateOf(true) }
     var meeting by remember { mutableStateOf<MeetingRow?>(null) }
+    // 화면의 회의록이 초안인데 이 기록에 승인본이 따로 있으면 그 승인 시각(승인 뒤 다시 만든 경우, DEC-61)
+    var approvedEarlierAt by remember { mutableStateOf<String?>(null) }
     // 지금 설정의 지침 번호: 문서를 만들 때 쓴 번호와 다르면 '새 지침으로 다시 만들기'를 보여 준다
     var currentGuidelineRev by remember { mutableStateOf<Int?>(null) }
     var proposals by remember { mutableStateOf<List<ProposalRow>>(emptyList()) }
@@ -124,6 +130,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     suspend fun load() {
         runCatching {
             meeting = Server.meeting(recordId)
+            approvedEarlierAt = if (meeting?.approved == true) null else Server.approvedMeetingAt(recordId)
             proposals = Server.proposals(recordId)
             transcripts = Server.transcripts(recordId)
             openTaskTitles = Server.openTasks().map { it.title.trim() }.toSet()
@@ -176,6 +183,19 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     // ↪ 공유: 화면에 보이는 회의록 버전으로 Word를 만들어 공유 창을 띄운다(FR-29, DEC-60)
     var sharing by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+
+    // ⋮ 이 녹음 삭제(사용자 요청 11/03, 삼성 음성 녹음 메뉴 참고): 녹음 목록에서 밀어 지우기와 같다.
+    // 휴지통에는 이 휴대폰의 녹음만 들어가므로(DEC-51), 이 기록을 이 휴대폰에서 올렸고 처리가 끝났을 때만 보인다.
+    // 서버의 회의록·할 일은 그대로 둔다
+    val localSession = remember(recordId) {
+        RecordingStore.list(context, activeId = null).firstOrNull { it.recordId == recordId }
+            ?.takeIf { it.serverState == "ready" || it.serverState == "failed" }
+    }
+    fun trashRecording(s: RecordingSession) {
+        RecordingStore.trash(RecordingStore.dir(context, s.id))
+        TrashNotice.pending.value = s
+        onTrashed()
+    }
     fun shareWord(meetingVersionId: String) {
         sharing = true
         message = null
@@ -187,6 +207,26 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         }
     }
 
+    // 회의록 승인(FR-07, DEC-61): 확인 창을 거쳐 화면에 보이는 버전을 승인한다. 할 일은 바뀌지 않는다
+    var confirmApprove by remember { mutableStateOf(false) }
+    var approving by remember { mutableStateOf(false) }
+    fun approveMinutes(meetingVersionId: String) {
+        approving = true
+        message = null
+        scope.launch {
+            message = when (runCatching { Server.approveMeeting(meetingVersionId) }.getOrNull()) {
+                "approved" -> "회의록을 승인했어요 · 이제 Word에 '초안' 표시가 없어요" to Tone.Good
+                "already-approved" -> "이미 승인된 회의록이에요" to Tone.Mute
+                // 다른 기기에서 다시 만들어 새 버전이 생긴 경우: 새 내용을 보고 다시 누르게 한다(M14)
+                "stale-version" -> "회의록이 새로 만들어졌어요. 새 내용을 확인하고 승인해 주세요" to Tone.Warn
+                "no-document" -> "회의록 문서를 먼저 만들어 주세요" to Tone.Warn
+                "evidence-missing" -> "전사 보관 기간이 지나 승인할 수 없어요" to Tone.Crit
+                else -> "승인하지 못했어요. 인터넷 연결을 확인하고 다시 눌러 주세요" to Tone.Crit
+            }
+            load(); approving = false; onChanged()
+        }
+    }
+
     @Composable
     fun candidate(p: ProposalRow) = CandidateCard(
         JsonObject(p.after + edits[p.id].orEmpty()), p.rationale, p.status, checked[p.id] == true,
@@ -195,7 +235,8 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     )
 
     Column(Modifier.fillMaxSize().background(Wb.colors.surface)) {
-        // 맨 위 줄(클로바 노트처럼): 왼쪽 뒤로 가기, 오른쪽 ↪ 공유(Word)·⋮ 메뉴. 회의록 문서가 있을 때만 아이콘을 둔다(DEC-60)
+        // 맨 위 줄(클로바 노트처럼): 왼쪽 뒤로 가기, 오른쪽 ↪ 공유(Word)·⋮ 메뉴.
+        // ↪와 '다시 만들기'는 회의록 문서가 있을 때만(DEC-60), ⋮는 메뉴에 넣을 것이 하나라도 있으면 보인다
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) TextButton(onClick = onBack) { Text("← 녹음", color = Wb.colors.link) }
             Spacer(Modifier.weight(1f))
@@ -210,16 +251,27 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                         Icon(WbIcons.Share, contentDescription = "회의록 Word 공유", tint = Wb.colors.ink)
                     }
                 }
-                Box {
-                    IconButton(onClick = { menuOpen = true }) {
-                        Icon(WbIcons.More, contentDescription = "더보기", tint = Wb.colors.ink)
-                    }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            }
+            if (version != null || localSession != null) Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(WbIcons.More, contentDescription = "더보기", tint = Wb.colors.ink)
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }, modifier = Modifier.widthIn(min = 200.dp)) {
+                    if (version != null) {
                         DropdownMenuItem(
                             text = { Text("다시 만들기") },
                             enabled = minutes != MinutesWorker.State.Making,
                             onClick = { menuOpen = false; remakeMinutes() },
                         )
+                    }
+                    localSession?.let { s ->
+                        if (version != null) HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Wb.colors.border)
+                        // 삼성 음성 녹음처럼 메뉴 맨 아래 아이콘 줄(사용자 선택 11/03). 즐겨찾기 등은 나중에 같은 줄에 더한다
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                            IconButton(onClick = { menuOpen = false; trashRecording(s) }) {
+                                Icon(WbIcons.Trash, contentDescription = "이 녹음 삭제", tint = Wb.colors.ink)
+                            }
+                        }
                     }
                 }
             }
@@ -257,9 +309,15 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                     val madeWith = if (madeRev > 0) {
                         listOfNotNull(guidelineStamp(meeting?.guidelineImportedAt, "MM/dd"), "가져온 지침 적용").joinToString(" ")
                     } else "기본 지침으로 만듦"
+                    val status = when {
+                        meeting?.approved == true -> listOfNotNull("승인", guidelineStamp(meeting?.approvedAt, "MM/dd")).joinToString(" ")
+                        approvedEarlierAt != null -> "초안 · 승인본 ${guidelineStamp(approvedEarlierAt, "MM/dd").orEmpty()} 있음"
+                        else -> "초안"
+                    }
                     MinutesPane(
                         meeting?.document,
                         making = minutes == MinutesWorker.State.Making,
+                        status = status,
                         madeWith = madeWith,
                         outdated = currentGuidelineRev?.let { it != madeRev } == true,
                         onMake = ::remakeMinutes,
@@ -362,6 +420,20 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             }
         }
         message?.let { (text, tone) -> Banner(text, tone, Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) }
+        // 회의록 승인은 문서를 다 읽고 누르도록 '회의록 문서'를 볼 때 맨 아래 고정 줄에 둔다. 승인할 초안이 있을 때만(DEC-61)
+        val approvable = meeting?.takeIf { it.document != null && !it.approved }
+        if (!firstLoad && view == "doc" && approvable != null) {
+            HorizontalDivider(color = Wb.colors.border)
+            Row(Modifier.fillMaxWidth().background(Wb.colors.card).padding(horizontal = 16.dp, vertical = 10.dp)) {
+                PrimaryButton(
+                    if (approving) "승인하는 중…" else "이 회의록 승인",
+                    // 다시 만드는 중에는 곧 바뀔 문서라 승인하지 않는다
+                    enabled = !approving && minutes != MinutesWorker.State.Making,
+                    modifier = Modifier.weight(1f),
+                    onClick = { confirmApprove = true },
+                )
+            }
+        }
         // 버리기·추가는 할 일 후보에 쓰는 것이라 추출 항목을 볼 때만 둔다
         if (!firstLoad && pending.isNotEmpty() && view == "fields") {
             HorizontalDivider(color = Wb.colors.border)
@@ -400,6 +472,13 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
 
     if (confirmDiscard) {
         DiscardConfirmDialog(selected.size, onDismiss = { confirmDiscard = false }) { confirmDiscard = false; discardSelected() }
+    }
+
+    if (confirmApprove) {
+        ApproveMinutesDialog(onDismiss = { confirmApprove = false }) {
+            confirmApprove = false
+            meeting?.let { approveMinutes(it.id) }
+        }
     }
 
     if (editingAttendees) {
