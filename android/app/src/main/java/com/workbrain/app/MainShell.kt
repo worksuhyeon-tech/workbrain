@@ -44,6 +44,7 @@ import com.workbrain.app.projects.ProjectsScreen
 import com.workbrain.app.record.HomeScreen
 import com.workbrain.app.review.RecordDetailScreen
 import com.workbrain.app.review.ReviewScreen
+import com.workbrain.app.review.Snooze
 import com.workbrain.app.today.TodayScreen
 import com.workbrain.app.ui.GlassIcon
 import com.workbrain.app.ui.GlassTint
@@ -72,9 +73,9 @@ fun MainShell() {
     var detailTitle by rememberSaveable { mutableStateOf("") }
     var reviewCount by rememberSaveable { mutableIntStateOf(0) }
 
-    // 검토함 배지: 메뉴를 바꾸거나 상세를 닫을 때 다시 센다
+    // 검토함 배지: 메뉴를 바꾸거나 상세를 닫을 때 다시 센다. 미룬 후보는 그날까지 재촉하지 않도록 빼고 센다(DEC-63)
     LaunchedEffect(tab, detailId) {
-        runCatching { Server.pendingProposals().size }.onSuccess { reviewCount = it }
+        runCatching { Server.pendingProposals().count { !Snooze.isActive(it.snoozedUntil) } }.onSuccess { reviewCount = it }
     }
     val open: (String, String) -> Unit = { id, title -> detailTitle = title; detailId = id }
     // 앱을 열 때: 결과가 아직 없는 녹음은 백그라운드 처리를 다시 건다(강제 중지 뒤에도 이어 가기, DEC-37)

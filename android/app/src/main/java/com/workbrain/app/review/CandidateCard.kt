@@ -61,6 +61,10 @@ fun CandidateCard(
     onEdit: ((CandidateField) -> Unit)? = null,
     /** 기존 할 일 변경 제안이면 바뀌기 전 값(DEC-38). after에는 바뀌는 칸만 있다 */
     before: JsonObject? = null,
+    /** 상태 칩 뒤에 붙는 칩(예: '미룸 11/05(목)', '11/03 처리', FR-28) */
+    badges: List<Pair<String, Tone>> = emptyList(),
+    /** 근거 문장 위 작은 안내(예: 미룬 후보의 근거·음성 보관 기한, Design §3.7) */
+    footnote: String? = null,
 ) {
     val ambiguous = after["due_ambiguous"]?.jsonPrimitive?.booleanOrNull == true
     val due = dueLabel(after.str("due_date"), after.str("due_time"), ambiguous, after.str("due_text"))
@@ -110,8 +114,10 @@ fun CandidateCard(
                         "rejected" -> WbChip("버림", Tone.Mute)
                         else -> WbChip("확인 필요", Tone.Crit)
                     }
+                    badges.forEach { (text, tone) -> WbChip(text, tone) }
                 }
                 changes?.forEach { Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Wb.colors.ink) }
+                footnote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted) }
                 Text(
                     "“$rationale”",
                     style = MaterialTheme.typography.bodySmall,

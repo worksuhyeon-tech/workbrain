@@ -137,10 +137,11 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             currentGuidelineRev = Server.guideline().rev
             attendees = Server.recordAttendees(recordId)
         }.onFailure { message = "불러오지 못했어요. 인터넷 연결을 확인해 주세요." to Tone.Crit }
-        // 결정과 겹치는 후보는 결정과 중복일 가능성이 커서 처음에는 체크하지 않는다(DEC-48)
+        // 결정과 겹치는 후보는 결정과 중복일 가능성이 커서 처음에는 체크하지 않는다(DEC-48).
+        // 검토함에서 미룬 후보도 모르고 추가하지 않게 처음에는 체크하지 않는다(DEC-63)
         val decisions = meeting?.fields?.decisions().orEmpty()
         proposals.filter { it.status == "pending" && !it.isUpdate }
-            .forEach { checked.putIfAbsent(it.id, it.overlappingDecision(decisions) == null) }
+            .forEach { checked.putIfAbsent(it.id, it.overlappingDecision(decisions) == null && !Snooze.isActive(it.snoozedUntil)) }
         firstLoad = false
     }
     LaunchedEffect(recordId) { load() }
@@ -232,6 +233,8 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         JsonObject(p.after + edits[p.id].orEmpty()), p.rationale, p.status, checked[p.id] == true,
         onChecked = { checked[p.id] = it },
         edited = p.id in edits, onEdit = { field -> editing = p to field },
+        // 미룸은 승인과 무관해 여기서도 추가할 수 있지만, 미뤄 둔 것임을 보여 준다(FR-28)
+        badges = listOfNotNull(Snooze.label(p.snoozedUntil)?.takeIf { Snooze.isActive(p.snoozedUntil) }?.let { "미룸 $it" to Tone.Info }),
     )
 
     Column(Modifier.fillMaxSize().background(Wb.colors.surface)) {

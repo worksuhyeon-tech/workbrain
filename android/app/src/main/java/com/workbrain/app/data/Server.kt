@@ -17,9 +17,12 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -58,6 +61,8 @@ import kotlinx.serialization.json.put
     @SerialName("before_json") val before: JsonObject? = null,
     /** 근거 구간(전사 문장 번호). 결정과 겹치는 후보를 결정 카드 밑에 접을 때 쓴다(DEC-48) */
     @SerialName("evidence_link") val evidence: List<EvidenceRef> = emptyList(),
+    /** 검토 미루기(FR-28): 이 시각이 되면 검토함 '오늘'에 다시 나온다. 미루지 않았으면 null */
+    @SerialName("snoozed_until") val snoozedUntil: String? = null,
 ) {
     val isUpdate get() = targetId != null
     val segments: Set<Int> get() = evidence.flatMap { it.segments }.toSet()
@@ -76,14 +81,45 @@ import kotlinx.serialization.json.put
     @SerialName("target_id") val targetId: String? = null,
     @SerialName("before_json") val before: JsonObject? = null,
     @SerialName("analysis_run") val run: InboxRun? = null,
+    @SerialName("snoozed_until") val snoozedUntil: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
 ) {
-    fun proposal() = ProposalRow(id, status, revision, after, rationale, targetId, before)
+    fun proposal() = ProposalRow(id, status, revision, after, rationale, targetId, before, snoozedUntil = snoozedUntil)
     val recordId: String? get() = run?.transcript?.record?.id
     val recordTitle: String get() = run?.transcript?.record?.title ?: "제목 없는 기록"
+    /** 근거 전사 보관 기한(미뤄도 늘지 않음, DEC-15). 지나면 승인할 수 없다 */
+    val transcriptExpiresAt: String? get() = run?.transcript?.expiresAt
+    /** 원본 음성 보관 기한과 이미 지웠는지. 음성이 없는 기록(가져온 글)이면 null */
+    val audio: InboxAudio? get() = run?.transcript?.record?.audio?.let { el ->
+        // 기록당 음성은 하나라 PostgREST가 객체나 한 칸짜리 배열로 준다
+        val obj = (el as? JsonObject) ?: (el as? JsonArray)?.firstOrNull() as? JsonObject ?: return@let null
+        fun text(key: String) = (obj[key] as? JsonPrimitive)?.contentOrNull
+        InboxAudio(text("retention_expires_at"), text("purged_at"))
+    }
 }
 @Serializable data class InboxRun(@SerialName("transcript_version") val transcript: InboxTranscript? = null)
-@Serializable data class InboxTranscript(@SerialName("source_record") val record: InboxRecord? = null)
-@Serializable data class InboxRecord(val id: String, val title: String? = null)
+@Serializable data class InboxTranscript(
+    @SerialName("retention_expires_at") val expiresAt: String? = null,
+    @SerialName("source_record") val record: InboxRecord? = null,
+)
+@Serializable data class InboxRecord(
+    val id: String,
+    val title: String? = null,
+    @SerialName("audio_asset") val audio: JsonElement? = null,
+)
+data class InboxAudio(val expiresAt: String?, val purgedAt: String?)
+
+// 검토함 후보 + 나온 기록 + 근거 전사·음성 보관 기한(후보 → 분석 → 전사 → 기록 → 음성을 한 번에 따라간다)
+private const val INBOX_COLUMNS = "id,status,revision,after_json,rationale,target_id,before_json,snoozed_until,created_at," +
+    "analysis_run(transcript_version(retention_expires_at,source_record(id,title,audio_asset(retention_expires_at,purged_at))))"
+
+/** 처리됨 탭(FR-28): 이미 추가·버림·충돌로 끝난 후보와 처리한 시각(승인 기록이 없으면 후보가 만들어진 시각) */
+data class ProcessedRow(val row: InboxRow, val processedAt: String?)
+
+@Serializable private data class ApprovalTimeRow(
+    @SerialName("proposal_id") val proposalId: String,
+    @SerialName("created_at") val createdAt: String,
+)
 
 @Serializable data class VocabRow(val id: String, val term: String)
 
@@ -159,7 +195,11 @@ data class Transcript(val content: String, val segments: List<TranscriptSegment>
     @SerialName("due_time") val dueTime: String? = null,
     @SerialName("due_ambiguous") val dueAmbiguous: Boolean = false,
     @SerialName("due_text") val dueText: String? = null,
-)
+    /** 완료한 시각(서버 트리거가 채움, DEC-64). 완료 전·완료 취소면 null */
+    @SerialName("done_at") val doneAt: String? = null,
+) {
+    val done: Boolean get() = status == "done"
+}
 
 /** 처리 함수 응답: stage(STT·EXTRACT·REVIEWABLE), state(PENDING·RUNNING·DONE·FAILED·BUDGET_WAIT·WAITING_KEY) */
 data class ProcessStatus(val stage: String, val state: String, val error: String?)
@@ -404,14 +444,40 @@ object Server {
         db.from("task").insert(fields)
     }
 
-    /** 모든 기록의 승인 대기 후보(검토함). 오래된 것부터 */
+    /**
+     * 모든 기록의 승인 대기 후보(검토함). 오래된 것부터. 미룬 후보도 함께 오며 '오늘'·'미룬 항목'은 화면이 나눈다(FR-28).
+     * 미룬 항목에 근거 전사·음성 보관 기한을 따로 보여 주려고 함께 읽는다(Design §3.7)
+     */
     suspend fun pendingProposals(): List<InboxRow> =
-        db.from("change_proposal").select(
-            Columns.raw("id,status,revision,after_json,rationale,target_id,before_json,analysis_run(transcript_version(source_record(id,title)))"),
-        ) {
+        db.from("change_proposal").select(Columns.raw(INBOX_COLUMNS)) {
             filter { eq("status", "pending") }
             order("created_at", Order.ASCENDING)
         }.decodeList<InboxRow>()
+
+    /** 처리됨 탭: 최근에 처리한 후보 100건, 처리한 시각 최신순(DEC-63) */
+    suspend fun processedProposals(): List<ProcessedRow> {
+        val rows = db.from("change_proposal").select(Columns.raw(INBOX_COLUMNS)) {
+            filter { neq("status", "pending") }
+            order("created_at", Order.DESCENDING)
+            limit(100)
+        }.decodeList<InboxRow>()
+        if (rows.isEmpty()) return emptyList()
+        val decidedAt = db.from("approval_event").select(Columns.list("proposal_id", "created_at")) {
+            filter { isIn("proposal_id", rows.map { it.id }) }
+        }.decodeList<ApprovalTimeRow>().associate { it.proposalId to it.createdAt }
+        return rows.map { ProcessedRow(it, decidedAt[it.id] ?: it.createdAt) }
+            .sortedByDescending { r -> r.processedAt?.let { runCatching { java.time.OffsetDateTime.parse(it).toInstant() }.getOrNull() } }
+    }
+
+    /**
+     * 검토 미루기(FR-28, 서버 0028). until = 다시 볼 날(그날 0시에 '오늘'로), null이면 지금 검토(미룸 해제).
+     * 대기 중인 내 후보만 바뀌고, 바뀐 개수를 돌려준다
+     */
+    suspend fun snoozeProposals(ids: List<String>, until: java.time.LocalDate?): Int =
+        db.postgrest.rpc("wb_snooze_proposals", buildJsonObject {
+            put("p_ids", JsonArray(ids.map { JsonPrimitive(it) }))
+            put("p_until", until?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        }).decodeAs<JsonObject>()["updated"]?.jsonPrimitive?.intOrNull ?: 0
 
     /** 이번 달 AI 처리 비용(원). 달 구분은 처리 함수와 같은 UTC 기준 yyyy-MM */
     suspend fun monthCostKrw(): Int {
@@ -512,10 +578,31 @@ object Server {
             order("created_at", Order.DESCENDING)
         }.decodeList<TaskRow>()
 
-    /** 버전이 같을 때만 완료로 바꾼다(다른 기기에서 먼저 바꿨으면 0건, M18) */
-    suspend fun completeTask(t: TaskRow): Boolean =
+    /**
+     * 오늘 탭: 아직 안 끝난 할 일 + 오늘(서울) 완료한 할 일(DEC-64). 오늘 완료한 것은 취소선으로 남겨 '오늘 뭘 했지?'를 보이게 한다.
+     * 완료 시각은 서버 트리거가 채우므로 이 기능 전에 완료한 할 일은 나오지 않는다
+     */
+    suspend fun todayTasks(): List<TaskRow> {
+        val todayStart = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))
+            .atStartOfDay(java.time.ZoneId.of("Asia/Seoul")).toInstant().toString()
+        return db.from("task").select {
+            filter {
+                or {
+                    neq("status", "done")
+                    gte("done_at", todayStart)
+                }
+            }
+            order("created_at", Order.DESCENDING)
+        }.decodeList<TaskRow>()
+    }
+
+    /**
+     * 완료·완료 취소(DEC-64: 체크를 다시 누르면 할 일로 되돌림). 버전이 같을 때만 바꾼다(다른 기기에서 먼저 바꿨으면 0건, M18).
+     * 완료 시각은 서버 트리거가 상태를 보고 채우거나 비운다
+     */
+    suspend fun setTaskDone(t: TaskRow, done: Boolean): Boolean =
         db.from("task").update({
-            set("status", "done")
+            set("status", if (done) "done" else "open")
             set("version", t.version + 1)
         }) {
             select()
