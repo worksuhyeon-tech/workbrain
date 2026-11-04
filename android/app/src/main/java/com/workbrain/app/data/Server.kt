@@ -87,6 +87,7 @@ import kotlinx.serialization.json.put
     fun proposal() = ProposalRow(id, status, revision, after, rationale, targetId, before, snoozedUntil = snoozedUntil)
     val recordId: String? get() = run?.transcript?.record?.id
     val recordTitle: String get() = run?.transcript?.record?.title ?: "제목 없는 기록"
+    val recordAt: String? get() = run?.transcript?.record?.let { it.occurredAt ?: it.ingestedAt }
     /** 근거 전사 보관 기한(미뤄도 늘지 않음, DEC-15). 지나면 승인할 수 없다 */
     val transcriptExpiresAt: String? get() = run?.transcript?.expiresAt
     /** 원본 음성 보관 기한과 이미 지웠는지. 음성이 없는 기록(가져온 글)이면 null */
@@ -105,13 +106,16 @@ import kotlinx.serialization.json.put
 @Serializable data class InboxRecord(
     val id: String,
     val title: String? = null,
+    /** 회의 시각(모르면 올린 시각). 오늘 화면 '검토 대기'의 '주간회의 · 10/16' */
+    @SerialName("occurred_at") val occurredAt: String? = null,
+    @SerialName("ingested_at") val ingestedAt: String? = null,
     @SerialName("audio_asset") val audio: JsonElement? = null,
 )
 data class InboxAudio(val expiresAt: String?, val purgedAt: String?)
 
 // 검토함 후보 + 나온 기록 + 근거 전사·음성 보관 기한(후보 → 분석 → 전사 → 기록 → 음성을 한 번에 따라간다)
 private const val INBOX_COLUMNS = "id,status,revision,after_json,rationale,target_id,before_json,snoozed_until,created_at," +
-    "analysis_run(transcript_version(retention_expires_at,source_record(id,title,audio_asset(retention_expires_at,purged_at))))"
+    "analysis_run(transcript_version(retention_expires_at,source_record(id,title,occurred_at,ingested_at,audio_asset(retention_expires_at,purged_at))))"
 
 /** 처리됨 탭(FR-28): 이미 추가·버림·충돌로 끝난 후보와 처리한 시각(승인 기록이 없으면 후보가 만들어진 시각) */
 data class ProcessedRow(val row: InboxRow, val processedAt: String?)
@@ -209,6 +213,8 @@ data class Transcript(val content: String, val segments: List<TranscriptSegment>
     val done: Boolean get() = status == "done"
     val placeName: String? get() = project?.name ?: area?.name
 }
+
+@Serializable data class Budget(@SerialName("budget_warn_krw") val warnKrw: Int, @SerialName("budget_wait_krw") val waitKrw: Int)
 
 @Serializable data class PlaceRef(val name: String, @SerialName("archived_at") val archivedAt: String? = null)
 
@@ -507,6 +513,10 @@ object Server {
             put("p_ids", JsonArray(ids.map { JsonPrimitive(it) }))
             put("p_until", until?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
         }).decodeAs<JsonObject>()["updated"]?.jsonPrimitive?.intOrNull ?: 0
+
+    /** 비용 경고선·대기선(원). 경고선을 넘으면 오늘 화면에 띠, 대기선을 넘으면 새 전사·분석이 기다린다(C7) */
+    suspend fun budget(): Budget =
+        db.from("settings").select(Columns.list("budget_warn_krw", "budget_wait_krw")).decodeSingle()
 
     /** 이번 달 AI 처리 비용(원). 달 구분은 처리 함수와 같은 UTC 기준 yyyy-MM */
     suspend fun monthCostKrw(): Int {

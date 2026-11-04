@@ -1,4 +1,4 @@
-package com.workbrain.app.projects
+package com.workbrain.app.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -8,8 +8,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,11 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,29 +29,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.workbrain.app.data.PlaceType
-import com.workbrain.app.data.TaskRow
-import com.workbrain.app.ui.CardShape
-import com.workbrain.app.ui.GlassTint
-import com.workbrain.app.ui.PillShape
-import com.workbrain.app.ui.SEOUL
-import com.workbrain.app.ui.Tone
-import com.workbrain.app.ui.Wb
-import com.workbrain.app.ui.WbChip
-import com.workbrain.app.ui.WbIcons
-import java.time.LocalDate
-import java.time.OffsetDateTime
 
 /*
- * 목업 S03(workbrain-project.html)의 모양을 Compose로 옮긴 부품. 이름은 목업 CSS 클래스를 따른다(DEC-66).
- * 목업의 이모지 자리(📁 🔁 🔗 📝 ✅ 🎯 🧭 🗄️)는 선 글리프로 바꿨다(Design §6.5 이모지 금지).
+ * 웹 목업(S02 dashboard·S03 project)의 모양을 Compose로 옮긴 공용 부품. 이름은 목업 CSS 클래스를 따른다(DEC-66·67).
+ * 목업의 이모지 자리(📁 🔁 🔗 📝 ✅ 🎯 🧭 🗄️ 🎙️)는 선 글리프로 바꿨다(Design §6.5 이모지 금지).
  */
 
-/** 트리·머리에 쓰는 종류별 글리프와 색(목업 이모지 색과 비슷하게) */
+/** 종류별 글리프와 색(목업 이모지 색과 비슷하게): 프로젝트 주황 폴더 · 반복실행 파랑 · 모든 할 일 초록 */
 object ParaGlyph {
     val allTasks = WbIcons.Review
     fun project() = WbIcons.Folder
@@ -161,7 +144,7 @@ fun DarkSeg(items: List<SegItem>, value: String, modifier: Modifier = Modifier, 
     }
 }
 
-/** 목업 .btn(흰 바탕 테두리) — 상세 머리의 [수정][아카이브로] */
+/** 목업 .btn(흰 바탕 테두리) / .btn.primary(파랑) — 상세 머리·카드 안의 작은 버튼 */
 @Composable
 fun SmallButton(text: String, primary: Boolean = false, onClick: () -> Unit) {
     val shape = RoundedCornerShape(4.dp)
@@ -175,90 +158,4 @@ fun SmallButton(text: String, primary: Boolean = false, onClick: () -> Unit) {
             .border(1.dp, if (primary) Wb.colors.primary else Wb.colors.borderStrong, shape)
             .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
     )
-}
-
-// ── 할 일 한 줄(목업 .trow) ──
-
-private fun priorityLabel(p: Int?) = when (p) { 1 -> "높음"; 3 -> "낮음"; else -> "보통" }
-
-/** 목업 기한 표시: 오늘 / M/d / M/d HH:mm / '다음 주 · 확인 필요' */
-private fun rowDue(t: TaskRow, today: LocalDate): String? {
-    t.dueTime?.let { iso ->
-        val z = runCatching { OffsetDateTime.parse(iso).atZoneSameInstant(SEOUL) }.getOrNull() ?: return null
-        val d = z.toLocalDate()
-        return (if (d == today) "오늘" else "${d.monthValue}/${d.dayOfMonth}") + " %02d:%02d".format(z.hour, z.minute)
-    }
-    t.dueDate?.let { s ->
-        val d = runCatching { LocalDate.parse(s) }.getOrNull() ?: return s
-        return if (d == today) "오늘" else "${d.monthValue}/${d.dayOfMonth}"
-    }
-    return if (t.dueAmbiguous) "${t.dueText ?: "모호"} · 확인 필요" else null
-}
-
-/** 기한 날짜(시각 포함 기한은 서울 날짜) */
-fun dueDay(t: TaskRow): LocalDate? = t.dueDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-    ?: t.dueTime?.let { runCatching { OffsetDateTime.parse(it).atZoneSameInstant(SEOUL).toLocalDate() }.getOrNull() }
-
-/**
- * 할 일 한 줄: 체크 · 제목(+팔로업/담당 확인) · 출처 · 우선순위 · 기한.
- * 체크는 완료 ↔ 다시 열기. onOpen이 있으면 줄을 눌러 수정 서랍. readOnly(아카이브)면 둘 다 막는다.
- * showPriority: 좁은 화면에서는 목업처럼 우선순위 칸을 숨긴다(목업 max-width 700)
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun TaskLine(t: TaskRow, source: String?, showPriority: Boolean, readOnly: Boolean, onToggle: () -> Unit, onOpen: () -> Unit) {
-    val today = LocalDate.now(SEOUL)
-    val late = !t.done && dueDay(t)?.isBefore(today) == true
-    Row(
-        Modifier.fillMaxWidth().clickable(enabled = !readOnly, onClickLabel = "할 일 수정", onClick = onOpen)
-            .padding(start = 4.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Checkbox(
-            checked = t.done,
-            onCheckedChange = { onToggle() },
-            enabled = !readOnly,
-            colors = CheckboxDefaults.colors(checkedColor = Wb.colors.primary, uncheckedColor = Wb.colors.borderStrong),
-        )
-        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    t.title, fontSize = 15.sp, fontWeight = FontWeight.Medium,
-                    color = if (t.done) Wb.colors.muted else Wb.colors.ink,
-                    textDecoration = if (t.done) TextDecoration.LineThrough else null,
-                )
-                when (t.ownerKind) {
-                    "other" -> OwnChip("${t.assignee.orEmpty()} · 팔로업", Wb.colors.info, WbIcons.Person)
-                    "unknown" -> OwnChip("담당 확인", Wb.colors.warn, null)
-                }
-            }
-            Text(
-                source ?: "직접 추가", fontSize = 12.sp, color = Wb.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                textDecoration = if (t.done) TextDecoration.LineThrough else null,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-        if (showPriority) {
-            Text(
-                priorityLabel(t.priority), fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-                color = if (t.priority == 1) Wb.colors.crit else Wb.colors.muted,
-                modifier = Modifier.width(44.dp),
-            )
-        }
-        rowDue(t, today)?.let {
-            WbChip(it, when { late -> Tone.Crit; t.dueAmbiguous && t.dueDate == null -> Tone.Warn; else -> Tone.Mute }, Modifier.padding(start = 6.dp))
-        }
-    }
-}
-
-/** 목업 .own: 제목 옆 작은 담당 표시 */
-@Composable
-private fun OwnChip(text: String, color: Color, icon: ImageVector?) {
-    Row(
-        Modifier.background(color.copy(alpha = 0.12f), PillShape).padding(horizontal = 8.dp, vertical = 1.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        icon?.let { Icon(it, contentDescription = null, tint = color, modifier = Modifier.size(11.dp).padding(end = 2.dp)) }
-        Text(text, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
-    }
 }

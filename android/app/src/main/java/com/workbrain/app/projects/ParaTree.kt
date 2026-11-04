@@ -49,6 +49,11 @@ import com.workbrain.app.ui.Tone
 import com.workbrain.app.ui.Wb
 import com.workbrain.app.ui.WbChip
 import com.workbrain.app.ui.WbIcons
+import com.workbrain.app.ui.ParaGlyph
+import com.workbrain.app.ui.Note
+import com.workbrain.app.ui.SegItem
+import com.workbrain.app.ui.DarkSeg
+import com.workbrain.app.ui.SmallButton
 
 /**
  * PARA 4칸. 이름은 사용자 PARA 폴더 그대로(DEC-22), 옆 작은 글씨는 목업처럼 영어 이름. 깊이는 칸 → 항목(DEC-24).

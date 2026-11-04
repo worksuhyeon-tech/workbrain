@@ -68,6 +68,18 @@ import com.workbrain.app.ui.Wb
 import com.workbrain.app.ui.WbChip
 import com.workbrain.app.ui.WbIcons
 import java.time.LocalDate
+import com.workbrain.app.ui.ParaGlyph
+import com.workbrain.app.ui.MockCard
+import com.workbrain.app.ui.Crumb
+import com.workbrain.app.ui.SecH
+import com.workbrain.app.ui.Note
+import com.workbrain.app.ui.EmptyNote
+import com.workbrain.app.ui.LinkChip
+import com.workbrain.app.ui.SegItem
+import com.workbrain.app.ui.DarkSeg
+import com.workbrain.app.ui.SmallButton
+import com.workbrain.app.tasks.TaskLine
+import com.workbrain.app.tasks.dueDay
 
 /**
  * 오른쪽 칸(접힌 화면은 전체 화면): 트리에서 고른 것의 상세(목업 S03 #detail, DEC-66).

@@ -71,9 +71,10 @@ private data class ArchiveAsk(val key: String, val name: String, val openTasks: 
  * 펼친 화면: 머리('프로젝트' + [+ 새로 만들기]) 아래 왼쪽 트리 패널 / 오른쪽 상세(목업 .pj-layout, DEC-47).
  * 접힌 화면: 머리 + 트리 패널 → 항목을 누르면 상세 전체 화면(뒤로 가기로 트리, Design §6.3).
  * 결과는 화면 아래 알림으로 알리고, 되돌릴 수 있으면 '되돌리기'(DEC-24). 끌어서 옮기기·기록 연결·한 줄 빠른 입력은 다음 단계.
+ * startKey: 다른 탭에서 열 항목('all'·'p:ID'·'a:ID', 오늘 화면 링크). 쓰고 나면 onStartUsed로 비운다
  */
 @Composable
-fun ProjectsScreen() {
+fun ProjectsScreen(startKey: String? = null, onStartUsed: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val announcer = rememberAnnouncer()
     val wide = isWideWindow()
@@ -97,6 +98,10 @@ fun ProjectsScreen() {
             .onFailure { loadFailed = true }
     }
     LaunchedEffect(Unit) { load() }
+    // 오늘 화면의 '다음 7일 · 전체 →'·프로젝트 이름에서 왔으면 그 항목을 연다(한 번만)
+    LaunchedEffect(startKey) {
+        if (startKey != null) { selected = startKey; onStartUsed() }
+    }
 
     /**
      * 서버 작업 하나: 끝나면 다시 읽고 결과를 알린다. work가 null을 돌려주면 버전이 달라 저장하지 않은 것(다른 기기에서 먼저 고침).

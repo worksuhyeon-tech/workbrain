@@ -57,6 +57,8 @@ import com.workbrain.app.ui.PrimaryButton
 import com.workbrain.app.ui.SecondaryButton
 import com.workbrain.app.ui.Wb
 import com.workbrain.app.ui.WbIcons
+import com.workbrain.app.ui.ParaGlyph
+import com.workbrain.app.ui.Note
 
 private const val MAX_PURPOSE = 500
 private const val MAX_NOTE = 2_000

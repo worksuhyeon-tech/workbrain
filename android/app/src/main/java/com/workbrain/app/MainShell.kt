@@ -45,6 +45,7 @@ import com.workbrain.app.record.HomeScreen
 import com.workbrain.app.review.RecordDetailScreen
 import com.workbrain.app.review.ReviewScreen
 import com.workbrain.app.review.Snooze
+import com.workbrain.app.today.TodayNav
 import com.workbrain.app.today.TodayScreen
 import com.workbrain.app.ui.GlassIcon
 import com.workbrain.app.ui.GlassTint
@@ -99,14 +100,23 @@ fun MainShell() {
 
     // 기록 상세 ⋮에서 녹음을 지우면 녹음 목록으로 가서 '삭제되었어요 · 되돌리기'를 보여 준다(검토함에서 열었어도 같음)
     val afterTrash: () -> Unit = { detailId = null; tab = Tab.RECORD }
+    // 다른 탭에서 프로젝트 탭의 특정 항목('all' = 모든 할 일, 'p:ID')을 열 때 한 번 넘기는 열쇠
+    var projectsStart by remember { mutableStateOf<String?>(null) }
+    val todayNav = TodayNav(
+        openRecord = open,
+        openReview = { tab = Tab.REVIEW },
+        openRecords = { tab = Tab.RECORD },
+        openProjects = { key -> projectsStart = key; tab = Tab.PROJECTS },
+        openMore = { tab = Tab.MORE },
+    )
 
     val body: @Composable () -> Unit = {
         val openId = detailId
         when {
             openId != null && !detailInPane -> RecordDetailScreen(openId, detailTitle, onBack = { detailId = null }, onTrashed = afterTrash)
             else -> when (tab) {
-                Tab.TODAY -> TodayScreen()
-                Tab.PROJECTS -> ProjectsScreen()
+                Tab.TODAY -> TodayScreen(todayNav)
+                Tab.PROJECTS -> ProjectsScreen(startKey = projectsStart, onStartUsed = { projectsStart = null })
                 Tab.RECORD -> HomeScreen(onOpenRecord = open)
                 Tab.REVIEW -> ReviewScreen(
                     onOpenRecord = open,

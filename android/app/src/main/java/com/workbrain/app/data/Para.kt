@@ -160,7 +160,8 @@ object Para {
         ParaData(workspace.await(), projects.await(), areas.await(), resources.await(), links.await(), tasks.await(), sources.await())
     }
 
-    private suspend fun sources(): Map<String, String> =
+    /** 할 일 → 출처 한 줄(오늘·프로젝트 화면 공용). AI 승인으로 생긴 할 일만 있고, 나머지는 직접 추가 */
+    suspend fun sources(): Map<String, String> =
         db.from("task_revision").select(Columns.raw(SOURCE_COLUMNS)) { filter { eq("actor", "ai-approved") } }
             .decodeList<SrcRevision>()
             .mapNotNull { r ->

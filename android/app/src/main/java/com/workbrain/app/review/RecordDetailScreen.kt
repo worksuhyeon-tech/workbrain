@@ -241,7 +241,8 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         // 맨 위 줄(클로바 노트처럼): 왼쪽 뒤로 가기, 오른쪽 ↪ 공유(Word)·⋮ 메뉴.
         // ↪와 '다시 만들기'는 회의록 문서가 있을 때만(DEC-60), ⋮는 메뉴에 넣을 것이 하나라도 있으면 보인다
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (onBack != null) TextButton(onClick = onBack) { Text("← 녹음", color = Wb.colors.link) }
+            // 녹음·오늘·검토함 어디서 열었든 온 곳으로 돌아가므로 탭 이름 대신 '뒤로'(사용자 요청 11/05)
+            if (onBack != null) TextButton(onClick = onBack) { Text("← 뒤로", color = Wb.colors.link) }
             Spacer(Modifier.weight(1f))
             val version = meeting?.takeIf { it.document != null }
             if (version != null) {

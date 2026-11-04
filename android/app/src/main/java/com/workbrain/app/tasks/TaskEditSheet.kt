@@ -42,9 +42,6 @@ import com.workbrain.app.data.Place
 import com.workbrain.app.data.PlaceType
 import com.workbrain.app.data.TaskEdit
 import com.workbrain.app.data.TaskRow
-import com.workbrain.app.projects.DarkSeg
-import com.workbrain.app.projects.Note
-import com.workbrain.app.projects.SegItem
 import com.workbrain.app.ui.Banner
 import com.workbrain.app.ui.ControlShape
 import com.workbrain.app.ui.PrimaryButton
@@ -59,6 +56,9 @@ import java.time.OffsetDateTime
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import com.workbrain.app.ui.Note
+import com.workbrain.app.ui.SegItem
+import com.workbrain.app.ui.DarkSeg
 
 /** '어디에'가 비어 있을 때 이름. 모든 할 일 맨 위 '정리 안 됨' 묶음(DEC-65) */
 const val UNSORTED = "정리 안 됨"
