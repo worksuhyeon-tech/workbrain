@@ -50,3 +50,12 @@ fun dueGroup(date: String?, today: LocalDate = LocalDate.now(SEOUL)): DueGroup {
         else -> DueGroup.LATER
     }
 }
+
+/** 버전이 달라 저장하지 않았을 때(다른 기기에서 먼저 고침, M18) */
+const val CONFLICT_TEXT = "다른 기기에서 먼저 바뀌었어요. 새로 불러왔어요"
+
+/** 저장 실패 문구: 아카이브 읽기 전용(WB409)은 따로 알린다. 그 밖은 연결 문제로 본다 */
+fun saveFailText(e: Throwable): String = when {
+    e.message.orEmpty().contains("아카이브") -> "아카이브된 곳이라 바꿀 수 없어요. 먼저 복원해 주세요"
+    else -> "저장하지 못했어요. 인터넷 연결을 확인해 주세요"
+}

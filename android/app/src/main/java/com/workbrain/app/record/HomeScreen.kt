@@ -3,14 +3,6 @@ package com.workbrain.app.record
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.height
-import com.workbrain.app.ui.CardShape
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -72,11 +64,6 @@ import com.workbrain.app.ui.WbCard
 import com.workbrain.app.ui.WbChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.SnackbarData
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.TextButton
@@ -88,6 +75,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import com.workbrain.app.ui.TitleDialog
+import com.workbrain.app.ui.AnnounceHost
+import com.workbrain.app.ui.rememberAnnouncer
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -112,7 +101,7 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     // 휴지통(DEC-51): 열려 있을 때만 목록을 읽는다
     var trashItems by remember { mutableStateOf<List<RecordingSession>?>(null) }
     val scope = rememberCoroutineScope()
-    val snackbar = remember { SnackbarHostState() }
+    val announcer = rememberAnnouncer()
     val wide = isWideWindow()
     fun refresh() { sessions = RecordingStore.list(context, rec.sessionId) }
 
@@ -125,16 +114,7 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     }
 
     // 지운 뒤 화면 아래에 잠깐 알린다. 되돌릴 수 있으면 '되돌리기'를 함께 보여 준다
-    fun announce(message: String, undo: (() -> Unit)? = null) {
-        scope.launch {
-            snackbar.currentSnackbarData?.dismiss()
-            // 남은 시간을 게이지로 보여 주려면 사라지는 시점을 앱이 정해야 한다(기본 Short는 접근성 설정에 따라 늘어남)
-            val result = withTimeoutOrNull(TOAST_MS) {
-                snackbar.showSnackbar(message, actionLabel = if (undo != null) "되돌리기" else null, duration = SnackbarDuration.Indefinite)
-            }
-            if (result == SnackbarResult.ActionPerformed) undo?.invoke()
-        }
-    }
+    fun announce(message: String, undo: (() -> Unit)? = null) = announcer.show(message, undo)
 
     // 파일 가져오기(DEC-40): 복사가 끝나면 바로 올리기 시트를 연다
     fun runImport(work: () -> FileImporter.Result) {
@@ -316,7 +296,7 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
             }
         }
         // 흐름을 막지 않게 화면 아래에 잠깐 떴다 사라진다
-        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(16.dp)) { DoneSnackbar(it) }
+        AnnounceHost(announcer, Modifier.align(Alignment.BottomCenter))
     }
 
     trashItems?.let { items ->
@@ -554,43 +534,6 @@ private fun SessionActions(
             s.serverState == "ready" -> PrimaryButton("회의록·할 일 보기", onClick = onOpen)
             s.recordId != null -> SecondaryButton("이어서 처리", onClick = onResume)
             else -> SecondaryButton("올리기", onClick = onUpload)
-        }
-    }
-}
-
-/** 알림이 떠 있는 시간(DEC-51, 10/26 사용자 요청으로 4초 → 3초). 게이지도 같은 시간 동안 줄어든다 */
-private const val TOAST_MS = 3_000L
-
-/**
- * 지움·되살림 알림: 체크 표시 + 문구 + (있으면) 되돌리기 + 아래 남은 시간 게이지.
- * 바탕은 불투명(반투명은 글씨가 덜 보여 사용자가 되돌림, 10/26)
- */
-@Composable
-private fun DoneSnackbar(data: SnackbarData) {
-    val remaining = remember(data) { Animatable(1f) }
-    LaunchedEffect(data) { remaining.animateTo(0f, tween(TOAST_MS.toInt(), easing = LinearEasing)) }
-    // 글자 길이만큼만 차지하고 가운데 둔다(화면 폭 전체는 너무 큼, 10/26 사용자 요청). 모서리는 카드와 같은 둥글기
-    Surface(shape = CardShape, color = Wb.colors.ink, shadowElevation = 4.dp, modifier = Modifier.widthIn(max = 360.dp)) {
-        // 게이지가 글줄과 같은 폭이 되도록 가장 넓은 줄에 맞춘다
-        Column(Modifier.width(IntrinsicSize.Max)) {
-            Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(WbIcons.Check, contentDescription = null, tint = Wb.colors.surface, modifier = Modifier.size(18.dp))
-                Text(
-                    data.visuals.message,
-                    color = Wb.colors.surface,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false).padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 8.dp),
-                )
-                data.visuals.actionLabel?.let { label ->
-                    TextButton(onClick = data::performAction) { Text(label, color = Wb.colors.surface, fontWeight = FontWeight.Bold) }
-                }
-            }
-            // 남은 시간: 다 줄어들면 알림이 사라지고 되돌리기도 끝난다
-            Box(Modifier.fillMaxWidth().height(3.dp).background(Wb.colors.surface.copy(alpha = 0.15f))) {
-                Box(Modifier.fillMaxWidth(remaining.value).fillMaxHeight().background(Wb.colors.surface.copy(alpha = 0.75f)))
-            }
         }
     }
 }

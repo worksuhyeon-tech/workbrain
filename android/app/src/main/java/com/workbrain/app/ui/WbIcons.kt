@@ -54,4 +54,15 @@ object WbIcons {
     val Pencil = line("pencil", "M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z", "M13.5 6.5l4 4")
     val Check = line("check", "M5 12.5l4.5 4.5L19 7.5")
     val Trash = line("trash", "M4 7h16", "M9 7V4h6v3", "M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12", "M10 11v6", "M14 11v6")
+
+    // PARA 트리(FR-02): 칸 펼침, (+) 추가, 반복실행·링크 자료·아카이브 표시
+    val Plus = line("plus", "M12 5v14", "M5 12h14")
+    val ChevronRight = line("chevron-right", "M9 6l6 6-6 6")
+    val ChevronDown = line("chevron-down", "M6 9l6 6 6-6")
+    val Repeat = line("repeat", "M17 3l3 3-3 3", "M4 11V9a3 3 0 0 1 3-3h13", "M7 21l-3-3 3-3", "M20 13v2a3 3 0 0 1-3 3H4")
+    val Link = line("link", "M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.2 1.2", "M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2")
+    val Archive = line("archive", "M3 4h18v4H3z", "M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8", "M10 12h4")
+    // 목업 🎯 목적 · 🧭 반복실행 설명 · 🗂 할 일 묶음 자리(이모지 대신 선 글리프, Design §6.5)
+    val Target = line("target", "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", "M12 12.5a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z")
+    val Compass = line("compass", "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M15.5 8.5l-2 5-5 2 2-5z")
 }

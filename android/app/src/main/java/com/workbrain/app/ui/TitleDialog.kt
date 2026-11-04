@@ -15,7 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 
-/** 녹음·기록 제목 길이 상한(목록 한 줄에 읽히는 정도) */
+/** 녹음·기록 제목, 프로젝트·반복실행·자료 이름 길이 상한(목록 한 줄에 읽히는 정도. PARA 이름은 서버 CHECK와 같은 값) */
 const val MAX_TITLE = 80
 
 /** 제목 고치기 창(녹음 목록·녹음 중·기록 상세 공용). 앞뒤 공백을 떼고 비어 있으면 저장하지 않는다 */

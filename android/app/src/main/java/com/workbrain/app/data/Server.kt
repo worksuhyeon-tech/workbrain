@@ -197,9 +197,38 @@ data class Transcript(val content: String, val segments: List<TranscriptSegment>
     @SerialName("due_text") val dueText: String? = null,
     /** 완료한 시각(서버 트리거가 채움, DEC-64). 완료 전·완료 취소면 null */
     @SerialName("done_at") val doneAt: String? = null,
+    /** 1 높음 · 2 보통 · 3 낮음. 비어 있으면 보통으로 보여 준다(목업 기본값) */
+    val priority: Int? = null,
+    /** 속한 곳(FR-02). 둘 중 하나만 있거나 둘 다 없음('정리 안 됨') */
+    @SerialName("project_id") val projectId: String? = null,
+    @SerialName("area_id") val areaId: String? = null,
+    /** 오늘 화면용으로 함께 읽은 속한 곳 이름·보관 여부(TASK_WITH_PLACE). 다른 조회에서는 null */
+    val project: PlaceRef? = null,
+    val area: PlaceRef? = null,
 ) {
     val done: Boolean get() = status == "done"
+    val placeName: String? get() = project?.name ?: area?.name
 }
+
+@Serializable data class PlaceRef(val name: String, @SerialName("archived_at") val archivedAt: String? = null)
+
+/** 할 일 고치기 서랍에서 저장하는 값 전부(FR-02 어디에 + 제목·담당·기한·우선순위) */
+data class TaskEdit(
+    val title: String,
+    val priority: Int?,
+    val ownerKind: String,
+    val assignee: String?,
+    val dueDate: String?,
+    val dueTime: String?,
+    val dueAmbiguous: Boolean,
+    val dueText: String?,
+    val projectId: String?,
+    val areaId: String?,
+)
+
+fun TaskRow.toEdit() = TaskEdit(title, priority, ownerKind, assignee, dueDate, dueTime, dueAmbiguous, dueText, projectId, areaId)
+
+private const val TASK_WITH_PLACE = "*,project(name,archived_at),area(name,archived_at)"
 
 /** 처리 함수 응답: stage(STT·EXTRACT·REVIEWABLE), state(PENDING·RUNNING·DONE·FAILED·BUDGET_WAIT·WAITING_KEY) */
 data class ProcessStatus(val stage: String, val state: String, val error: String?)
@@ -585,7 +614,7 @@ object Server {
     suspend fun todayTasks(): List<TaskRow> {
         val todayStart = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))
             .atStartOfDay(java.time.ZoneId.of("Asia/Seoul")).toInstant().toString()
-        return db.from("task").select {
+        return db.from("task").select(Columns.raw(TASK_WITH_PLACE)) {
             filter {
                 or {
                     neq("status", "done")
@@ -594,6 +623,38 @@ object Server {
             }
             order("created_at", Order.DESCENDING)
         }.decodeList<TaskRow>()
+            // 보관된 프로젝트·반복실행의 할 일은 오늘에서 뺀다(목업 S02, 복원하면 다시 보임)
+            .filter { it.project?.archivedAt == null && it.area?.archivedAt == null }
+    }
+
+    suspend fun task(id: String): TaskRow? =
+        db.from("task").select { filter { eq("id", id) } }.decodeList<TaskRow>().firstOrNull()
+
+    /**
+     * 할 일 고치기(제목·우선순위·담당·기한·어디에). 버전이 같을 때만 바꾸고 바뀐 행을 돌려준다(다른 기기에서 먼저 바꿨으면 null, M18).
+     * 수정 전후는 서버 트리거가 task_revision에 쌓는다. 보관된 곳으로 옮기면 서버가 WB409로 막는다
+     */
+    suspend fun updateTask(t: TaskRow, e: TaskEdit): TaskRow? {
+        fun json(v: String?): JsonElement = v?.let { JsonPrimitive(it) } ?: JsonNull
+        return db.from("task").update(buildJsonObject {
+            put("title", e.title)
+            put("priority", e.priority?.let { JsonPrimitive(it) } ?: JsonNull)
+            put("owner_kind", e.ownerKind)
+            put("assignee", json(e.assignee))
+            put("due_date", json(e.dueDate))
+            put("due_time", json(e.dueTime))
+            put("due_ambiguous", e.dueAmbiguous)
+            put("due_text", json(e.dueText))
+            put("project_id", json(e.projectId))
+            put("area_id", json(e.areaId))
+            put("version", t.version + 1)
+        }) {
+            select()
+            filter {
+                eq("id", t.id)
+                eq("version", t.version)
+            }
+        }.decodeList<TaskRow>().firstOrNull()
     }
 
     /**

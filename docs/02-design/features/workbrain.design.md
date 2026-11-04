@@ -3,7 +3,7 @@
 > **요약**: 음성 기록을 수집·전사하고 기존 프로젝트와 비교해 변경을 제안하며, 사용자가 승인하면 근거·이력과 함께 업무 지식이 축적되는 개인 AI 프로젝트 매니저의 기술 설계.
 >
 > **프로젝트**: WorkBrain
-> **버전**: 0.1.10 (Draft) — v0.1.9 개정(FR-07 회의록 승인·Q5 3년 보관/근거 문장) 사용자 승인(2026-11-03, DEC-61), v0.1.10 FR-28 Android 구현 규칙(DEC-63)
+> **버전**: 0.1.12 (Draft) — v0.1.9 개정(FR-07 회의록 승인·Q5 3년 보관/근거 문장) 사용자 승인(2026-11-03, DEC-61), v0.1.10 FR-28 Android 구현 규칙(DEC-63), v0.1.11 FR-02 1단계 PARA 트리(DEC-65), v0.1.12 S03 화면을 목업 모양대로(DEC-66)
 > **작성자**: Claude Code (PDCA Design)
 > **작성일**: 2026-10-16 (Asia/Seoul)
 > **상태**: **사용자 승인(2026-10-18, v0.1.7, Q5 → DEC-25)**. G1/G2 문서 근거 충족(2026-10-17): 백엔드 Supabase Free(DEC-20), 모델 저가 후보 비교 방침(DEC-19). 실측(격리·동시성·복원·한국어 품질·비용)은 P0에서 하며, 결과에 따라 이 문서를 고친다.
@@ -398,6 +398,15 @@ erDiagram
 | 자료 | 프로젝트·반복실행 | 연결 추가(이미 연결된 곳은 불가) | POST `/resources/:id/links` |
 
 - **AI 정리 제안은 P2(DEC-24)**: "3주 동안 기록이 없고 할 일을 모두 끝낸 프로젝트 → 아카이브할까요?", "이 할 일은 지급심사 쪽 같아요 → 옮길까요?" 같은 정리 제안을 검토함에 올리고, 승인하면 위 표와 같은 동작을 한다. 자동 이동은 하지 않는다(§3.4). P1에서는 기록의 프로젝트 연결 후보(FR-06)만 AI가 제안한다.
+- **1단계 구현(DEC-65, 2026-11-04)**: Android S03에 트리·만들기·고치기·아카이브/복원·자료 연결·할 일 옮기기를 먼저 만든다. 끌어서 옮기기는 같은 동작의 버튼(편집 서랍 '어디에', ⋮ '아카이브로', '+ 연결')으로 대신하고 2단계에 더한다.
+  - 접힘은 트리 → 항목을 누르면 상세 전체 화면(뒤로 가기로 트리), 펼침은 왼쪽 트리 / 오른쪽 상세(DEC-47). 펼침에서 아무것도 안 골랐으면 오른쪽에 '모든 할 일'.
+  - 칸 안은 이름순(한글 사전 순). 4. 아카이브는 보관된 프로젝트·반복실행·자료를 종류 표시와 함께 모은다.
+  - '모든 할 일'은 '정리 안 됨'(어디에도 속하지 않음) → 프로젝트 → 반복실행 순 묶음. 범위(다음 7일·지연·전체)·담당(내 할 일·팔로업) 탭은 2단계.
+  - 할 일 고치기 서랍(제목·어디에·담당·기한)은 오늘 탭과 같은 것을 쓴다. 오늘 탭 카드에는 속한 곳 이름 칩(S02 '프로젝트 표시').
+  - 아카이브한 프로젝트·반복실행의 안 끝난 할 일은 '오늘'·'모든 할 일'에서 빠지고 복원하면 다시 보인다. 안 끝난 할 일이 있을 때만 확인 창을 띄우고, 나머지 동작은 화면 아래 3초 '되돌리기'.
+  - 서버 규칙(0030): 보관된 항목은 복원 전까지 이름·목적·내용을 못 고치고, 보관된 프로젝트·반복실행으로 할 일을 넣거나 자료를 잇거나 프로젝트를 보관된 반복실행에 붙이지 못한다(WB409). 이미 들어 있던 할 일은 그대로 둔다. 보관 시각은 서버 시각. 보관·복원과 자료 연결·풀기는 `activity_log`(`archived`·`restored`·`linked:<종류>:<id>`·`unlinked:…`)에 남고, 할 일 소속 변경은 `task_revision`에 남는다.
+  - 2단계: 기록 상세에서 프로젝트 연결(트리 하위 기록, `source_project_link` 확정), 후보 승인 때 '추가할 곳', 기록 참조 자료, 길게 눌러 끌어서 옮기기, 한 줄 빠른 입력(FR-08).
+- **화면은 목업 S03 모양(DEC-66, 2026-11-04)**: 새 화면은 목업 HTML을 띄워 캡처한 뒤 같은 배치로 만든다. S03은 머리 [+ 새로 만들기], 흰 트리 패널(공간 버튼·칸 아래 이름 입력 줄·범례), 상세 경로·칩·[수정][아카이브로], 목적 한 줄/점선 상자, 현재 상태·관련 기록 카드(기능 전 빈 상태), 할 일 카드(체크·제목·출처·우선순위·기한 줄), 모든 할 일 보기 전환(P4 자리)·범위·담당 탭·완료 포함·묶음 카드, 할 일 수정 서랍(날짜+시각·모호·우선순위·저장 실패 시 입력 유지). Android에서 다른 점은 접힘 화면 이동(§6.3)·아래 서랍·선 글리프(§6.5)뿐이다. `area.description`(0031)은 목업 '무엇을 계속 맡는 일인지' 한 줄, 자료는 이름·종류만으로 먼저 만들고 내용은 [수정]에서 채운다.
 
 ### 4.3 P1 참조 스키마 (PostgreSQL DDL · 조건부)
 
@@ -453,7 +462,8 @@ create table area (
   id          uuid primary key default gen_random_uuid(),
   owner_id    uuid not null references app_user(id),
   workspace_id uuid not null references workspace(id),
-  name        text not null,
+  name        text not null check (char_length(btrim(name)) between 1 and 80), -- 버전 없음(이름·설명·보관만 바뀜)
+  description text check (char_length(description) <= 500), -- 무엇을 계속 맡는 일인지(목업, 0031)
   archived_at timestamptz,
   created_at  timestamptz not null default now()
 );
@@ -463,9 +473,9 @@ create table project (
   owner_id    uuid not null references app_user(id),
   workspace_id uuid not null references workspace(id), -- area와 같은 공간이어야 함(트리거 검사)
   area_id     uuid references area(id),
-  name        text not null,
-  purpose     text,
-  version     int not null default 0,          -- 이름·목적·영역 수정의 낙관적 동시성(M18)
+  name        text not null check (char_length(btrim(name)) between 1 and 80),
+  purpose     text check (char_length(purpose) <= 500),
+  version     int not null default 0,          -- 이름·목적·영역·보관 수정의 낙관적 동시성(M18)
   current_state_version int not null default 0,  -- 상태(요약·진행) 버전 기준
   archived_at timestamptz,
   created_at  timestamptz not null default now()
@@ -488,13 +498,13 @@ create table resource (                       -- P1 자료는 최소 표현만(M
   id          uuid primary key default gen_random_uuid(),
   owner_id    uuid not null references app_user(id),
   workspace_id uuid not null references workspace(id),
-  kind        text not null,                   -- 'link' | 'note' | 'record-ref'
-  title       text not null,
-  url         text,                            -- kind='link'
+  kind        text not null,                   -- 'link' | 'note' | 'record-ref'. 이름·종류만으로 먼저 만들고 내용은 나중에(0031), 기록 참조는 기록 필수
+  title       text not null check (char_length(btrim(title)) between 1 and 80),
+  url         text,                            -- kind='link'. http(s)://만(다른 앱을 여는 주소 차단, 0030)
   note        text check (char_length(note) <= 2000), -- kind='note'. 문서 편집기 아님
   source_record_id uuid references source_record(id), -- kind='record-ref'
-  version     int not null default 0,
-  archived_at timestamptz,
+  version     int not null default 0,          -- 고칠 때마다 1 올림(0030, M18)
+  archived_at timestamptz,                     -- 보관된 자료는 복원 전까지 고치기·연결 불가(0030)
   created_at  timestamptz not null default now()
 );
 
@@ -1100,6 +1110,8 @@ Plan 로드맵에 정렬(마감일 임의 설정 금지):
 | 0.1.1 | 2026-10-17 | FR-28 검토 미루기 반영: §3.7, `change_proposal.snoozed_until`, `/snooze` API, S06 탭. PRD·추적표·로드맵(TC-23)·결정(DEC-15) 동반 갱신 | Claude Code |
 | 0.1.4 | 2026-10-17 | Codex 교차 검토(G절) 반영: 단계별 비용 상태 기계(C7)·수명표(Q8)·백업/삭제 원장(C9)·RLS 계약(M13)·저장 암호화(M10)·업로드 전 허용 확인(M11)·확신 등급(M12)·회의록 버전 승인(M14)·자료 최소 표현(M15)·항목 연결(M16)·삭제 API(M17)·리비전(M18)·동의 테이블(M19/Q10)·지침 메타 고정(M20)·메일 결과 불명(M21/Q9)·가져오기 확인 화면(U6) | Claude Code |
 | 0.1.3 | 2026-10-17 | bkend 제외(DEC-18)·Supabase Free 채택(DEC-20)·저가 모델 비교 방침(DEC-19), S03/S04/S07/S08 목업 추가 | Claude Code |
+| 0.1.12 | 2026-11-04 | DEC-66: S03 프로젝트 화면을 목업 workbrain-project.html 모양대로 다시 맞춤(트리 패널·상세 머리 버튼·목적 줄/점선 상자·현재 상태·관련 기록 빈 카드·촘촘한 할 일 줄과 출처·모든 할 일 탭·할 일 수정 서랍 날짜+시각·우선순위). 0031: `area.description`, 자료는 이름·종류만으로 먼저 만들기 | Claude Code |
+| 0.1.11 | 2026-11-04 | DEC-65: FR-02 1단계 PARA 트리 구현 규칙(§4.2) — 트리·(+) 만들기·이름/목적/반복실행 고치기·아카이브/복원·자료 연결·할 일 고치기 서랍(어디에), '정리 안 됨' 묶음, 보관된 곳의 할 일은 오늘·모든 할 일에서 숨김, 이름순. 마이그레이션 0030(아카이브 읽기 전용·보관된 곳으로 넣기 거부·서버 보관 시각·자료 버전·보관/연결 이력·이름 길이·http(s) 링크·열 단위 권한). 끌어서 옮기기·기록 연결은 2단계 | Claude Code |
 | 0.1.10 | 2026-11-03 | DEC-63: FR-28 검토 미루기 Android 구현 규칙(§3.7) — `wb_snooze_proposals`, 탭 오늘·미룬 항목·처리됨, 아래 줄 미루기, 내일·다음 주 월요일·날짜 고르기, 메뉴 배지는 오늘 검토 수만 | Claude Code |
 | 0.1.9 | 2026-11-03 | DEC-61(사용자 승인): FR-07 회의록 승인 구현 규칙(§3.9 `approve_meeting`·승인본 보호·승인 뒤 다시 만들기는 새 초안), Q5/DEC-45 승인 회의록 3년(`retention_knowledge_years` 기본 1→3)·근거 문장 `evidence_link.quote`(§4.3 DDL, §4.4 수명표·근거 보존 예외), §3.8 ③ 문서 보관 수명 | Claude Code |
 | 0.1.8 | 2026-10-20 | DEC-47: §6.3 Fold 펼침 = 2패널 + 왼쪽 세로 메뉴, 3패널은 PC 웹만. 화면별 칸 나눔 | Claude Code |
