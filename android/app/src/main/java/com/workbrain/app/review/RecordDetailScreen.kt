@@ -61,8 +61,23 @@ import com.workbrain.app.record.RecordingSession
 import com.workbrain.app.record.RecordingStore
 import com.workbrain.app.record.TrashNotice
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.AlertDialog
+import com.workbrain.app.data.Para
+import com.workbrain.app.data.Place
+import com.workbrain.app.data.PlaceType
+import com.workbrain.app.data.RecordInfoRow
+import com.workbrain.app.tasks.PlaceField
+import com.workbrain.app.tasks.UNSORTED
+import com.workbrain.app.ui.PillShape
+import com.workbrain.app.ui.SEOUL
+import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
@@ -115,9 +130,16 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     var message by remember { mutableStateOf<Pair<String, Tone>?>(null) }
     var shownTitle by remember { mutableStateOf(title) }
     var renaming by remember { mutableStateOf(false) }
-    // 기록의 참석자 명단(null = 아직 못 읽음). 회의록 문서는 이 명단 기준으로 참석자를 쓴다(DEC-59)
+    // 기록 머리 정보(종류·길이·회의 시각)와 참석자 명단(null = 아직 못 읽음). 회의록 문서는 이 명단 기준으로 참석자를 쓴다(DEC-59)
+    var info by remember { mutableStateOf<RecordInfoRow?>(null) }
     var attendees by remember { mutableStateOf<List<String>?>(null) }
     var editingAttendees by remember { mutableStateOf(false) }
+    // 할 일 후보 표(DEC-68): 담당 고르기에 내 이름은 '나'로 따로 있으니 팔로업 목록에서 뺀다. '추가할 곳'(null = 정리 안 됨)
+    var myNames by remember { mutableStateOf<List<String>>(emptyList()) }
+    var places by remember { mutableStateOf<List<Place>>(emptyList()) }
+    var place by remember { mutableStateOf<Place?>(null) }
+    // 추가한 뒤 체크하지 않고 남은 후보: 버릴지 묻는다(사용자 요청 11/05)
+    var leftover by remember { mutableStateOf<List<ProposalRow>?>(null) }
     // 결정 카드 '할 일로 만들기'(DEC-48): 만들 결정 문장, 이미 있는 할 일 제목(같은 결정을 두 번 만들지 않게)
     var creatingFrom by remember { mutableStateOf<String?>(null) }
     var openTaskTitles by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -135,7 +157,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             transcripts = Server.transcripts(recordId)
             openTaskTitles = Server.openTasks().map { it.title.trim() }.toSet()
             currentGuidelineRev = Server.guideline().rev
-            attendees = Server.recordAttendees(recordId)
+            info = Server.recordInfo(recordId).also { attendees = it.attendees.orEmpty() }
         }.onFailure { message = "불러오지 못했어요. 인터넷 연결을 확인해 주세요." to Tone.Crit }
         // 결정과 겹치는 후보는 결정과 중복일 가능성이 커서 처음에는 체크하지 않는다(DEC-48).
         // 검토함에서 미룬 후보도 모르고 추가하지 않게 처음에는 체크하지 않는다(DEC-63)
@@ -145,6 +167,11 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         firstLoad = false
     }
     LaunchedEffect(recordId) { load() }
+    // 추가할 곳·내 이름은 보조 정보라 못 읽어도 화면은 그린다(정리 안 됨으로 추가, 팔로업 목록에 내 이름이 섞일 뿐)
+    LaunchedEffect(recordId) {
+        runCatching { Para.places() }.onSuccess { places = it }
+        runCatching { Server.myNames() }.onSuccess { myNames = it }
+    }
 
     // 기존 할 일 변경 제안은 검토함에서 전후를 보고 승인한다(DEC-23·38). 여기서는 보여 주기만 한다
     val decisions = meeting?.fields?.decisions().orEmpty()
@@ -156,14 +183,48 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     val selected = pending.filter { checked[it.id] == true }
     var confirmDiscard by remember { mutableStateOf(false) }
 
-    // 버리기·추가 모두 체크한 후보에만 적용한다(검토함과 같은 규칙)
-    fun discardSelected() {
+    // [버리기]는 체크한 후보에만(검토함과 같은 규칙), 추가 뒤 확인 창은 체크하지 않고 남은 후보에
+    fun discard(drop: List<ProposalRow>) {
         busy = true
         scope.launch {
-            val drop = selected
             message = runCatching { drop.forEach { Server.reject(it, "record") } }
                 .fold({ "후보 ${drop.size}개를 버렸어요" to Tone.Mute }, { "버리지 못했어요. 다시 시도해 주세요" to Tone.Crit })
             load(); busy = false; onChanged()
+        }
+    }
+
+    fun current(p: ProposalRow) = JsonObject(p.after + edits[p.id].orEmpty())
+
+    // 표에서 고친 칸은 고친 값에 덮고 체크한다(고친 것은 추가하려는 것, 검토함 고치기와 같음)
+    fun edit(p: ProposalRow, vararg fields: Pair<String, JsonElement>) {
+        edits[p.id] = JsonObject(edits[p.id].orEmpty() + fields)
+        checked[p.id] = true
+    }
+
+    fun addSelected() {
+        val pick = selected
+        if (pick.any { current(it).str("title").isNullOrBlank() }) {
+            message = "제목이 빈 할 일이 있어요. 제목을 넣어 주세요" to Tone.Warn
+            return
+        }
+        val target = place
+        busy = true
+        scope.launch {
+            // 다른 기기에서 먼저 승인했으면 already-approved로 돌아와 중복 없이 넘어간다(TC-08)
+            val results = runCatching { pick.map { Server.approve(it, "record", withPlace(edits[it.id], target)) } }.getOrNull()
+            val allAdded = results != null && results.all { it == "approved" || it == "already-approved" }
+            message = when {
+                results == null -> "추가하지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit
+                allAdded -> "할 일 ${pick.size}개를 ‘${target?.name ?: UNSORTED}’에 추가했어요" to Tone.Good
+                else -> "일부는 추가하지 못했어요(${results.filterNot { it == "approved" }.joinToString()})" to Tone.Warn
+            }
+            load(); busy = false; onChanged()
+            // 체크하지 않고 남은 후보는 버릴지 묻는다(사용자 요청 11/05). 미룬 후보는 일부러 미뤄 둔 것이라 묻지 않는다
+            if (allAdded) {
+                leftover = proposals.filter {
+                    it.status == "pending" && !it.isUpdate && checked[it.id] != true && !Snooze.isActive(it.snoozedUntil)
+                }.ifEmpty { null }
+            }
         }
     }
 
@@ -191,6 +252,11 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     val localSession = remember(recordId) {
         RecordingStore.list(context, activeId = null).firstOrNull { it.recordId == recordId }
             ?.takeIf { it.serverState == "ready" || it.serverState == "failed" }
+    }
+    // 받아쓴 글(txt)은 서버에 음성 길이가 없어서, 이 휴대폰에서 올린 기록이면 기기에 적어 둔 길이를 머리에 쓴다
+    val localDurationSec = remember(recordId) {
+        RecordingStore.list(context, activeId = null).firstOrNull { it.recordId == recordId }
+            ?.durationMs?.div(1000)?.toInt()?.takeIf { it > 0 }
     }
     fun trashRecording(s: RecordingSession) {
         RecordingStore.trash(RecordingStore.dir(context, s.id))
@@ -228,11 +294,22 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         }
     }
 
+    // 담당 고르기의 팔로업 목록: 기록 참석자 + AI가 짚은 사람, 내 이름은 '나'가 따로 있으니 뺀다
+    val followNames = (attendees.orEmpty() + proposals.mapNotNull { it.after.str("assignee") })
+        .map { it.trim() }.filter { it.isNotEmpty() && it !in myNames }.distinct()
+
     @Composable
-    fun candidate(p: ProposalRow) = CandidateCard(
-        JsonObject(p.after + edits[p.id].orEmpty()), p.rationale, p.status, checked[p.id] == true,
-        onChecked = { checked[p.id] = it },
-        edited = p.id in edits, onEdit = { field -> editing = p to field },
+    fun candidate(p: ProposalRow) = CandidateRow(
+        after = current(p),
+        rationale = p.rationale,
+        status = p.status,
+        checked = checked[p.id] == true,
+        onChecked = if (p.status == "pending") ({ checked[p.id] = it }) else null,
+        followNames = followNames,
+        onTitle = { edit(p, "title" to JsonPrimitive(it)) },
+        onOwner = { kind, who -> edit(p, "owner_kind" to JsonPrimitive(kind), "assignee" to (who?.let(::JsonPrimitive) ?: JsonNull)) },
+        onOwnerOther = { editing = p to CandidateField.Owner },
+        onDue = { editing = p to CandidateField.Due },
         // 미룸은 승인과 무관해 여기서도 추가할 수 있지만, 미뤄 둔 것임을 보여 준다(FR-28)
         badges = listOfNotNull(Snooze.label(p.snoozedUntil)?.takeIf { Snooze.isActive(p.snoozedUntil) }?.let { "미룸 $it" to Tone.Info }),
     )
@@ -285,12 +362,16 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                 Text(shownTitle, style = MaterialTheme.typography.titleLarge, color = Wb.colors.ink, modifier = Modifier.weight(1f, fill = false))
                 Icon(WbIcons.Pencil, contentDescription = "제목 고치기", tint = Wb.colors.muted, modifier = Modifier.padding(start = 6.dp).size(18.dp))
             }
-            Text(
-                if (!firstLoad && pending.isEmpty() && updates.isEmpty()) "정리 끝!" else "거의 다 왔어요",
-                fontFamily = HandAccent,
-                fontSize = 20.sp,
-                color = Wb.colors.muted,
-            )
+            // 목업 S05 머리: '녹음 · 42분 · 10/16 15:00' 알약(사용자 요청 11/05) + 손글씨 한마디
+            Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                info?.let { RecordMetaPill(it, localDurationSec, Modifier.padding(end = 10.dp)) }
+                Text(
+                    if (!firstLoad && pending.isEmpty() && updates.isEmpty()) "정리 끝!" else "거의 다 왔어요",
+                    fontFamily = HandAccent,
+                    fontSize = 20.sp,
+                    color = Wb.colors.muted,
+                )
+            }
             if (meeting != null) {
                 SegmentPills(
                     listOf("fields" to "추출 항목", "doc" to "회의록 문서"),
@@ -377,14 +458,15 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                         Text("이 녹음에서는 할 일을 찾지 못했어요.", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.muted)
                     } else if (pending.isNotEmpty()) {
                         Text(
-                            "체크한 것만 할 일로 추가돼요. 제목·담당·기한을 누르면 바꿔서 추가할 수 있어요." +
+                            "체크한 것만 할 일로 추가돼요. 제목은 그 자리에서 고치고, 담당·기한은 눌러서 골라요." +
                                 if (loose.size < pending.size) " 결정과 겹치는 후보는 결정 밑에 접어 뒀어요." else "",
                             style = MaterialTheme.typography.bodySmall,
                             color = Wb.colors.muted,
                         )
                     }
                 }
-                items(loose, key = { it.id }) { p -> candidate(p) }
+                // 목업 표처럼 줄들을 한 카드 안에 붙여 둔다(줄 사이 구분선)
+                if (loose.isNotEmpty()) item(key = "candidates") { CandidateTable(loose) { candidate(it) } }
                 if (updates.isNotEmpty()) item {
                     SectionLabel("기존 할 일 변경 ${updates.size}")
                     Text("이미 있는 할 일의 담당·기한이 이번 녹음에서 달라졌어요. 검토함에서 전후를 보고 반영해요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
@@ -397,7 +479,10 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                         tracked.forEach { Text("· $it", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.ink, modifier = Modifier.padding(top = 6.dp)) }
                     }
                 }
-                items(done, key = { it.id }) { p -> CandidateCard(p.after, p.rationale, p.status, checked = false, onChecked = null, before = p.before) }
+                // 처리된 후보(추가됨·버림)도 같은 표 줄로, 고칠 수 없게. 처리된 변경 제안은 전후가 보이는 카드로
+                val (doneUpdates, doneTasks) = done.partition { it.isUpdate }
+                if (doneTasks.isNotEmpty()) item(key = "done-candidates") { CandidateTable(doneTasks) { candidate(it) } }
+                items(doneUpdates, key = { it.id }) { p -> CandidateCard(p.after, p.rationale, p.status, checked = false, onChecked = null, before = p.before) }
                 item {
                     // 교정본이 있으면 그것을 먼저 보여 주고, 받아쓴 원문은 따로 볼 수 있게 둔다(원문은 고치지 않음, DEC-36)
                     val corrected = transcripts["term-corrected"]
@@ -438,44 +523,51 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                 )
             }
         }
-        // 버리기·추가는 할 일 후보에 쓰는 것이라 추출 항목을 볼 때만 둔다
+        // 버리기·추가는 할 일 후보에 쓰는 것이라 추출 항목을 볼 때만 둔다. 목업 S05처럼 '추가할 곳'을 버튼 바로 위에(DEC-68)
         if (!firstLoad && pending.isNotEmpty() && view == "fields") {
             HorizontalDivider(color = Wb.colors.border)
-            Row(
+            Column(
                 Modifier.fillMaxWidth().background(Wb.colors.card).padding(horizontal = 16.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                SecondaryButton(
-                    "버리기",
-                    enabled = !busy && selected.isNotEmpty(),
-                    onClick = { if (selected.size > 1) confirmDiscard = true else discardSelected() },
-                )
-                PrimaryButton(
-                    "선택한 할 일 추가 (${selected.size})",
-                    enabled = !busy && selected.isNotEmpty(),
-                    modifier = Modifier.weight(1f),
-                    onClick = {
-                        busy = true
-                        scope.launch {
-                            // 다른 기기에서 먼저 승인했으면 already-approved로 돌아와 중복 없이 넘어간다(TC-08)
-                            val results = runCatching { selected.map { Server.approve(it, "record", edits[it.id]) } }.getOrNull()
-                            message = when {
-                                results == null -> "추가하지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit
-                                results.all { it == "approved" || it == "already-approved" } ->
-                                    "할 일 ${selected.size}개를 추가했어요 · 오늘 탭에서 볼 수 있어요" to Tone.Good
-                                else -> "일부는 추가하지 못했어요(${results.filterNot { it == "approved" }.joinToString()})" to Tone.Warn
-                            }
-                            load(); busy = false; onChanged()
-                        }
-                    },
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("추가할 곳", style = MaterialTheme.typography.labelLarge, color = Wb.colors.muted)
+                    PlaceField(
+                        label = place?.name ?: UNSORTED,
+                        type = place?.type,
+                        places = places,
+                        modifier = Modifier.weight(1f).padding(start = 12.dp).height(40.dp),
+                    ) { place = it }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    SecondaryButton(
+                        "버리기",
+                        enabled = !busy && selected.isNotEmpty(),
+                        onClick = { if (selected.size > 1) confirmDiscard = true else discard(selected) },
+                    )
+                    PrimaryButton(
+                        "선택한 할 일 추가 (${selected.size})",
+                        enabled = !busy && selected.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
+                        onClick = ::addSelected,
+                    )
+                }
             }
         }
     }
 
     if (confirmDiscard) {
-        DiscardConfirmDialog(selected.size, onDismiss = { confirmDiscard = false }) { confirmDiscard = false; discardSelected() }
+        DiscardConfirmDialog(selected.size, onDismiss = { confirmDiscard = false }) { confirmDiscard = false; discard(selected) }
+    }
+
+    leftover?.let { rows ->
+        AlertDialog(
+            onDismissRequest = { leftover = null },
+            title = { Text("선택하지 않은 후보 ${rows.size}개") },
+            text = { Text("할 일로 추가하지 않은 후보예요. 버릴까요? 버린 후보는 검토함 ‘처리됨’에서 볼 수 있어요.") },
+            confirmButton = { TextButton(onClick = { leftover = null; discard(rows) }) { Text("버리기", color = Wb.colors.crit) } },
+            dismissButton = { TextButton(onClick = { leftover = null }) { Text("그대로 두기") } },
+        )
     }
 
     if (confirmApprove) {
@@ -543,6 +635,61 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             },
         )
     }
+}
+
+/** 할 일 후보 줄들을 한 카드에(목업 S05 표). 줄마다 아래 구분선이 있어 카드 위아래 여백만 둔다 */
+@Composable
+private fun CandidateTable(rows: List<ProposalRow>, row: @Composable (ProposalRow) -> Unit) {
+    WbCard(padding = PaddingValues(start = 0.dp, end = 12.dp, top = 2.dp, bottom = 2.dp)) {
+        rows.forEach { row(it) }
+    }
+}
+
+/** 목업 S05 머리 알약: '녹음 · 42분 · 10/16 15:00'. 길이는 서버 음성 길이, 없으면 기기에 적어 둔 길이, 그것도 없으면 빼고 */
+@Composable
+private fun RecordMetaPill(info: RecordInfoRow, localDurationSec: Int?, modifier: Modifier = Modifier) {
+    val parts = listOfNotNull(
+        when (info.channel) {
+            "recording" -> "녹음"
+            "upload" -> "가져온 파일"
+            "call-share" -> "통화"
+            "text-import" -> "받아쓴 글"
+            else -> null
+        },
+        (info.durationSec ?: localDurationSec)?.let(::durationText),
+        meetingTimeText(info.occurredAt ?: info.ingestedAt),
+    )
+    if (parts.isEmpty()) return
+    Row(
+        modifier.border(1.dp, Wb.colors.border, PillShape).padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(if (info.channel == "text-import") WbIcons.Document else WbIcons.Mic, contentDescription = null, tint = Wb.colors.muted, modifier = Modifier.size(14.dp))
+        Text(parts.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = Wb.colors.body, modifier = Modifier.padding(start = 4.dp))
+    }
+}
+
+// 42분, 1시간 47분. 1분이 안 되면 '1분 미만'
+private fun durationText(sec: Int): String {
+    val h = sec / 3600
+    val m = sec % 3600 / 60
+    return when {
+        h > 0 -> if (m > 0) "${h}시간 ${m}분" else "${h}시간"
+        m > 0 -> "${m}분"
+        else -> "1분 미만"
+    }
+}
+
+// 서버 시각(UTC) → 서울 '10/16 15:00'
+private fun meetingTimeText(iso: String?): String? = iso?.let {
+    runCatching { OffsetDateTime.parse(it).atZoneSameInstant(SEOUL).format(DateTimeFormatter.ofPattern("M/d HH:mm")) }.getOrNull()
+}
+
+/** '추가할 곳'을 골랐으면 승인 함수가 읽는 위치 키를 고친 값에 더한다(approve_proposal이 project_id·area_id를 읽음) */
+private fun withPlace(edits: JsonObject?, place: Place?): JsonObject? {
+    if (place == null) return edits
+    val key = if (place.type == PlaceType.PROJECT) "project_id" else "area_id"
+    return JsonObject(edits.orEmpty() + (key to JsonPrimitive(place.id)))
 }
 
 /** 결정 후보 한 줄: 문장 + '할 일로 만들기'(이미 같은 제목의 할 일이 있으면 '할 일 있음') + 겹치는 후보 접기 */

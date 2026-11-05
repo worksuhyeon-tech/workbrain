@@ -113,9 +113,19 @@ fun LinkChip(icon: ImageVector, text: String, tint: Color, onClick: () -> Unit) 
 /** 목업 .seg 한 칸. count가 있으면 이름 뒤 숫자, laterTag가 있으면 흐린 칸(P4 자리, 누르면 안내만) */
 data class SegItem(val key: String, val label: String, val count: Int? = null, val alert: Boolean = false, val laterTag: String? = null)
 
-/** 목업 .seg: 옅은 바탕 안에서 고른 칸만 진한 알약. 칸은 글자 길이만큼, 넘치면 옆으로 밀어 본다 */
+/**
+ * 목업 .seg: 옅은 바탕 안에서 고른 칸만 진한 알약. 칸은 글자 길이만큼, 넘치면 옆으로 밀어 본다.
+ * compact는 좁은 칸에서 두 묶음을 한 줄에 나란히 둘 때 칸 좌우 여백을 줄인다(숫자가 두 자리여도 안 넘치게)
+ */
 @Composable
-fun DarkSeg(items: List<SegItem>, value: String, modifier: Modifier = Modifier, onLater: (String) -> Unit = {}, onChange: (String) -> Unit) {
+fun DarkSeg(
+    items: List<SegItem>,
+    value: String,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+    onLater: (String) -> Unit = {},
+    onChange: (String) -> Unit,
+) {
     Row(
         modifier.clip(PillShape).background(Wb.colors.surface).border(1.dp, Wb.colors.border, PillShape)
             .horizontalScroll(rememberScrollState()).padding(3.dp),
@@ -127,7 +137,7 @@ fun DarkSeg(items: List<SegItem>, value: String, modifier: Modifier = Modifier, 
             Row(
                 Modifier.height(32.dp).clip(PillShape).background(if (on) Wb.colors.pillActive else Color.Transparent)
                     .clickable { if (later) onLater(item.key) else onChange(item.key) }
-                    .padding(horizontal = 12.dp).alpha(if (later) 0.75f else 1f),
+                    .padding(horizontal = if (compact) 8.dp else 12.dp).alpha(if (later) 0.75f else 1f),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(item.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (on) Wb.colors.onPillActive else Wb.colors.muted, maxLines = 1)

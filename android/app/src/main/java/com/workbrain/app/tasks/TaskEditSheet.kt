@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -216,17 +217,26 @@ private fun Label(text: String) {
     Text(text, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Wb.colors.ink, modifier = Modifier.padding(top = 10.dp))
 }
 
-/** 어디에: 정리 안 됨 + 1. 프로젝트 / 2. 반복실행 묶음(목업 optgroup) */
+/**
+ * 어디에: 정리 안 됨 + 1. 프로젝트 / 2. 반복실행 묶음(목업 optgroup).
+ * 할 일 수정 서랍과 기록 상세 '추가할 곳'(DEC-68)이 같이 쓴다. modifier로 폭·높이를 정한다(기본: 줄 전체, 48dp)
+ */
 @Composable
-private fun PlaceField(label: String, type: PlaceType?, places: List<Place>, onPick: (Place?) -> Unit) {
+fun PlaceField(
+    label: String,
+    type: PlaceType?,
+    places: List<Place>,
+    modifier: Modifier = Modifier.fillMaxWidth().height(48.dp),
+    onPick: (Place?) -> Unit,
+) {
     var open by remember { mutableStateOf(false) }
-    Box {
+    Box(modifier) {
         Surface(
             onClick = { open = true },
             shape = ControlShape,
             color = Wb.colors.card,
             border = BorderStroke(1.dp, Wb.colors.borderStrong),
-            modifier = Modifier.fillMaxWidth().height(48.dp),
+            modifier = Modifier.fillMaxSize(),
         ) {
             Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(placeIcon(type), contentDescription = null, tint = Wb.colors.muted, modifier = Modifier.size(18.dp))

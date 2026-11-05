@@ -163,12 +163,22 @@ fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modi
     ) { Text(text, style = MaterialTheme.typography.labelLarge) }
 }
 
-/** 목업 .tabs2: 둥근 바탕 안에서 고른 것만 흰 알약. options = (값, 표시 이름) */
+/**
+ * 목업 .tabs2: 둥근 바탕 안에서 고른 것만 흰 알약. options = (값, 표시 이름).
+ * compact면 줄 전체를 나눠 갖지 않고 글자 길이만큼만(목업 .seg 크기) — 옆에 다른 것(전체 선택 등)을 한 줄에 둘 때
+ */
 @Composable
-fun SegmentPills(options: List<Pair<String, String>>, value: String, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
+fun SegmentPills(
+    options: List<Pair<String, String>>,
+    value: String,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+    onChange: (String) -> Unit,
+) {
     Row(
-        modifier.fillMaxWidth().background(Wb.colors.surface, PillShape).border(1.dp, Wb.colors.border, PillShape).padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        (if (compact) modifier else modifier.fillMaxWidth())
+            .background(Wb.colors.surface, PillShape).border(1.dp, Wb.colors.border, PillShape).padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 4.dp),
     ) {
         options.forEach { (v, label) ->
             val on = v == value
@@ -177,10 +187,14 @@ fun SegmentPills(options: List<Pair<String, String>>, value: String, modifier: M
                 shape = PillShape,
                 color = if (on) Wb.colors.card else Color.Transparent,
                 shadowElevation = if (on) 1.dp else 0.dp,
-                modifier = Modifier.weight(1f).height(36.dp),
+                modifier = if (compact) Modifier.height(32.dp) else Modifier.weight(1f).height(36.dp),
             ) {
-                Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                    Text(label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (on) Wb.colors.ink else Wb.colors.muted)
+                Row(
+                    Modifier.padding(horizontal = if (compact) 12.dp else 0.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(label, fontSize = if (compact) 13.sp else 14.sp, fontWeight = FontWeight.Bold, color = if (on) Wb.colors.ink else Wb.colors.muted, maxLines = 1)
                 }
             }
         }

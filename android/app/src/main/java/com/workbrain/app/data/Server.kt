@@ -175,7 +175,21 @@ class GuidelineRejected(reason: String) : Exception(reason)
 @Serializable data class MinutesSection(val heading: String, val lines: List<String> = emptyList(), val table: MinutesTable? = null)
 @Serializable data class MinutesTable(val columns: List<String>, val rows: List<List<String>> = emptyList())
 @Serializable data class MyNamesRow(@SerialName("my_names") val myNames: List<String>)
-@Serializable data class AttendeesRow(val attendees: List<String>? = null)
+/** 기록 상세 머리(목업 S05 '녹음 · 42분 · 10/16 15:00')와 참석자 명단 */
+@Serializable data class RecordInfoRow(
+    val attendees: List<String>? = null,
+    val channel: String? = null,
+    @SerialName("occurred_at") val occurredAt: String? = null,
+    @SerialName("ingested_at") val ingestedAt: String? = null,
+    @SerialName("audio_asset") val audio: JsonElement? = null,
+) {
+    /** 음성 길이(초). 받아쓴 글만 가져온 기록은 음성이 없어 null */
+    val durationSec: Int? get() = audio?.let { el ->
+        // 기록당 음성은 하나라 PostgREST가 객체나 한 칸짜리 배열로 준다
+        val obj = (el as? JsonObject) ?: (el as? JsonArray)?.firstOrNull() as? JsonObject ?: return@let null
+        (obj["duration_sec"] as? JsonPrimitive)?.intOrNull
+    }
+}
 
 /** 서버가 만든 회의록 Word. meetingDate = 회의 날짜(서울, YYYY-MM-DD), draft = 승인 전 문서 */
 class MinutesWord(val bytes: ByteArray, val meetingDate: String, val draft: Boolean)
@@ -551,10 +565,14 @@ object Server {
         db.from("source_record").update({ set("title", title) }) { filter { eq("id", recordId) } }
     }
 
-    /** 기록의 참석자 명단(DEC-39). 처리가 끝난 뒤에도 기록 상세에서 고칠 수 있다(DEC-59) */
-    suspend fun recordAttendees(recordId: String): List<String> =
-        db.from("source_record").select(Columns.list("attendees")) { filter { eq("id", recordId) } }
-            .decodeSingle<AttendeesRow>().attendees.orEmpty()
+    /**
+     * 기록 상세 머리 정보(종류·길이·회의 시각)와 참석자 명단(DEC-39).
+     * 명단은 처리가 끝난 뒤에도 기록 상세에서 고칠 수 있다(DEC-59)
+     */
+    suspend fun recordInfo(recordId: String): RecordInfoRow =
+        db.from("source_record").select(Columns.raw("attendees,channel,occurred_at,ingested_at,audio_asset(duration_sec)")) {
+            filter { eq("id", recordId) }
+        }.decodeSingle<RecordInfoRow>()
 
     /** 고친 명단은 다음 회의록 만들기부터 쓰인다. 이미 뽑은 할 일 후보·교정본은 다시 만들지 않는다 */
     suspend fun saveAttendees(recordId: String, names: List<String>) {

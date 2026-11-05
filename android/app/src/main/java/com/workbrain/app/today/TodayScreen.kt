@@ -351,7 +351,7 @@ private fun ReviewCard(groups: List<Pending>, nav: TodayNav) {
         }
         groups.forEach { g ->
             HorizontalDivider(color = Wb.colors.border)
-            // 목업 .rv: 아이콘 · 제목·설명·칩 · 버튼
+            // 목업 .rv: 아이콘 · 제목·설명 · 버튼. 목업의 칩('할 일 후보 7')은 설명과 같은 내용이라 뺀다(11/06 사용자, 설명이 변경 종류까지 보여 줌)
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.Top) {
                 Icon(if (g.expired) WbIcons.Trash else WbIcons.Mic, contentDescription = null, tint = Wb.colors.muted, modifier = Modifier.padding(top = 2.dp).size(18.dp))
                 Column(Modifier.weight(1f).padding(start = 10.dp, end = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -365,14 +365,6 @@ private fun ReviewCard(groups: List<Pending>, nav: TodayNav) {
                         if (g.expired) "${g.title} — 근거 보관 기간이 지나 새 근거 없이는 승인할 수 없어요" else parts.joinToString(" · "),
                         fontSize = 12.sp, color = Wb.colors.muted,
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (g.expired) WbChip("재검토", Tone.Mute)
-                        else {
-                            if (g.newCount > 0) WbChip("할 일 후보 ${g.newCount}", Tone.Warn)
-                            val changed = g.changes.values.sum()
-                            if (changed > 0) WbChip("변경 $changed", Tone.Mute)
-                        }
-                    }
                 }
                 // 새 할 일 후보는 기록 화면에서 고르고, 변경·재검토는 검토함에서 본다(목업, DEC-23)
                 if (g.newCount > 0 && !g.expired) SmallButton("할 일 고르기", primary = true) { nav.openRecord(g.recordId, g.title) }

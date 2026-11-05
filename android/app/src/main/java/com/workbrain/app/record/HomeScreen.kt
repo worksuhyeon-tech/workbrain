@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,9 +16,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -53,7 +62,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.workbrain.app.ui.PageHeader
-import com.workbrain.app.ui.PrimaryButton
 import com.workbrain.app.ui.SecondaryButton
 import com.workbrain.app.ui.SectionLabel
 import com.workbrain.app.ui.Tone
@@ -81,7 +89,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** S04 녹음(목업 workbrain-capture-android): 녹음 카드, 기기 안 녹음 목록, 올리기 → 회의록·할 일 보기 */
+/** S04 녹음(목업 workbrain-capture-android): 참석자 · 녹음 카드(북마크) · 기기 안 녹음 목록, 올리기 → 카드를 눌러 회의록·할 일 보기 */
 @Composable
 fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     val context = LocalContext.current
@@ -104,6 +112,26 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     val announcer = rememberAnnouncer()
     val wide = isWideWindow()
     fun refresh() { sessions = RecordingStore.list(context, rec.sessionId) }
+
+    // 참석자(DEC-68, 목업 S04): 녹음 전에도 늘 보인다. 녹음 중이면 그 녹음의 명단, 아니면 다음 녹음 명단(시작하면 그 녹음으로 옮겨 붙음)
+    val liveId = rec.sessionId.takeIf { rec.status != RecStatus.IDLE }
+    var attendees by remember(liveId) {
+        mutableStateOf(liveId?.let { RecordingStore.readAttendees(RecordingStore.dir(context, it)) } ?: NextAttendees.get(context))
+    }
+    fun changeAttendees(names: List<String>) {
+        attendees = names
+        if (liveId != null) RecordingStore.setAttendees(RecordingStore.dir(context, liveId), names) else NextAttendees.set(context, names)
+    }
+    // 접은 화면은 '+ 참석자'로 이름 넣는 창, 펼친 화면은 오른쪽 이름 칸으로 옮겨 간다(목업)
+    var editingAttendees by remember { mutableStateOf(false) }
+    val attendeeInput = remember { FocusRequester() }
+    // 다음 녹음 명단의 첫 칸 = 더보기 '내 이름·호칭'의 첫 이름(사용자 선택 11/05). 못 읽으면 기기에 적어 둔 이름을 쓴다
+    LaunchedEffect(Unit) {
+        runCatching { Server.myNames() }.onSuccess { names ->
+            NextAttendees.rememberMyName(context, names.firstOrNull())
+            if (rec.status == RecStatus.IDLE) attendees = NextAttendees.get(context)
+        }
+    }
 
     // 휴지통은 접어도 펴도 화면 오른쪽 위(기록 상세의 ↪ 공유 자리)에 아이콘으로 둔다(사용자 요청 11/03).
     // 접은 화면은 '녹음' 제목 줄 끝, 펼친 화면은 오른쪽 칸(녹음 목록) 맨 위 줄 끝
@@ -199,6 +227,11 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
             PageHeader("녹음", if (rec.status == RecStatus.IDLE) "말한 건 다 기억해 둘게요" else "잘 듣고 있어요") {
                 if (!wide) trashButton()
             }
+            AttendeeStrip(
+                names = attendees,
+                onAdd = { if (wide) runCatching { attendeeInput.requestFocus() } else editingAttendees = true },
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
             RecorderCard(
                 rec = rec,
                 onStart = ::startRecording,
@@ -208,25 +241,52 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
                     stoppedId = rec.sessionId
                     RecordingService.stop(context)
                 },
+                onBookmark = {
+                    RecordingService.bookmark(context)
+                    announce("${formatClock(rec.elapsedMs)} 지점에 북마크를 남겼어요")
+                },
             )
             (notice ?: rec.error)?.let { Banner(it, Tone.Crit, Modifier.padding(top = 8.dp)) }
         }
     }
 
-    // 참석자·기기 녹음 목록: 한 칸이면 녹음 카드 아래, 두 칸이면 오른쪽(목업 S04 펼침)
-    fun LazyListScope.sessionItems() {
-        // 녹음 중에 참석자를 넣어 두면 올리기 시트에 그대로 채워진다(목업 S04)
-        val liveId = rec.sessionId
-        if (rec.status != RecStatus.IDLE && liveId != null) item(key = "attendees-$liveId") {
-            var live by remember(liveId) { mutableStateOf(sessions.firstOrNull { it.id == liveId }?.attendees.orEmpty()) }
-            WbCard {
-                Text("참석자 ${live.size}명", style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
-                AttendeesEditor(live, onChange = {
-                    live = it
-                    RecordingStore.setAttendees(RecordingStore.dir(context, liveId), it)
-                }, Modifier.padding(top = 8.dp))
+    // 펼친 화면 오른쪽 위(목업 S04 펼침): 참석자 입력 · 빠른 북마크. 녹음 중에 넣은 참석자는 올리기 창에 그대로 채워진다
+    fun LazyListScope.sidePanelItems() {
+        item(key = "attendees") {
+            Text("참석자 ${attendees.size}명", style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
+            AttendeesEditor(attendees, onChange = ::changeAttendees, Modifier.padding(top = 8.dp), focusRequester = attendeeInput)
+            Text(
+                "참석자 이름은 회의록의 참석자 칸과 이름 표기에 쓰여요.",
+                style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted, modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+        item(key = "bookmarks") {
+            Text("빠른 북마크", style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink, modifier = Modifier.padding(top = 12.dp))
+            SecondaryButton(
+                "현재 지점 표시",
+                enabled = rec.status != RecStatus.IDLE,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                onClick = {
+                    RecordingService.bookmark(context)
+                    announce("${formatClock(rec.elapsedMs)} 지점에 북마크를 남겼어요")
+                },
+            )
+            if (rec.status != RecStatus.IDLE && rec.bookmarks.isNotEmpty()) {
+                rec.bookmarks.forEachIndexed { i, ms ->
+                    Text("${formatClock(ms)}  북마크 ${i + 1}", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.body, modifier = Modifier.padding(top = 6.dp))
+                }
+            } else {
+                // 전사·회의록에서 그 지점으로 찾아가기는 서버 작업이 필요해 다음 단계(사용자 선택 11/05)
+                Text(
+                    "녹음 중에 중요한 순간을 표시해 두면 이 녹음에 남아요. 전사·회의록에서 그 지점으로 찾아가기는 다음 단계예요.",
+                    style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted, modifier = Modifier.padding(top = 6.dp),
+                )
             }
         }
+    }
+
+    // 기기 녹음 목록: 한 칸이면 녹음 카드 아래, 두 칸이면 오른쪽 참석자·북마크 아래(목업 S04 '올리는 중 · 최근')
+    fun LazyListScope.sessionItems() {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("기기에 저장된 녹음 · 올리기", Modifier.weight(1f))
@@ -286,7 +346,10 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
                     LazyColumn(listModifier, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = spacing) { recorderItems() }
                 },
                 right = {
-                    LazyColumn(listModifier, contentPadding = PaddingValues(16.dp), verticalArrangement = spacing) { sessionItems() }
+                    LazyColumn(listModifier, contentPadding = PaddingValues(16.dp), verticalArrangement = spacing) {
+                        sidePanelItems()
+                        sessionItems()
+                    }
                 },
             )
         } else {
@@ -314,6 +377,14 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
             },
             onDismiss = { trashItems = null },
         )
+    }
+
+    if (editingAttendees) {
+        AttendeesDialog(attendees, onDismiss = { editingAttendees = false }, title = "참석자") { names ->
+            editingAttendees = false
+            changeAttendees(names)
+            RecentAttendees.remember(context, names)
+        }
     }
 
     renameTarget?.let { r ->
@@ -377,6 +448,7 @@ private fun RecorderCard(
     onPause: () -> Unit,
     onResume: () -> Unit,
     onStop: () -> Unit,
+    onBookmark: () -> Unit,
 ) {
     WbCard(padding = PaddingValues(horizontal = 16.dp, vertical = 24.dp)) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -395,14 +467,15 @@ private fun RecorderCard(
             )
             Spacer(Modifier.size(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
-                // 왼쪽: 일시정지·재개(녹음 중이 아니면 흐리게). 오른쪽은 북마크 자리(다음 버전) — 가운데 정렬을 위해 같은 크기로 비워 둔다
+                // 왼쪽: 일시정지·재개, 오른쪽: 북마크(현재 지점 표시, DEC-68). 둘 다 녹음 중이 아니면 흐리게
                 RoundButton(
                     glyph = if (rec.status == RecStatus.PAUSED) WbIcons.Play else WbIcons.Pause,
                     enabled = rec.status != RecStatus.IDLE,
+                    description = if (rec.status == RecStatus.PAUSED) "다시 녹음" else "일시정지",
                     onClick = if (rec.status == RecStatus.PAUSED) onResume else onPause,
                 )
                 BigButton(recording = rec.status != RecStatus.IDLE, onClick = if (rec.status == RecStatus.IDLE) onStart else onStop)
-                Spacer(Modifier.size(52.dp))
+                RoundButton(glyph = WbIcons.Bookmark, enabled = rec.status != RecStatus.IDLE, description = "현재 지점 북마크", onClick = onBookmark)
             }
             Spacer(Modifier.size(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -435,7 +508,7 @@ private fun BigButton(recording: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun RoundButton(glyph: ImageVector, enabled: Boolean, onClick: () -> Unit) {
+private fun RoundButton(glyph: ImageVector, enabled: Boolean, description: String, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         enabled = enabled,
@@ -445,9 +518,61 @@ private fun RoundButton(glyph: ImageVector, enabled: Boolean, onClick: () -> Uni
         modifier = Modifier.size(52.dp),
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(glyph, contentDescription = null, tint = Wb.colors.ink.copy(alpha = if (enabled) 1f else 0.35f), modifier = Modifier.size(22.dp))
+            Icon(glyph, contentDescription = description, tint = Wb.colors.ink.copy(alpha = if (enabled) 1f else 0.35f), modifier = Modifier.size(22.dp))
         }
     }
+}
+
+private val AvatarColors = listOf(GlassTint.Purple, GlassTint.Orange, GlassTint.Green, GlassTint.Blue).map { it.deep }
+
+/**
+ * 목업 S04 .rec-meta: 참석자 동그라미(이름 첫 글자) + '+ 참석자'(점선 알약). 녹음 전에도 늘 보인다(DEC-68).
+ * 줄 어디를 눌러도 참석자를 넣는 곳으로 간다(접은 화면은 창, 펼친 화면은 오른쪽 이름 칸)
+ */
+@Composable
+private fun AttendeeStrip(names: List<String>, onAdd: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier.fillMaxWidth().heightIn(min = 48.dp).clip(ControlShape).clickable(onClickLabel = "참석자 넣기", onClick = onAdd),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // 동그라미는 조금씩 겹쳐 놓고(목업), 많으면 앞의 5명만 보이고 나머지는 숫자로
+        val shown = names.take(5)
+        if (shown.isNotEmpty()) {
+            Box(Modifier.size(width = (30 + 22 * (shown.size - 1)).dp, height = 30.dp)) {
+                shown.forEachIndexed { i, n ->
+                    Box(
+                        Modifier.offset(x = (22 * i).dp).size(30.dp)
+                            .border(2.dp, Wb.colors.surface, CircleShape)
+                            .background(AvatarColors[i % AvatarColors.size], CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(n.take(1), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+        val overflow = names.size - shown.size
+        if (overflow > 0) {
+            Text("+$overflow", style = MaterialTheme.typography.labelMedium, color = Wb.colors.muted, modifier = Modifier.padding(start = 6.dp))
+        }
+        Text(
+            "+ 참석자",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Wb.colors.body,
+            modifier = Modifier
+                .padding(start = if (shown.isEmpty()) 0.dp else 8.dp)
+                .dashedPill(Wb.colors.borderStrong)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
+}
+
+/** 목업 .att-add: 점선 테두리 알약 */
+private fun Modifier.dashedPill(color: Color): Modifier = drawBehind {
+    val stroke = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())))
+    val r = size.height / 2
+    drawRoundRect(color = color, cornerRadius = CornerRadius(r, r), style = stroke)
 }
 
 /** 목업 .up-row: 녹음 한 건의 상태와 다음 행동 */
@@ -471,39 +596,53 @@ private fun SessionRow(
         s.status == "imported" -> "가져온 파일" to Tone.Mute
         else -> "기기에만 있음" to Tone.Mute
     }
-    Surface(shape = ControlShape, color = Wb.colors.card, border = BorderStroke(1.dp, Wb.colors.border), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
+    // 정리가 끝난 녹음은 카드 어디를 눌러도 회의록·할 일로 들어간다(사용자 요청 11/05: 왼손·오른손 엄지 어느 쪽으로도). ✏️만 제목 고치기
+    val openable = s.serverState == "ready" && s.recordId != null && !isActive
+    Surface(
+        shape = ControlShape,
+        color = Wb.colors.card,
+        border = BorderStroke(1.dp, Wb.colors.border),
+        modifier = Modifier.fillMaxWidth().clip(ControlShape).clickable(enabled = openable, onClickLabel = "회의록·할 일 보기", onClick = onOpen),
+    ) {
+        Column(Modifier.padding(start = 12.dp, top = 6.dp, bottom = 12.dp, end = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 GlassIcon(WbIcons.Mic, GlassTint.Red, size = 36.dp)
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                    // 제목을 누르면 고친다(녹음 중·올리기 전후 모두. 올린 기록은 서버 제목도 함께 바뀜)
-                    Row(Modifier.clickable(onClick = onRename), verticalAlignment = Alignment.CenterVertically) {
+                    // 제목 고치기는 ✏️ 아이콘만(녹음 중·올리기 전후 모두. 올린 기록은 서버 제목도 함께 바뀜)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(s.title, style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                        Icon(WbIcons.Pencil, contentDescription = "제목 고치기", tint = Wb.colors.muted, modifier = Modifier.padding(start = 4.dp).size(14.dp))
+                        IconButton(onClick = onRename, modifier = Modifier.size(40.dp)) {
+                            Icon(WbIcons.Pencil, contentDescription = "제목 고치기", tint = Wb.colors.muted, modifier = Modifier.size(16.dp))
+                        }
                     }
                     Text(
-                        SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA).format(Date(s.startedAt)) +
-                            " · " + formatClock(s.durationMs) + " · " + deviceAudioLabel(s),
+                        listOfNotNull(
+                            SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA).format(Date(s.startedAt)),
+                            formatClock(s.durationMs),
+                            deviceAudioSize(s),
+                        ).joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall,
                         color = Wb.colors.muted,
                     )
+                    // 기기 음성 상태는 다음 줄로(사용자 요청 11/05: 크기 뒤에 붙으면 줄이 꺾여 읽기 어려움)
+                    val note = listOfNotNull(s.bookmarks.size.takeIf { it > 0 }?.let { "북마크 $it" }, deviceAudioNote(s)).joinToString(" · ")
+                    if (note.isNotEmpty()) Text(note, style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
                 }
                 WbChip(badge, tone)
             }
             // 기기 음성을 지운 뒤에도 서버에서 정리된 기록은 계속 열 수 있다
-            if (!isActive && (s.segments > 0 || s.serverHasAudio || s.serverState == "failed")) SessionActions(s, progress, onUpload, onResume, onOpen)
+            if (!isActive && (s.segments > 0 || s.serverHasAudio || s.serverState == "failed")) SessionActions(s, progress, onUpload, onResume)
         }
     }
 }
 
-/** 서버 진행: 올리기 → 진행 표시 → (멈췄으면) 이어서 처리 → 회의록·할 일 보기 */
+/** 서버 진행: 올리기 → 진행 표시 → (멈췄으면) 이어서 처리. 정리가 끝나면 버튼 없이 카드를 눌러 연다 */
 @Composable
 private fun SessionActions(
     s: RecordingSession,
     progress: UploadProgress?,
     onUpload: () -> Unit,
     onResume: () -> Unit,
-    onOpen: () -> Unit,
 ) {
     // 앱을 다시 열었는데 진행 표시가 없으면, 백그라운드 작업이 이어서 하는 중이다
     val shown = progress ?: when {
@@ -528,13 +667,10 @@ private fun SessionActions(
     }
     // 지금 이 화면에서 돌고 있는 작업이면 버튼을 숨기고, 백그라운드 추정 표시일 때는 '이어서 처리'로 바로 다시 돌릴 수 있게 둔다
     // 실패로 멈춘 녹음은 다시 돌려도 같으니 버튼 없이 안내만 둔다
-    if ((busy && progress != null) || s.serverState == "failed") return
+    if ((busy && progress != null) || s.serverState == "failed" || s.serverState == "ready") return
     Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        when {
-            s.serverState == "ready" -> PrimaryButton("회의록·할 일 보기", onClick = onOpen)
-            s.recordId != null -> SecondaryButton("이어서 처리", onClick = onResume)
-            else -> SecondaryButton("올리기", onClick = onUpload)
-        }
+        if (s.recordId != null) SecondaryButton("이어서 처리", onClick = onResume)
+        else SecondaryButton("올리기", onClick = onUpload)
     }
 }
 
@@ -562,11 +698,16 @@ private fun SwipeToDelete(onSwiped: () -> Boolean, content: @Composable () -> Un
     ) { content() }
 }
 
-/** 기기에 남은 음성 크기와, 처리 완료 뒤 자동 삭제까지 남은 날 */
-private fun deviceAudioLabel(s: RecordingSession): String {
-    if (s.audioDeleted || s.segments == 0) return "기기 음성 지움"
-    val size = "%.1fMB".format(s.bytes / 1_048_576.0)
-    val readyAt = s.readyAt ?: return size
+private fun hasDeviceAudio(s: RecordingSession) = !s.audioDeleted && s.segments > 0
+
+/** 기기에 남은 음성 크기(지웠으면 없음) */
+private fun deviceAudioSize(s: RecordingSession): String? =
+    if (hasDeviceAudio(s)) "%.1fMB".format(s.bytes / 1_048_576.0) else null
+
+/** 기기 음성 상태: 지움 / 처리 완료 뒤 자동 삭제까지 남은 날 / (올리기 전이면) 없음 */
+private fun deviceAudioNote(s: RecordingSession): String? {
+    if (!hasDeviceAudio(s)) return "기기 음성 지움"
+    val readyAt = s.readyAt ?: return null
     val left = ((readyAt + RecordingStore.KEEP_AFTER_READY_MS - System.currentTimeMillis()) / 86_400_000L + 1).coerceAtLeast(1)
-    return "$size · ${left}일 뒤 기기에서 자동 삭제"
+    return "${left}일 뒤 기기에서 자동 삭제"
 }

@@ -3,6 +3,8 @@ package com.workbrain.app.review
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -67,6 +69,7 @@ private const val TAB_DONE = "done"
  * detailPane이 있으면(펼친 화면) 왼쪽 목록 / 오른쪽 기록 상세 두 칸. refreshKey가 바뀌면 다시 읽고, 추가·버리기 뒤에는 onChanged로 알린다.
  * onCountChanged: 아래 메뉴 배지 숫자. 오늘 검토할 것만 센다(DEC-63)
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ReviewScreen(
     onOpenRecord: (recordId: String, title: String) -> Unit,
@@ -155,9 +158,16 @@ fun ReviewScreen(
     }
 
     // 기록별 묶음 + 후보 카드. 오늘·미룬 항목이 같이 쓰고, 체크 상태만 따로 둔다.
-    // 기록이 하나뿐이면 위 고정 줄이 그 기록의 전체 선택이라 묶음 제목 줄을 두지 않는다(사용자 요청 11/03: 같은 줄이 두 번 나와 여백이 큼)
+    // 기록이 하나뿐이면 위 '전체 선택'이 곧 그 기록의 선택이라, 묶음 줄은 체크 없이 기록 이름만 낮게 보인다(11/03 여백 요청)
     fun LazyListScope.candidateGroups(groups: Map<Pair<String?, String>, List<InboxRow>>, marks: SnapshotStateMap<String, Boolean>, snoozedTab: Boolean) {
         groups.entries.forEachIndexed { index, (record, group) ->
+            if (groups.size == 1) item(key = "h-$tab-${record.first}") {
+                Text(
+                    "${record.second} · ${group.size}",
+                    fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, color = Wb.colors.muted,
+                    modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                )
+            }
             if (groups.size > 1) item(key = "h-$tab-${record.first}") {
                 val count = group.count { marks[it.id] == true }
                 GroupHeader(
@@ -198,28 +208,36 @@ fun ReviewScreen(
                     scope.launch { message = null; load(); if (tab == TAB_DONE) loadProcessed() }
                 }) { Text("새로고침", color = Wb.colors.link) }
             }
-            SegmentPills(
-                listOf(TAB_TODAY to "오늘 ${todayRows.size}", TAB_SNOOZED to "미룬 항목 ${snoozedRows.size}", TAB_DONE to "처리됨"),
-                value = tab,
-                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp),
-            ) { tab = it }
-
             val tabRows = when (tab) { TAB_TODAY -> todayRows; TAB_SNOOZED -> snoozedRows; else -> emptyList() }
             val marks = if (tab == TAB_SNOOZED) snoozeChecked else checked
             val tabSelected = if (tab == TAB_SNOOZED) snoozedSelected else todaySelected
             val groups = tabRows.groupBy { it.recordId to it.recordTitle }
-            // 전체 선택: 같은 녹음을 여러 번 올려 후보가 쌓였을 때 한 번에 고르고 버린다(사용자 요청 10/26).
-            // 목록 항목으로 넣으면 묶음 간격이 겹쳐 여백이 커져서 탭 아래 고정 줄로 둔다. 기록이 하나면 그 기록 이름을 보인다
-            if (tabRows.isNotEmpty()) {
-                GroupHeader(
-                    label = "${groups.keys.singleOrNull()?.second ?: "전체 선택"} · ${tabSelected.size}/${tabRows.size}",
-                    state = when (tabSelected.size) { tabRows.size -> ToggleableState.On; 0 -> ToggleableState.Off; else -> ToggleableState.Indeterminate },
-                    enabled = !busy,
-                    onToggle = { val all = tabSelected.size == tabRows.size; tabRows.forEach { marks[it.id] = !all } },
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-                HorizontalDivider(color = Wb.colors.border, modifier = Modifier.padding(horizontal = 16.dp))
+            // 목업처럼 [오늘 | 미룬 항목 | 처리됨] ☐ 전체 선택을 한 줄에(사용자 요청 11/05: 꽉 찬 탭은 여백이 커 보였음).
+            // 전체 선택은 같은 녹음을 여러 번 올려 후보가 쌓였을 때 한 번에 고르고 버리는 용도(10/26). 고른 개수는 아래 버튼에 보인다.
+            // 펼친 화면 왼쪽 칸처럼 좁아 한 줄에 안 들어가면 전체 선택만 다음 줄로 내려간다
+            FlowRow(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SegmentPills(
+                    listOf(TAB_TODAY to "오늘 ${todayRows.size}", TAB_SNOOZED to "미룬 항목 ${snoozedRows.size}", TAB_DONE to "처리됨"),
+                    value = tab,
+                    compact = true,
+                    modifier = Modifier.align(Alignment.CenterVertically),
+                ) { tab = it }
+                if (tabRows.isNotEmpty()) {
+                    GroupHeader(
+                        label = "전체 선택",
+                        state = when (tabSelected.size) { tabRows.size -> ToggleableState.On; 0 -> ToggleableState.Off; else -> ToggleableState.Indeterminate },
+                        enabled = !busy,
+                        onToggle = { val all = tabSelected.size == tabRows.size; tabRows.forEach { marks[it.id] = !all } },
+                        rowHeight = 40.dp,
+                        fill = false,
+                        modifier = Modifier.align(Alignment.CenterVertically),
+                    )
+                }
             }
+            if (tabRows.isNotEmpty()) HorizontalDivider(color = Wb.colors.border, modifier = Modifier.padding(horizontal = 16.dp))
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -359,9 +377,11 @@ private fun GroupHeader(
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
     rowHeight: Dp = 48.dp,
+    /** false면 줄 전체가 아니라 체크+글자만큼(탭 옆 '전체 선택') */
+    fill: Boolean = true,
 ) {
     Row(
-        modifier.fillMaxWidth()
+        (if (fill) modifier.fillMaxWidth() else modifier.padding(end = 8.dp))
             .triStateToggleable(state = state, enabled = enabled, role = Role.Checkbox, onClick = onToggle),
         verticalAlignment = Alignment.CenterVertically,
     ) {

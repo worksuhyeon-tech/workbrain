@@ -32,6 +32,8 @@ data class RecState(
     /** 이 시간까지는 강제 종료돼도 남는다 */
     val confirmedMs: Long = 0,
     val error: String? = null,
+    /** 이번 녹음에서 '현재 지점 표시'로 남긴 시각(DEC-68) */
+    val bookmarks: List<Long> = emptyList(),
 )
 
 /**
@@ -62,6 +64,7 @@ class RecordingService : Service() {
             ACTION_PAUSE -> pause()
             ACTION_RESUME -> resume()
             ACTION_STOP -> end()
+            ACTION_BOOKMARK -> bookmark()
         }
         return START_NOT_STICKY
     }
@@ -71,11 +74,15 @@ class RecordingService : Service() {
         // 마이크를 쓰는 포그라운드 서비스는 시작 직후 바로 알림을 띄워야 한다(Android 14+)
         ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification("녹음 준비 중"), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         val d = RecordingStore.create(this)
+        // 녹음 전에 넣어 둔 참석자를 이 녹음에 붙인다(DEC-68). 시작에 실패하면 명단을 돌려놓는다
+        val attendees = NextAttendees.take(this)
+        RecordingStore.setAttendees(d, attendees)
         val rec = SegmentRecorder(this, d) { onConfirmed() }
         try {
             rec.start()
         } catch (e: Exception) {
             rec.release()
+            NextAttendees.set(this, attendees)
             RecordingStore.finish(d, 0, status = "failed")
             _state.value = RecState(error = "녹음을 시작하지 못했어요. 다른 앱이 마이크를 쓰고 있는지 확인해 주세요.")
             shutDown()
@@ -96,6 +103,18 @@ class RecordingService : Service() {
         val ms = elapsed()
         _state.update { it.copy(confirmedMs = ms) }
         dir?.let { RecordingStore.updateProgress(it, ms) }
+    }
+
+    // 세션 메타는 이 서비스가 쓰는 곳(확정 시각)과 같은 곳에서 써야 시각이 정확하고 서로 덮어쓰지 않는다
+    private fun bookmark() {
+        // 녹음 중이 아닐 때 눌렸으면(화면은 막지만 혹시) 이 요청 때문에 켜진 서비스를 바로 닫는다
+        if (_state.value.status == RecStatus.IDLE) {
+            if (recorder == null) stopSelf()
+            return
+        }
+        val ms = elapsed()
+        dir?.let { RecordingStore.addBookmark(it, ms) }
+        _state.update { it.copy(bookmarks = it.bookmarks + ms) }
     }
 
     private fun pause() {
@@ -177,6 +196,7 @@ class RecordingService : Service() {
         private const val ACTION_PAUSE = "pause"
         private const val ACTION_RESUME = "resume"
         private const val ACTION_STOP = "stop"
+        private const val ACTION_BOOKMARK = "bookmark"
 
         private val _state = MutableStateFlow(RecState())
         val state: StateFlow<RecState> = _state
@@ -188,6 +208,7 @@ class RecordingService : Service() {
         fun pause(context: Context) { context.startService(intent(context, ACTION_PAUSE)) }
         fun resume(context: Context) { context.startService(intent(context, ACTION_RESUME)) }
         fun stop(context: Context) { context.startService(intent(context, ACTION_STOP)) }
+        fun bookmark(context: Context) { context.startService(intent(context, ACTION_BOOKMARK)) }
 
         private fun intent(context: Context, action: String) =
             Intent(context, RecordingService::class.java).setAction(action)

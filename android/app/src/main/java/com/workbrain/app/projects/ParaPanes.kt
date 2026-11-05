@@ -90,8 +90,9 @@ fun ParaDetail(d: ParaData, key: String, onBack: (() -> Unit)?, onEvent: (ParaEv
     BackHandler(enabled = onBack != null) { onBack?.invoke() }
     val id = key.substringAfter(':')
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        // 목업은 좁아지면 머리 버튼이 다음 줄로, 우선순위 칸은 숨는다
-        val layout = PaneLayout(wideHead = maxWidth >= 560.dp, showPriority = maxWidth >= 480.dp)
+        // 목업은 좁아지면 머리 버튼이 다음 줄로, 우선순위 칸은 숨는다. 같은 폭에서 '모든 할 일' 위 두 묶음은 칸 여백을 줄인다
+        val wide = maxWidth >= 560.dp
+        val layout = PaneLayout(wideHead = wide, compactSeg = !wide, showPriority = maxWidth >= 480.dp)
         when {
             key == ALL_TASKS -> AllTasksPane(d, layout, onBack, onEvent)
             key.startsWith("p:") -> d.project(id)?.let { ProjectPane(d, it, layout, onBack, onEvent) } ?: Missing(onBack)
@@ -102,7 +103,7 @@ fun ParaDetail(d: ParaData, key: String, onBack: (() -> Unit)?, onEvent: (ParaEv
     }
 }
 
-private data class PaneLayout(val wideHead: Boolean, val showPriority: Boolean)
+private data class PaneLayout(val wideHead: Boolean, val compactSeg: Boolean, val showPriority: Boolean)
 
 @Composable
 private fun Missing(onBack: (() -> Unit)?) {
@@ -476,8 +477,10 @@ private fun AllTasksPane(d: ParaData, layout: PaneLayout, onBack: (() -> Unit)?,
 
     PaneFrame(onBack) {
         item(key = "head") {
+            // 보기 전환은 좁은 칸에서도 제목과 같은 줄, 완료 포함은 그 아래 줄 오른쪽에 고정한다
+            // (11/06 사용자: 기간·담당 버튼 줄 끝에 두면 숫자 자릿수에 따라 같은 줄·다음 줄을 오갔음)
             Head(
-                d.workspace.name, ParaGlyph.allTasks, ParaGlyph.tint(null), "모든 할 일", layout.wideHead,
+                d.workspace.name, ParaGlyph.allTasks, ParaGlyph.tint(null), "모든 할 일", wide = true,
                 buttons = {
                     // 보기 전환: 목록만 P1. 캘린더·매트릭스는 자리만 두고 P4에서 연다(FR-24/25)
                     DarkSeg(
@@ -486,6 +489,15 @@ private fun AllTasksPane(d: ParaData, layout: PaneLayout, onBack: (() -> Unit)?,
                     ) {}
                 },
             )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Row(
+                    Modifier.clip(ControlShape).clickable { showDone = !showDone }.padding(end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = showDone, onCheckedChange = { showDone = it })
+                    Text("완료 포함", fontSize = 12.sp, color = Wb.colors.muted)
+                }
+            }
         }
         item(key = "intro") {
             Text(
@@ -498,22 +510,19 @@ private fun AllTasksPane(d: ParaData, layout: PaneLayout, onBack: (() -> Unit)?,
             )
         }
         item(key = "toolbar") {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 기간·담당 두 묶음은 늘 한 줄(11/05 사용자: 숫자가 두 자리가 되면 '전체·내 할 일·팔로업'만 아래 줄로 떨어졌음).
+            // 그래도 넘치면 뒤 묶음이 남은 폭만 받아 그 안에서 옆으로 민다
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DarkSeg(
                     RANGES.map { (k, label) -> SegItem(k, label, count = open.count { inRange(it, k, today) && inOwner(it, owner) }, alert = k == "late") },
                     range,
+                    compact = layout.compactSeg,
                 ) { range = it }
                 DarkSeg(
                     OWNERS.map { (k, label) -> SegItem(k, label, count = open.count { inRange(it, range, today) && inOwner(it, k) }) },
                     owner,
+                    compact = layout.compactSeg,
                 ) { owner = it }
-                Row(
-                    Modifier.align(Alignment.CenterVertically).clip(ControlShape).clickable { showDone = !showDone }.padding(end = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(checked = showDone, onCheckedChange = { showDone = it })
-                    Text("완료 포함", fontSize = 12.sp, color = Wb.colors.muted)
-                }
             }
         }
         if (groups.isEmpty()) item(key = "empty") {

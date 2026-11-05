@@ -33,6 +33,8 @@ data class RecordingSession(
     val trashedAt: Long? = null,
     /** 목록에 들어온 시각. 가져온 파일은 startedAt이 파일 날짜(몇 달 전일 수 있음)라, 방금 가져온 것이 맨 위에 오도록 이 값으로 줄 세운다 */
     val addedAt: Long = startedAt,
+    /** 녹음 중 '현재 지점 표시'로 남긴 시각(녹음 시작부터 ms, DEC-68). 지금은 기기에만 있고 서버로 올리지 않는다 */
+    val bookmarks: List<Long> = emptyList(),
 ) {
     /** 서버에 음성이 다 올라가 있어 기기 사본이 없어도 되는 상태 */
     val serverHasAudio get() = serverState == "uploaded" || serverState == "ready"
@@ -101,6 +103,17 @@ object RecordingStore {
 
     private fun attendees(m: JSONObject): List<String> =
         m.optJSONArray("attendees")?.let { a -> List(a.length()) { a.optString(it) } }.orEmpty()
+
+    fun readAttendees(dir: File): List<String> = read(dir)?.let(::attendees).orEmpty()
+
+    fun addBookmark(dir: File, atMs: Long) {
+        val m = read(dir) ?: return
+        val list = m.optJSONArray("bookmarks") ?: org.json.JSONArray()
+        write(dir, m.put("bookmarks", list.put(atMs)))
+    }
+
+    private fun bookmarks(m: JSONObject): List<Long> =
+        m.optJSONArray("bookmarks")?.let { a -> List(a.length()) { a.optLong(it) } }.orEmpty()
 
     /** 조각이 확정될 때마다 기록해 두면, 강제 종료 뒤에도 어디까지 남았는지 안다 */
     fun updateProgress(dir: File, confirmedMs: Long) {
@@ -212,6 +225,7 @@ object RecordingStore {
                 channel = m.optString("channel").ifEmpty { "recording" },
                 trashedAt = m.optLong("trashedAt").takeIf { m.has("trashedAt") },
                 addedAt = m.optLong("addedAt", m.optLong("startedAt")),
+                bookmarks = bookmarks(m),
             )
         }.sortedByDescending { it.addedAt }
 
