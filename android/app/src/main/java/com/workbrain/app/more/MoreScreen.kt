@@ -60,7 +60,7 @@ import kotlinx.coroutines.launch
 
 private enum class MorePage { VOCAB, GUIDELINE }
 
-/** 더보기: 계정·내 용어집·회의록 지침·이번 달 AI 비용·앱 정보·글꼴 라이선스·로그아웃. 펼친 화면은 왼쪽 메뉴 / 오른쪽 고른 항목(목업 S09) */
+/** 더보기: 계정(로그아웃·내 이름)·이번 달 AI 비용·내 용어집·회의록 지침·앱 정보(글꼴 라이선스). 펼친 화면은 왼쪽 메뉴 / 오른쪽 고른 항목(목업 S09) */
 @Composable
 fun MoreScreen() {
     var opened by rememberSaveable { mutableStateOf<MorePage?>(null) }
@@ -167,21 +167,7 @@ private fun MoreMenu(openedPage: MorePage?, onOpen: (MorePage) -> Unit) {
             }
         }
 
-        SectionLabel("받아쓰기")
-        WbCard(padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
-            InfoRow("내 용어집", "업무 단어 등록 ›") { onOpen(MorePage.VOCAB) }
-        }
-
-        SectionLabel("회의록")
-        WbCard(padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
-            val status = when {
-                guideline == null -> "›"
-                guideline?.guideline.isNullOrBlank() -> "기본 지침 ›"
-                else -> "가져온 지침 ›"
-            }
-            InfoRow("회의록 지침", status) { onOpen(MorePage.GUIDELINE) }
-        }
-
+        // 순서: 내 계정 → AI 사용 → 받아쓰기 → 회의록 → 앱 정보(11/06 사용자 요청)
         SectionLabel("AI 사용")
         WbCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -197,6 +183,21 @@ private fun MoreMenu(openedPage: MorePage?, onOpen: (MorePage) -> Unit) {
                 }
             }
             Text("받아쓰기·회의록 정리에 쓴 금액이에요. 예산 대기선을 넘으면 새 처리를 멈추고 알려 드려요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+        }
+
+        SectionLabel("받아쓰기")
+        WbCard(padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
+            InfoRow("내 용어집", "업무 단어 등록 ›") { onOpen(MorePage.VOCAB) }
+        }
+
+        SectionLabel("회의록")
+        WbCard(padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
+            val status = when {
+                guideline == null -> "›"
+                guideline?.guideline.isNullOrBlank() -> "기본 지침 ›"
+                else -> "가져온 지침 ›"
+            }
+            InfoRow("회의록 지침", status) { onOpen(MorePage.GUIDELINE) }
         }
 
         SectionLabel("앱 정보")

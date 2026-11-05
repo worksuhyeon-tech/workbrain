@@ -2,6 +2,7 @@ package com.workbrain.app.review
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -214,7 +215,7 @@ fun ReviewScreen(
             val groups = tabRows.groupBy { it.recordId to it.recordTitle }
             // 목업처럼 [오늘 | 미룬 항목 | 처리됨] ☐ 전체 선택을 한 줄에(사용자 요청 11/05: 꽉 찬 탭은 여백이 커 보였음).
             // 전체 선택은 같은 녹음을 여러 번 올려 후보가 쌓였을 때 한 번에 고르고 버리는 용도(10/26). 고른 개수는 아래 버튼에 보인다.
-            // 펼친 화면 왼쪽 칸처럼 좁아 한 줄에 안 들어가면 전체 선택만 다음 줄로 내려간다
+            // 전체 선택은 줄 오른쪽 끝(11/06 사용자 요청). 좁아서 다음 줄로 내려가도 오른쪽에 붙는다
             FlowRow(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -226,15 +227,16 @@ fun ReviewScreen(
                     modifier = Modifier.align(Alignment.CenterVertically),
                 ) { tab = it }
                 if (tabRows.isNotEmpty()) {
-                    GroupHeader(
-                        label = "전체 선택",
-                        state = when (tabSelected.size) { tabRows.size -> ToggleableState.On; 0 -> ToggleableState.Off; else -> ToggleableState.Indeterminate },
-                        enabled = !busy,
-                        onToggle = { val all = tabSelected.size == tabRows.size; tabRows.forEach { marks[it.id] = !all } },
-                        rowHeight = 40.dp,
-                        fill = false,
-                        modifier = Modifier.align(Alignment.CenterVertically),
-                    )
+                    Box(Modifier.weight(1f).align(Alignment.CenterVertically), contentAlignment = Alignment.CenterEnd) {
+                        GroupHeader(
+                            label = "전체 선택",
+                            state = when (tabSelected.size) { tabRows.size -> ToggleableState.On; 0 -> ToggleableState.Off; else -> ToggleableState.Indeterminate },
+                            enabled = !busy,
+                            onToggle = { val all = tabSelected.size == tabRows.size; tabRows.forEach { marks[it.id] = !all } },
+                            rowHeight = 40.dp,
+                            fill = false,
+                        )
+                    }
                 }
             }
             if (tabRows.isNotEmpty()) HorizontalDivider(color = Wb.colors.border, modifier = Modifier.padding(horizontal = 16.dp))
@@ -377,11 +379,11 @@ private fun GroupHeader(
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
     rowHeight: Dp = 48.dp,
-    /** false면 줄 전체가 아니라 체크+글자만큼(탭 옆 '전체 선택') */
+    /** false면 줄 전체가 아니라 체크+글자만큼(탭 줄 오른쪽 '전체 선택') */
     fill: Boolean = true,
 ) {
     Row(
-        (if (fill) modifier.fillMaxWidth() else modifier.padding(end = 8.dp))
+        (if (fill) modifier.fillMaxWidth() else modifier)
             .triStateToggleable(state = state, enabled = enabled, role = Role.Checkbox, onClick = onToggle),
         verticalAlignment = Alignment.CenterVertically,
     ) {
