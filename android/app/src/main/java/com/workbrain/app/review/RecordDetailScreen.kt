@@ -62,11 +62,10 @@ import com.workbrain.app.record.RecordingStore
 import com.workbrain.app.record.TrashNotice
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
 import com.workbrain.app.data.Para
 import com.workbrain.app.data.Place
-import com.workbrain.app.data.PlaceType
+import com.workbrain.app.data.ProjectRow
 import com.workbrain.app.data.RecordInfoRow
 import com.workbrain.app.tasks.PlaceField
 import com.workbrain.app.tasks.UNSORTED
@@ -140,6 +139,13 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     var place by remember { mutableStateOf<Place?>(null) }
     // 추가한 뒤 체크하지 않고 남은 후보: 버릴지 묻는다(사용자 요청 11/05)
     var leftover by remember { mutableStateOf<List<ProposalRow>?>(null) }
+    // 연결된 프로젝트(DEC-69): 머리 칩·'연결된 프로젝트' 창. 프로젝트 이름은 보관된 것까지 모두 읽어 둔다
+    var allProjects by remember { mutableStateOf<List<ProjectRow>>(emptyList()) }
+    var linkedIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    var projectsOpen by remember { mutableStateOf(false) }
+    var linkBusy by remember { mutableStateOf(false) }
+    // '추가할 곳'을 사용자가 직접 골랐으면 연결된 프로젝트로 처음 값을 다시 채우지 않는다
+    var placeTouched by remember { mutableStateOf(false) }
     // 결정 카드 '할 일로 만들기'(DEC-48): 만들 결정 문장, 이미 있는 할 일 제목(같은 결정을 두 번 만들지 않게)
     var creatingFrom by remember { mutableStateOf<String?>(null) }
     var openTaskTitles by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -159,6 +165,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             currentGuidelineRev = Server.guideline().rev
             info = Server.recordInfo(recordId).also { attendees = it.attendees.orEmpty() }
         }.onFailure { message = "불러오지 못했어요. 인터넷 연결을 확인해 주세요." to Tone.Crit }
+        runCatching { Para.projectsOfRecord(recordId) }.onSuccess { linkedIds = it }
         // 결정과 겹치는 후보는 결정과 중복일 가능성이 커서 처음에는 체크하지 않는다(DEC-48).
         // 검토함에서 미룬 후보도 모르고 추가하지 않게 처음에는 체크하지 않는다(DEC-63)
         val decisions = meeting?.fields?.decisions().orEmpty()
@@ -171,6 +178,28 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     LaunchedEffect(recordId) {
         runCatching { Para.places() }.onSuccess { places = it }
         runCatching { Server.myNames() }.onSuccess { myNames = it }
+        runCatching { Para.allProjects() }.onSuccess { allProjects = it }
+    }
+    val linkedProjects = linkedIds.mapNotNull { id -> allProjects.firstOrNull { it.id == id } }
+    // 프로젝트 하나에 연결된 기록이면 '추가할 곳' 처음 값을 그 프로젝트로(DEC-69). 여럿이면 사용자가 고른다
+    LaunchedEffect(linkedIds, places) {
+        if (!placeTouched) {
+            place = projectPlace(linkedIds.singleOrNull(), places)
+        }
+    }
+
+    // 연결·해제: 끝나면 연결 목록을 다시 읽는다. 아카이브·남의 것은 서버가 거부한다(0032)
+    fun setLinked(p: ProjectRow, linked: Boolean) {
+        linkBusy = true
+        scope.launch {
+            message = runCatching { Para.linkRecord(recordId, p.id, linked) }.fold(
+                { (if (linked) "‘${p.name}’에 연결했어요" else "‘${p.name}’ 연결을 풀었어요") to Tone.Good },
+                { e -> (if (e.message.orEmpty().contains("WB409")) "아카이브된 프로젝트에는 연결할 수 없어요" else "바꾸지 못했어요. 인터넷 연결을 확인해 주세요") to Tone.Crit },
+            )
+            runCatching { Para.projectsOfRecord(recordId) }.onSuccess { linkedIds = it }
+            linkBusy = false
+            onChanged()
+        }
     }
 
     // 기존 할 일 변경 제안은 검토함에서 전후를 보고 승인한다(DEC-23·38). 여기서는 보여 주기만 한다
@@ -372,6 +401,8 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                     color = Wb.colors.muted,
                 )
             }
+            // 목업 S05 머리 프로젝트 칩. 누르면 '연결된 프로젝트' 창(DEC-69, 사용자 선택: 탭 대신 창)
+            RecordProjectChips(linkedProjects, onOpen = { projectsOpen = true }, modifier = Modifier.padding(top = 6.dp))
             if (meeting != null) {
                 SegmentPills(
                     listOf("fields" to "추출 항목", "doc" to "회의록 문서"),
@@ -530,15 +561,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                 Modifier.fillMaxWidth().background(Wb.colors.card).padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("추가할 곳", style = MaterialTheme.typography.labelLarge, color = Wb.colors.muted)
-                    PlaceField(
-                        label = place?.name ?: UNSORTED,
-                        type = place?.type,
-                        places = places,
-                        modifier = Modifier.weight(1f).padding(start = 12.dp).height(40.dp),
-                    ) { place = it }
-                }
+                AddPlaceRow(place, places) { place = it; placeTouched = true }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     SecondaryButton(
                         "버리기",
@@ -558,6 +581,17 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
 
     if (confirmDiscard) {
         DiscardConfirmDialog(selected.size, onDismiss = { confirmDiscard = false }) { confirmDiscard = false; discard(selected) }
+    }
+
+    if (projectsOpen) {
+        RecordProjectsSheet(
+            linked = linkedProjects,
+            candidates = allProjects.filter { !it.archived && it.id !in linkedIds },
+            busy = linkBusy,
+            onLink = { setLinked(it, true) },
+            onUnlink = { setLinked(it, false) },
+            onDismiss = { projectsOpen = false },
+        )
     }
 
     leftover?.let { rows ->
@@ -619,17 +653,22 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         )
     }
 
-    // 결정 → 할 일: 사용자가 직접 만드는 할 일이라 AI 후보 승인을 거치지 않는다. 담당은 '나'로 시작하고 시트에서 바꿀 수 있다
+    // 결정 → 할 일: 사용자가 직접 만드는 할 일이라 AI 후보 승인을 거치지 않는다. 담당은 '나'로 시작하고 시트에서 바꿀 수 있다.
+    // '어디에' 처음 값은 '추가할 곳'과 같다(연결된 프로젝트가 하나면 그 프로젝트, DEC-69). 남은 후보가 없으면 '추가할 곳' 줄이 안 보여서 여기서 고른다
     creatingFrom?.let { text ->
+        var target by remember(text) { mutableStateOf(place) }
         CandidateEditSheet(
             current = JsonObject(mapOf("title" to JsonPrimitive(text.take(200)), "owner_kind" to JsonPrimitive("me"))),
             field = null,
             onDismiss = { creatingFrom = null },
+            whereField = { PlaceField(label = target?.name ?: UNSORTED, type = target?.type, places = places) { target = it } },
             onApply = { fields ->
                 creatingFrom = null
+                val chosen = target
                 scope.launch {
-                    message = runCatching { Server.createTask(fields) }
-                        .fold({ "할 일로 만들었어요 · 오늘 탭에서 볼 수 있어요" to Tone.Good }, { "만들지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit })
+                    // 오늘 탭은 오늘 마감·지연만 보여서(DEC-67) 들어간 곳을 알려 준다
+                    message = runCatching { Server.createTask(JsonObject(fields + placeKeys(chosen))) }
+                        .fold({ "할 일로 만들었어요 · ‘${chosen?.name ?: UNSORTED}’에 넣었어요" to Tone.Good }, { "만들지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit })
                     load(); onChanged()
                 }
             },
@@ -683,13 +722,6 @@ private fun durationText(sec: Int): String {
 // 서버 시각(UTC) → 서울 '10/16 15:00'
 private fun meetingTimeText(iso: String?): String? = iso?.let {
     runCatching { OffsetDateTime.parse(it).atZoneSameInstant(SEOUL).format(DateTimeFormatter.ofPattern("M/d HH:mm")) }.getOrNull()
-}
-
-/** '추가할 곳'을 골랐으면 승인 함수가 읽는 위치 키를 고친 값에 더한다(approve_proposal이 project_id·area_id를 읽음) */
-private fun withPlace(edits: JsonObject?, place: Place?): JsonObject? {
-    if (place == null) return edits
-    val key = if (place.type == PlaceType.PROJECT) "project_id" else "area_id"
-    return JsonObject(edits.orEmpty() + (key to JsonPrimitive(place.id)))
 }
 
 /** 결정 후보 한 줄: 문장 + '할 일로 만들기'(이미 같은 제목의 할 일이 있으면 '할 일 있음') + 겹치는 후보 접기 */

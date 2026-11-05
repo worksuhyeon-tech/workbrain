@@ -40,6 +40,31 @@ data class RecordingSession(
     val serverHasAudio get() = serverState == "uploaded" || serverState == "ready"
 }
 
+/** 녹음에 미리 고른 프로젝트(DEC-69, 목업 S04 '📁 프로젝트는 나중에'). 올릴 때 서버 기록에 연결한다 */
+data class ChosenProject(val id: String, val name: String)
+
+/**
+ * 다음 녹음의 프로젝트: 녹음 전에 고르면 여기 두고, 녹음을 시작하면 그 녹음으로 옮겨 붙인 뒤 비운다(참석자와 같은 방식).
+ * 회의마다 프로젝트가 달라 지난 녹음의 프로젝트가 다음 녹음에 잘못 붙지 않게 한다. 기기에만 둔다
+ */
+object NextProject {
+    private const val PREFS = "next_recording"
+
+    private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    fun get(context: Context): ChosenProject? {
+        val p = prefs(context)
+        val id = p.getString("project_id", null)?.takeIf { it.isNotEmpty() } ?: return null
+        return ChosenProject(id, p.getString("project_name", null).orEmpty())
+    }
+
+    fun set(context: Context, project: ChosenProject?) {
+        prefs(context).edit().putString("project_id", project?.id).putString("project_name", project?.name).apply()
+    }
+
+    fun take(context: Context): ChosenProject? = get(context).also { set(context, null) }
+}
+
 object RecordingStore {
     private const val META = "session.json"
     /** 처리 완료 후 기기 음성 보관 기간(사용자 결정 2026-10-18: 7일 뒤 자동 삭제 + 바로 지우기) */
@@ -105,6 +130,22 @@ object RecordingStore {
         m.optJSONArray("attendees")?.let { a -> List(a.length()) { a.optString(it) } }.orEmpty()
 
     fun readAttendees(dir: File): List<String> = read(dir)?.let(::attendees).orEmpty()
+
+    fun setProject(dir: File, project: ChosenProject?) {
+        val m = read(dir) ?: return
+        if (project == null) {
+            m.remove("projectId"); m.remove("projectName")
+        } else {
+            m.put("projectId", project.id).put("projectName", project.name)
+        }
+        write(dir, m)
+    }
+
+    fun readProject(dir: File): ChosenProject? {
+        val m = read(dir) ?: return null
+        val id = m.optString("projectId").ifEmpty { return null }
+        return ChosenProject(id, m.optString("projectName"))
+    }
 
     fun addBookmark(dir: File, atMs: Long) {
         val m = read(dir) ?: return

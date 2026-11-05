@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -50,9 +51,11 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.workbrain.app.data.AreaRow
+import com.workbrain.app.data.LinkedRecord
 import com.workbrain.app.data.ParaData
 import com.workbrain.app.data.PlaceType
 import com.workbrain.app.data.ProjectRow
@@ -250,16 +253,48 @@ private fun StateCard() {
     }
 }
 
-/** '관련 기록' 카드. 기록 연결은 2단계 — 지금은 목업의 빈 상태 */
+/**
+ * '관련 기록' 카드(목업 S03): 이 프로젝트에 연결된 기록, 최근 회의부터. 줄을 누르면 기록 상세(DEC-69).
+ * records가 null이면 반복실행이라 연결하지 않는다(사용자 선택: 프로젝트만)
+ */
 @Composable
-private fun RecordsCard() {
+private fun RecordsCard(records: List<LinkedRecord>?, onEvent: (ParaEvent) -> Unit) {
     MockCard {
         Column(CardPad) {
             SecH("관련 기록")
-            Note("연결된 기록이 없어요.", Modifier.padding(top = 10.dp))
+            when {
+                records == null -> Note("기록은 프로젝트에만 연결해요.", Modifier.padding(top = 10.dp))
+                records.isEmpty() -> Note("연결된 기록이 없어요. 기록 화면 머리의 ‘+ 프로젝트 연결’로 이어요.", Modifier.padding(top = 10.dp))
+                else -> Column(Modifier.padding(top = 6.dp)) {
+                    records.forEachIndexed { i, r ->
+                        if (i > 0) HorizontalDivider(color = Wb.colors.border)
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
+                                .clickable(onClickLabel = "기록 열기") { onEvent(ParaEvent.OpenRecord(r.recordId, r.title)) }
+                                .heightIn(min = 44.dp).padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(if (r.channel == "text-import") WbIcons.Document else WbIcons.Mic, contentDescription = null, tint = Wb.colors.muted, modifier = Modifier.size(16.dp))
+                            Text(
+                                r.title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Wb.colors.ink,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f).padding(start = 8.dp),
+                            )
+                            Text(recordMeta(r), fontSize = 12.sp, color = Wb.colors.muted, modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
+                }
+            }
         }
     }
 }
+
+/** 목업 '10/16 · 녹음 42분'. 받아쓴 글은 길이 없이 */
+private fun recordMeta(r: LinkedRecord): String = listOfNotNull(
+    shortDay(r.at),
+    when (r.channel) { "recording" -> "녹음"; "upload" -> "파일"; "call-share" -> "통화"; "text-import" -> "받아쓴 글"; else -> null }
+        ?.let { kind -> r.durationSec?.let { "$kind ${maxOf(1, it / 60)}분" } ?: kind },
+).joinToString(" · ")
 
 /** 목업 정렬: 안 끝난 것 먼저, 그다음 우선순위(높음 먼저), 기한 이른 순 */
 private fun sorted(tasks: List<TaskRow>) = tasks.sortedWith(
@@ -335,7 +370,7 @@ private fun ProjectPane(d: ParaData, p: ProjectRow, layout: PaneLayout, onBack: 
             )
         }
         item(key = "state") { StateCard() }
-        item(key = "records") { RecordsCard() }
+        item(key = "records") { RecordsCard(d.recordsOf(p.id), onEvent) }
         item(key = "tasks") { TasksCard("할 일", d, tasks, p.archived, layout, onEvent) }
     }
 }
@@ -377,7 +412,7 @@ private fun AreaPane(d: ParaData, a: AreaRow, layout: PaneLayout, onBack: (() ->
                 }
             }
         }
-        item(key = "records") { RecordsCard() }
+        item(key = "records") { RecordsCard(null, onEvent) }
         item(key = "tasks") { TasksCard("반복 할 일", d, d.tasksOf(PlaceType.AREA, a.id), a.archived, layout, onEvent) }
     }
 }

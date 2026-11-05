@@ -1,6 +1,7 @@
 package com.workbrain.app.record
 
 import android.content.Context
+import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
@@ -9,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.workbrain.app.data.LoginRequired
+import com.workbrain.app.data.Para
 import com.workbrain.app.data.Server
 import com.workbrain.app.data.SourceRecordInsert
 import kotlinx.coroutines.delay
@@ -33,6 +35,7 @@ enum class RunOutcome { DONE, LATER, STOPPED }
  * 끊기면 연결될 때 다시 이어 간다. 단계마다 기기 메타에 기록해 같은 기록이 두 번 만들어지지 않는다.
  */
 object UploadManager {
+    private const val TAG = "WorkBrainUpload"
     private val _progress = MutableStateFlow<Map<String, UploadProgress>>(emptyMap())
     val progress: StateFlow<Map<String, UploadProgress>> = _progress
 
@@ -93,6 +96,7 @@ object UploadManager {
                 recordId = UUID.randomUUID().toString()
                 Server.createRecord(newRecord(recordId, session, kind, permission))
                 RecordingStore.setServer(dir, recordId, null)
+                linkChosenProject(dir, recordId)
             }
             set(sessionId, UploadProgress("글 올리는 중", busy = true))
             Server.recordTextReady(recordId, text, FileImporter.savedTurns(dir))
@@ -116,6 +120,7 @@ object UploadManager {
                 recordId = UUID.randomUUID().toString()
                 Server.createRecord(newRecord(recordId, session, kind, permission))
                 RecordingStore.setServer(dir, recordId, null)
+                linkChosenProject(dir, recordId)
             }
             set(sessionId, UploadProgress("올리는 중 · %.1fMB".format(bytes.size / 1_048_576.0), busy = true))
             Server.uploadAudio(recordId, bytes, ext)
@@ -175,6 +180,16 @@ object UploadManager {
         recordKind = kind,
         attendees = session.attendees,
     )
+
+    /**
+     * 녹음 화면에서 고른 프로젝트(DEC-69): 서버 기록을 만든 직후 연결한다. 프로젝트가 그사이 보관·삭제됐거나
+     * 인터넷이 잠깐 끊겨 실패해도 올리기는 그대로 이어 간다(기록 상세 '+ 프로젝트 연결'로 다시 잇는다)
+     */
+    private suspend fun linkChosenProject(dir: File, recordId: String) {
+        val project = RecordingStore.readProject(dir) ?: return
+        runCatching { Para.linkRecord(recordId, project.id, true) }
+            .onFailure { Log.w(TAG, "chosen project link failed: ${it.message}") }
+    }
 
     private fun sha256(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }

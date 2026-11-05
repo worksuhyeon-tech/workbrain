@@ -61,6 +61,8 @@ sealed interface ParaEvent {
     data class EditLinks(val resourceId: String) : ParaEvent
     /** P4 자리(캘린더·매트릭스)를 눌렀을 때 안내만 */
     data class Later(val which: String) : ParaEvent
+    /** 트리 하위 기록·'관련 기록' 카드에서 기록 상세 열기(DEC-69) */
+    data class OpenRecord(val recordId: String, val title: String) : ParaEvent
 }
 
 /** 아카이브 전에 묻기: 안 끝난 할 일이 '오늘'·'모든 할 일'에서 빠진다는 것을 알린다(DEC-65) */
@@ -71,10 +73,15 @@ private data class ArchiveAsk(val key: String, val name: String, val openTasks: 
  * 펼친 화면: 머리('프로젝트' + [+ 새로 만들기]) 아래 왼쪽 트리 패널 / 오른쪽 상세(목업 .pj-layout, DEC-47).
  * 접힌 화면: 머리 + 트리 패널 → 항목을 누르면 상세 전체 화면(뒤로 가기로 트리, Design §6.3).
  * 결과는 화면 아래 알림으로 알리고, 되돌릴 수 있으면 '되돌리기'(DEC-24). 끌어서 옮기기·기록 연결·한 줄 빠른 입력은 다음 단계.
- * startKey: 다른 탭에서 열 항목('all'·'p:ID'·'a:ID', 오늘 화면 링크). 쓰고 나면 onStartUsed로 비운다
+ * startKey: 다른 탭에서 열 항목('all'·'p:ID'·'a:ID', 오늘 화면 링크). 쓰고 나면 onStartUsed로 비운다.
+ * onOpenRecord(기록 ID, 제목, 돌아올 항목): 기록 상세를 연다. 상세를 닫으면 돌아올 항목이 startKey로 다시 온다
  */
 @Composable
-fun ProjectsScreen(startKey: String? = null, onStartUsed: () -> Unit = {}) {
+fun ProjectsScreen(
+    startKey: String? = null,
+    onStartUsed: () -> Unit = {},
+    onOpenRecord: (recordId: String, title: String, returnKey: String?) -> Unit = { _, _, _ -> },
+) {
     val scope = rememberCoroutineScope()
     val announcer = rememberAnnouncer()
     val wide = isWideWindow()
@@ -83,6 +90,14 @@ fun ProjectsScreen(startKey: String? = null, onStartUsed: () -> Unit = {}) {
     // 고른 것과 펼친 칸은 접기·펴기·회전에도 남는다
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     var openSections by rememberSaveable { mutableStateOf("123") }
+    // 하위 기록을 펼친 프로젝트(쉼표로 이은 ID). 프로젝트를 고르면 함께 펼친다(목업: 고른 프로젝트 아래 기록이 보임)
+    var openProjectIds by rememberSaveable { mutableStateOf("") }
+    val openProjects = openProjectIds.split(',').filter { it.isNotEmpty() }.toSet()
+    fun toggleProject(id: String) { openProjectIds = (if (id in openProjects) openProjects - id else openProjects + id).joinToString(",") }
+    fun select(key: String) {
+        selected = key
+        if (key.startsWith("p:")) openProjectIds = (openProjects + key.substringAfter(':')).joinToString(",")
+    }
     var adding by remember { mutableStateOf<ParaSection?>(null) }
 
     var editKey by remember { mutableStateOf<String?>(null) }
@@ -100,7 +115,7 @@ fun ProjectsScreen(startKey: String? = null, onStartUsed: () -> Unit = {}) {
     LaunchedEffect(Unit) { load() }
     // 오늘 화면의 '다음 7일 · 전체 →'·프로젝트 이름에서 왔으면 그 항목을 연다(한 번만)
     LaunchedEffect(startKey) {
-        if (startKey != null) { selected = startKey; onStartUsed() }
+        if (startKey != null) { select(startKey); onStartUsed() }
     }
 
     /**
@@ -178,7 +193,8 @@ fun ProjectsScreen(startKey: String? = null, onStartUsed: () -> Unit = {}) {
     fun onEvent(e: ParaEvent) {
         val d = data ?: return
         when (e) {
-            is ParaEvent.Select -> selected = e.key
+            is ParaEvent.Select -> select(e.key)
+            is ParaEvent.OpenRecord -> onOpenRecord(e.recordId, e.title, selected)
             is ParaEvent.OpenTask -> { taskError = null; editingTask = e.task }
             is ParaEvent.ToggleTask -> {
                 val t = e.task
@@ -237,10 +253,14 @@ fun ProjectsScreen(startKey: String? = null, onStartUsed: () -> Unit = {}) {
                     selectedKey = selected ?: if (wide) ALL_TASKS else null,
                     openSections = openSections,
                     adding = adding,
+                    openProjects = openProjects,
                     onToggleSection = { s -> openSections = if (s.no in openSections) openSections.replace(s.no.toString(), "") else openSections + s.no },
                     onAdd = { s -> adding = s; if (s != null && s.no !in openSections) openSections += s.no },
                     onCreate = { s, kind, name -> create(d, s, kind, name) },
-                    onSelect = { selected = it; adding = null },
+                    onSelect = { select(it); adding = null },
+                    onToggleProject = ::toggleProject,
+                    // 트리에서 연 기록을 닫으면 그 기록이 속한 프로젝트로 돌아온다
+                    onOpenRecord = { id, title -> onOpenRecord(id, title, selected) },
                     modifier = m,
                 )
             }

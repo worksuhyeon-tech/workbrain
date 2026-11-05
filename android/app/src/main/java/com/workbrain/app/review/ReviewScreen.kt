@@ -41,8 +41,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.workbrain.app.data.InboxRow
+import com.workbrain.app.data.Para
+import com.workbrain.app.data.Place
 import com.workbrain.app.data.ProcessedRow
 import com.workbrain.app.data.Server
+import com.workbrain.app.tasks.UNSORTED
 import com.workbrain.app.ui.Banner
 import com.workbrain.app.ui.EmptyState
 import com.workbrain.app.ui.PageHeader
@@ -94,6 +97,11 @@ fun ReviewScreen(
     // 미루기 시트 대상, 버리기 확인 창 대상
     var snoozeTarget by remember { mutableStateOf<List<InboxRow>?>(null) }
     var discardTarget by remember { mutableStateOf<List<InboxRow>?>(null) }
+    // '추가할 곳'(11/06 사용자 요청, 기록 상세와 같은 줄): 고를 곳, 기록 → 연결된 프로젝트들, 사용자가 직접 고른 곳(null이면 아직 안 고름)
+    var places by remember { mutableStateOf<List<Place>>(emptyList()) }
+    var recordProjects by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
+    var pickedPlace by remember { mutableStateOf<Place?>(null) }
+    var placeTouched by remember { mutableStateOf(false) }
 
     val list = items.orEmpty()
     val (snoozedRows, todayRows) = list.partition { Snooze.isActive(it.snoozedUntil) }
@@ -116,9 +124,19 @@ fun ReviewScreen(
     LaunchedEffect(refreshKey) { load() }
     // 처리됨은 그 탭을 열 때만 읽는다(최근 100건)
     LaunchedEffect(tab, refreshKey) { if (tab == TAB_DONE) loadProcessed() }
+    // 추가할 곳은 보조 정보라 못 읽어도 검토함은 그린다('정리 안 됨'으로 추가될 뿐)
+    LaunchedEffect(refreshKey) {
+        runCatching { Para.places() }.onSuccess { places = it }
+        runCatching { Para.recordLinks() }.onSuccess { links -> recordProjects = links.groupBy({ it.recordId }, { it.projectId }) }
+    }
 
     val todaySelected = todayRows.filter { checked[it.id] == true }
     val snoozedSelected = snoozedRows.filter { snoozeChecked[it.id] == true }
+    // 직접 고르지 않았으면, 고른 후보가 모두 같은 프로젝트 하나에 연결된 기록에서 왔을 때만 그 프로젝트(DEC-69). 섞이면 정리 안 됨
+    val addPlace = if (placeTouched) pickedPlace else projectPlace(
+        todaySelected.map { row -> row.recordId?.let { recordProjects[it] }?.singleOrNull() }.distinct().singleOrNull(),
+        places,
+    )
 
     // 버리기·추가·미루기 모두 체크한 후보에만 적용한다(사용자 요청 10/26: '체크 안 한 것을 버리는' 방식은 알아보기 어려움)
     fun discard(rows: List<InboxRow>) {
@@ -129,17 +147,23 @@ fun ReviewScreen(
             load(); busy = false; onChanged()
         }
     }
-    fun approve(rows: List<InboxRow>) {
+    fun approve(rows: List<InboxRow>, target: Place?) {
         busy = true
         scope.launch {
-            // 다른 기기에서 먼저 승인했으면 already-approved로 돌아와 중복 없이 넘어간다(TC-08)
-            val results = runCatching { rows.map { Server.approve(it.proposal(), "inbox", edits[it.id]) } }.getOrNull()
+            // 다른 기기에서 먼저 승인했으면 already-approved로 돌아와 중복 없이 넘어간다(TC-08).
+            // 추가할 곳은 새 할 일 후보에만 붙인다. 변경 제안은 이미 있는 할 일을 고치는 것이라 그 할 일 자리를 바꾸지 않는다
+            val results = runCatching {
+                rows.map { Server.approve(it.proposal(), "inbox", if (it.targetId == null) withPlace(edits[it.id], target) else edits[it.id]) }
+            }.getOrNull()
             message = when {
                 results == null -> "추가하지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit
+                // 오늘 탭은 오늘 마감·지연만 보여서(DEC-67) 들어간 곳을 알려 준다
                 results.all { it == "approved" || it == "already-approved" } ->
-                    "할 일 ${rows.size}개를 추가했어요 · 오늘 탭에서 볼 수 있어요" to Tone.Good
+                    (if (rows.all { it.targetId == null }) "할 일 ${rows.size}개를 ‘${target?.name ?: UNSORTED}’에 추가했어요" else "후보 ${rows.size}개를 반영했어요") to Tone.Good
                 else -> "일부는 추가하지 못했어요(${results.filterNot { it == "approved" }.joinToString()})" to Tone.Warn
             }
+            // 다음에 고르는 후보는 다시 연결된 프로젝트로 처음 값을 잡는다
+            placeTouched = false
             load(); busy = false; onChanged()
         }
     }
@@ -291,29 +315,32 @@ fun ReviewScreen(
                 }
             }
             message?.let { (text, tone) -> Banner(text, tone, Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) }
-            // 아래 줄: 오늘 = 버리기·미루기·추가, 미룬 항목 = 버리기·미루기 변경·지금 검토(목업), 처리됨 = 없음
+            // 아래 줄: 오늘 = 추가할 곳 + 버리기·미루기·추가, 미룬 항목 = 버리기·미루기 변경·지금 검토(목업), 처리됨 = 없음
             if (tabRows.isNotEmpty()) {
                 HorizontalDivider(color = Wb.colors.border)
-                Row(
+                Column(
                     Modifier.fillMaxWidth().background(Wb.colors.card).padding(horizontal = 16.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    val canAct = !busy && tabSelected.isNotEmpty()
-                    SecondaryButton(
-                        "버리기",
-                        enabled = canAct,
-                        onClick = { if (tabSelected.size > 1) discardTarget = tabSelected else discard(tabSelected) },
-                    )
-                    SecondaryButton(
-                        if (tab == TAB_SNOOZED) "미루기 변경" else "미루기",
-                        enabled = canAct,
-                        onClick = { snoozeTarget = tabSelected },
-                    )
-                    if (tab == TAB_SNOOZED) {
-                        PrimaryButton("지금 검토 (${tabSelected.size})", enabled = canAct, modifier = Modifier.weight(1f), onClick = { snooze(tabSelected, null) })
-                    } else {
-                        PrimaryButton("선택한 할 일 추가 (${tabSelected.size})", enabled = canAct, modifier = Modifier.weight(1f), onClick = { approve(tabSelected) })
+                    // 기록 상세처럼 추가 버튼 바로 위에(목업 S05 xt-bar를 검토함에도, 11/06 사용자 요청)
+                    if (tab == TAB_TODAY) AddPlaceRow(addPlace, places) { pickedPlace = it; placeTouched = true }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val canAct = !busy && tabSelected.isNotEmpty()
+                        SecondaryButton(
+                            "버리기",
+                            enabled = canAct,
+                            onClick = { if (tabSelected.size > 1) discardTarget = tabSelected else discard(tabSelected) },
+                        )
+                        SecondaryButton(
+                            if (tab == TAB_SNOOZED) "미루기 변경" else "미루기",
+                            enabled = canAct,
+                            onClick = { snoozeTarget = tabSelected },
+                        )
+                        if (tab == TAB_SNOOZED) {
+                            PrimaryButton("지금 검토 (${tabSelected.size})", enabled = canAct, modifier = Modifier.weight(1f), onClick = { snooze(tabSelected, null) })
+                        } else {
+                            PrimaryButton("선택한 할 일 추가 (${tabSelected.size})", enabled = canAct, modifier = Modifier.weight(1f), onClick = { approve(tabSelected, addPlace) })
+                        }
                     }
                 }
             }

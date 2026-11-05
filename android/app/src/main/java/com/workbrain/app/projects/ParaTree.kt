@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.workbrain.app.data.LinkedRecord
 import com.workbrain.app.data.ParaData
 import com.workbrain.app.data.PlaceType
 import com.workbrain.app.ui.ControlShape
@@ -54,6 +55,8 @@ import com.workbrain.app.ui.Note
 import com.workbrain.app.ui.SegItem
 import com.workbrain.app.ui.DarkSeg
 import com.workbrain.app.ui.SmallButton
+import com.workbrain.app.ui.SEOUL
+import java.time.OffsetDateTime
 
 /**
  * PARA 4칸. 이름은 사용자 PARA 폴더 그대로(DEC-22), 옆 작은 글씨는 목업처럼 영어 이름. 깊이는 칸 → 항목(DEC-24).
@@ -73,6 +76,11 @@ fun areaKey(id: String) = "a:$id"
 fun resourceKey(id: String) = "r:$id"
 fun placeKey(type: PlaceType, id: String) = if (type == PlaceType.PROJECT) projectKey(id) else areaKey(id)
 
+/** 서버 시각 → 서울 'M/d'(트리 하위 기록·관련 기록 카드) */
+fun shortDay(iso: String?): String? = iso?.let {
+    runCatching { OffsetDateTime.parse(it).atZoneSameInstant(SEOUL).let { z -> "${z.monthValue}/${z.dayOfMonth}" } }.getOrNull()
+}
+
 /** 트리 한 줄 */
 private data class TreeItem(val key: String, val icon: ImageVector, val tint: @Composable () -> Color, val name: String, val count: Int, val archived: Boolean = false)
 
@@ -90,6 +98,7 @@ private fun itemsOf(d: ParaData, s: ParaSection): List<TreeItem> = when (s) {
 /**
  * 목업 .side: 흰 패널 안에 공간 버튼 → 모든 할 일 → 1~4칸 → 범례.
  * adding: 지금 이름을 받는 칸(칸 아래 입력 줄, 목업 .tn-new). onCreate(칸, 종류, 이름)
+ * 프로젝트 아래에는 연결된 기록이 하위 줄로 펼쳐진다(DEC-24 깊이 고정, DEC-69). openProjects = 펼친 프로젝트 ID
  */
 @Composable
 fun ParaTreePanel(
@@ -97,10 +106,13 @@ fun ParaTreePanel(
     selectedKey: String?,
     openSections: String,
     adding: ParaSection?,
+    openProjects: Set<String>,
     onToggleSection: (ParaSection) -> Unit,
     onAdd: (ParaSection?) -> Unit,
     onCreate: (ParaSection, String, String) -> Unit,
     onSelect: (String) -> Unit,
+    onToggleProject: (String) -> Unit,
+    onOpenRecord: (recordId: String, title: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -118,7 +130,19 @@ fun ParaTreePanel(
                 SectionRow(s, rows.size, open, onToggle = { onToggleSection(s) }, onAdd = { onAdd(if (adding == s) null else s) })
                 if (adding == s) NewForm(s, onCancel = { onAdd(null) }) { kind, name -> onCreate(s, kind, name) }
                 if (open) rows.forEach { r ->
-                    TreeRow(r.icon, r.tint, r.name, r.count, selectedKey == r.key, indent = true, archived = r.archived) { onSelect(r.key) }
+                    if (s == ParaSection.PROJECTS) {
+                        val projectId = r.key.substringAfter(':')
+                        val records = d.recordsOf(projectId)
+                        val expanded = projectId in openProjects && records.isNotEmpty()
+                        TreeRow(
+                            r.icon, r.tint, r.name, r.count, selectedKey == r.key, indent = true,
+                            expander = if (records.isEmpty()) Expander.SPACE else if (expanded) Expander.OPEN else Expander.CLOSED,
+                            onExpand = { onToggleProject(projectId) },
+                        ) { onSelect(r.key) }
+                        if (expanded) records.forEach { rec -> RecordTreeRow(rec) { onOpenRecord(rec.recordId, rec.title) } }
+                    } else {
+                        TreeRow(r.icon, r.tint, r.name, r.count, selectedKey == r.key, indent = true, archived = r.archived) { onSelect(r.key) }
+                    }
                 }
             }
             Legend()
@@ -209,6 +233,9 @@ private fun NewForm(s: ParaSection, onCancel: () -> Unit, onCreate: (kind: Strin
     }
 }
 
+/** 프로젝트 줄 앞 펼침 화살표(목업 .tn .tw): 없음(다른 칸) · 자리만(연결된 기록 없음) · 접힘 · 펼침 */
+private enum class Expander { NONE, SPACE, CLOSED, OPEN }
+
 @Composable
 private fun TreeRow(
     icon: ImageVector,
@@ -218,6 +245,8 @@ private fun TreeRow(
     selected: Boolean,
     indent: Boolean,
     archived: Boolean = false,
+    expander: Expander = Expander.NONE,
+    onExpand: () -> Unit = {},
     onClick: () -> Unit,
 ) {
     Row(
@@ -225,9 +254,23 @@ private fun TreeRow(
             .background(if (selected) Wb.colors.primary.copy(alpha = 0.13f) else Color.Transparent)
             .clickable(onClick = onClick)
             .heightIn(min = 40.dp)
-            .padding(start = if (indent) 28.dp else 8.dp, end = 8.dp),
+            // 화살표 칸(24dp)이 있는 줄은 그만큼 덜 들여 써서 아이콘이 다른 줄과 같은 세로줄에 온다
+            .padding(start = if (!indent) 8.dp else if (expander == Expander.NONE) 28.dp else 4.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (expander != Expander.NONE) {
+            Box(
+                Modifier.size(width = 24.dp, height = 40.dp).then(
+                    if (expander == Expander.SPACE) Modifier
+                    else Modifier.clickable(onClickLabel = if (expander == Expander.OPEN) "기록 접기" else "기록 펼치기", onClick = onExpand),
+                ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (expander != Expander.SPACE) {
+                    Icon(if (expander == Expander.OPEN) WbIcons.ChevronDown else WbIcons.ChevronRight, contentDescription = null, tint = Wb.colors.muted, modifier = Modifier.size(14.dp))
+                }
+            }
+        }
         Icon(icon, contentDescription = null, tint = tint(), modifier = Modifier.size(16.dp))
         Text(
             name, fontSize = 14.sp,
@@ -237,6 +280,20 @@ private fun TreeRow(
             modifier = Modifier.weight(1f).padding(start = 8.dp),
         )
         if (count > 0) Text("$count", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Wb.colors.muted, modifier = Modifier.padding(start = 6.dp))
+    }
+}
+
+/** 프로젝트 아래 하위 기록 줄(목업 .tn.rec): 작은 아이콘 · 기록 이름 · 날짜. 누르면 기록 상세 */
+@Composable
+private fun RecordTreeRow(r: LinkedRecord, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).clickable(onClickLabel = "기록 열기", onClick = onClick)
+            .heightIn(min = 36.dp).padding(start = 52.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(if (r.channel == "text-import") WbIcons.Document else WbIcons.Mic, contentDescription = null, tint = Wb.colors.muted, modifier = Modifier.size(13.dp))
+        Text(r.title, fontSize = 13.sp, color = Wb.colors.body, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 6.dp))
+        shortDay(r.at)?.let { Text(it, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Wb.colors.muted, modifier = Modifier.padding(start = 6.dp)) }
     }
 }
 

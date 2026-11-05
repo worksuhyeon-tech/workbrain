@@ -45,13 +45,20 @@ enum class CandidateField(val heading: String) { Title("제목 고치기"), Owne
 /**
  * 할 일 후보 고치기(FR-10): 고친 값은 승인 때 AI 값 위에 덮어 할 일로 만든다(approve_proposal p_edits).
  * 카드에서 누른 칸(field) 하나만 보여 준다(Q3). 다른 칸은 현재 값을 그대로 넘긴다.
- * field가 null이면 결정 카드에서 새 할 일을 만드는 것(DEC-48)이라 세 칸을 모두 보여 주고 버튼은 '할 일로 만들기'.
+ * field가 null이면 결정 카드에서 새 할 일을 만드는 것(DEC-48)이라 모든 칸을 보여 주고 버튼은 '할 일로 만들기'.
+ * 이때 whereField(어디에 고르기)를 받으면 제목 아래에 둔다(DEC-69: 만든 할 일이 '정리 안 됨'으로 새지 않게). 고른 곳은 부른 쪽이 들고 있다.
  * 후보 자체(AI 제안 원본)는 바꾸지 않는다. 고친 값은 승인 전까지 이 화면에만 있다.
  * 결과는 승인 함수가 읽는 키 전체(title·owner_kind·assignee·due_*)로 돌려준다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CandidateEditSheet(current: JsonObject, field: CandidateField?, onDismiss: () -> Unit, onApply: (JsonObject) -> Unit) {
+fun CandidateEditSheet(
+    current: JsonObject,
+    field: CandidateField?,
+    onDismiss: () -> Unit,
+    whereField: (@Composable () -> Unit)? = null,
+    onApply: (JsonObject) -> Unit,
+) {
     val wasVague = current["due_ambiguous"]?.jsonPrimitive?.booleanOrNull == true
     var title by remember { mutableStateOf(current.str("title").orEmpty()) }
     var owner by remember { mutableStateOf(current.str("owner_kind") ?: "unknown") }
@@ -73,13 +80,13 @@ fun CandidateEditSheet(current: JsonObject, field: CandidateField?, onDismiss: (
         ) {
             Text(field?.heading ?: "할 일로 만들기", style = MaterialTheme.typography.titleMedium, color = Wb.colors.ink)
             Text(
-                if (field == null) "결정 후보를 내 할 일로 옮겨요. 제목·담당·기한을 확인해 주세요."
+                if (field == null) "결정 후보를 내 할 일로 옮겨요. 제목·어디에·담당·기한을 확인해 주세요."
                 else "고친 값으로 할 일이 만들어져요. AI가 낸 후보 원본은 그대로 남아요.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Wb.colors.muted,
             )
 
-            // 만들 때(field == null)는 세 칸을 모두, 고칠 때는 누른 칸만 보여 준다
+            // 만들 때(field == null)는 모든 칸을, 고칠 때는 누른 칸만 보여 준다. 칸 순서는 할 일 수정 서랍과 같다(제목·어디에·담당·기한)
             fun shows(f: CandidateField) = field == null || field == f
             if (shows(CandidateField.Title)) {
                 if (field == null) FieldLabel("제목")
@@ -87,6 +94,10 @@ fun CandidateEditSheet(current: JsonObject, field: CandidateField?, onDismiss: (
                     value = title, onValueChange = { title = it.take(200) },
                     shape = ControlShape, modifier = Modifier.fillMaxWidth(),
                 )
+            }
+            if (field == null && whereField != null) {
+                FieldLabel("어디에")
+                whereField()
             }
             if (shows(CandidateField.Owner)) {
                 if (field == null) FieldLabel("담당")

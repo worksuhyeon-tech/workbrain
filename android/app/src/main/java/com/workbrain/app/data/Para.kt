@@ -2,12 +2,14 @@ package com.workbrain.app.data
 
 import com.workbrain.app.Supa
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -75,6 +77,19 @@ enum class PlaceType(val table: String) { PROJECT("project"), AREA("area") }
 
 data class Place(val type: PlaceType, val id: String, val name: String)
 
+/**
+ * 프로젝트에 연결된 기록 하나(DEC-69, 0032 기록 전체 연결). 트리 하위 기록·프로젝트 '관련 기록' 카드에 쓴다.
+ * at = 회의 시각(모르면 올린 시각), durationSec = 음성 길이(받아쓴 글은 없음)
+ */
+data class LinkedRecord(
+    val recordId: String,
+    val projectId: String,
+    val title: String,
+    val at: String?,
+    val channel: String?,
+    val durationSec: Int?,
+)
+
 /** 트리·상세를 그리는 데 필요한 것 전부. 할 일은 완료한 것까지(목업 '완료 포함'·프로젝트 할 일 카드) */
 data class ParaData(
     val workspace: WorkspaceRow,
@@ -85,7 +100,13 @@ data class ParaData(
     val tasks: List<TaskRow>,
     /** 할 일 → 출처 한 줄('AI 제안 승인 · 회의 이름 10/14'). 없으면 직접 추가 */
     val sources: Map<String, String>,
+    /** 프로젝트에 연결된 기록(확정된 기록 전체 연결만) */
+    val recordLinks: List<LinkedRecord> = emptyList(),
 ) {
+    /** 이 프로젝트의 기록, 최근 회의부터 */
+    fun recordsOf(projectId: String): List<LinkedRecord> =
+        recordLinks.filter { it.projectId == projectId }.sortedByDescending { it.at.orEmpty() }
+
     val activeProjects get() = projects.filterNot { it.archived }
     val activeAreas get() = areas.filterNot { it.archived }
     val activeResources get() = resources.filterNot { it.archived }
@@ -138,6 +159,32 @@ data class ParaData(
 private const val SOURCE_COLUMNS =
     "task_id,approval_event(change_proposal(analysis_run(transcript_version(source_record(title,occurred_at,ingested_at)))))"
 
+// 기록↔프로젝트 연결(0032): 확정된 것만 읽고, 기록 전체 연결(item_ref.scope = record)만 쓴다(항목 단위 AI 연결은 FR-06 때)
+@Serializable private data class LinkRecordRow(
+    val id: String,
+    val title: String? = null,
+    val channel: String? = null,
+    @SerialName("occurred_at") val occurredAt: String? = null,
+    @SerialName("ingested_at") val ingestedAt: String? = null,
+    @SerialName("audio_asset") val audio: JsonElement? = null,
+)
+@Serializable private data class RecordLinkRow(
+    @SerialName("project_id") val projectId: String,
+    @SerialName("item_ref") val itemRef: JsonObject,
+    @SerialName("source_record") val record: LinkRecordRow? = null,
+)
+private const val RECORD_LINK_COLUMNS =
+    "project_id,item_ref,source_record(id,title,channel,occurred_at,ingested_at,audio_asset(duration_sec))"
+
+private val RecordLinkRow.isRecordScope: Boolean
+    get() = (itemRef["scope"] as? JsonPrimitive)?.content == "record"
+
+// 기록당 음성은 하나라 PostgREST가 객체나 한 칸짜리 배열로 준다
+private fun durationOf(audio: JsonElement?): Int? {
+    val obj = (audio as? JsonObject) ?: ((audio as? JsonArray)?.firstOrNull() as? JsonObject) ?: return null
+    return (obj["duration_sec"] as? JsonPrimitive)?.content?.toIntOrNull()
+}
+
 object Para {
     private val db get() = Supa.client
     private val seoul = ZoneId.of("Asia/Seoul")
@@ -155,10 +202,43 @@ object Para {
         val resources = async { db.from("resource").select().decodeList<ResourceRow>().sortedWith(compareBy(byName) { it.title }) }
         val links = async { db.from("resource_link").select().decodeList<ResourceLinkRow>() }
         val tasks = async { db.from("task").select { order("created_at", Order.DESCENDING) }.decodeList<TaskRow>() }
-        // 출처는 보조 정보라 못 읽어도 화면은 그린다
+        // 출처·연결된 기록은 보조 정보라 못 읽어도 화면은 그린다
         val sources = async { runCatching { sources() }.getOrDefault(emptyMap()) }
-        ParaData(workspace.await(), projects.await(), areas.await(), resources.await(), links.await(), tasks.await(), sources.await())
+        val recordLinks = async { runCatching { recordLinks() }.getOrDefault(emptyList()) }
+        ParaData(
+            workspace.await(), projects.await(), areas.await(), resources.await(), links.await(), tasks.await(), sources.await(),
+            recordLinks.await(),
+        )
     }
+
+    /** 프로젝트에 확정 연결된 기록 전부(트리 하위 기록·관련 기록 카드) */
+    suspend fun recordLinks(): List<LinkedRecord> =
+        db.from("source_project_link").select(Columns.raw(RECORD_LINK_COLUMNS)) { filter { eq("status", "confirmed") } }
+            .decodeList<RecordLinkRow>()
+            .filter { it.isRecordScope }
+            .mapNotNull { l ->
+                val r = l.record ?: return@mapNotNull null
+                LinkedRecord(r.id, l.projectId, r.title ?: "제목 없는 기록", r.occurredAt ?: r.ingestedAt, r.channel, durationOf(r.audio))
+            }
+
+    /** 프로젝트 전부(보관된 것 포함, 이름순). 기록 상세가 연결된 프로젝트 이름과 연결할 후보를 고를 때 */
+    suspend fun allProjects(): List<ProjectRow> =
+        db.from("project").select().decodeList<ProjectRow>().sortedWith(compareBy(byName) { it.name })
+
+    /** 이 기록이 연결된 프로젝트 ID(기록 상세 머리 칩) */
+    suspend fun projectsOfRecord(recordId: String): List<String> =
+        db.from("source_project_link").select(Columns.raw("project_id,item_ref")) {
+            filter { eq("source_record_id", recordId); eq("status", "confirmed") }
+        }.decodeList<RecordLinkRow>().filter { it.isRecordScope }.map { it.projectId }
+
+    /**
+     * 기록 전체를 프로젝트에 연결(linked = true) 또는 해제. 결과: linked · unlinked · unchanged.
+     * 아카이브된 프로젝트·남의 것·다른 공간은 서버가 거부한다(WB409·WB404·WB422)
+     */
+    suspend fun linkRecord(recordId: String, projectId: String, linked: Boolean): String =
+        db.postgrest.rpc("wb_link_record_project", buildJsonObject {
+            put("p_record_id", recordId); put("p_project_id", projectId); put("p_linked", linked)
+        }).decodeAs<JsonPrimitive>().content
 
     /** 할 일 → 출처 한 줄(오늘·프로젝트 화면 공용). AI 승인으로 생긴 할 일만 있고, 나머지는 직접 추가 */
     suspend fun sources(): Map<String, String> =

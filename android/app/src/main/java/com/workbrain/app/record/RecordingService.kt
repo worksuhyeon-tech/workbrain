@@ -74,15 +74,18 @@ class RecordingService : Service() {
         // 마이크를 쓰는 포그라운드 서비스는 시작 직후 바로 알림을 띄워야 한다(Android 14+)
         ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification("녹음 준비 중"), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         val d = RecordingStore.create(this)
-        // 녹음 전에 넣어 둔 참석자를 이 녹음에 붙인다(DEC-68). 시작에 실패하면 명단을 돌려놓는다
+        // 녹음 전에 넣어 둔 참석자(DEC-68)·고른 프로젝트(DEC-69)를 이 녹음에 붙인다. 시작에 실패하면 돌려놓는다
         val attendees = NextAttendees.take(this)
+        val project = NextProject.take(this)
         RecordingStore.setAttendees(d, attendees)
+        RecordingStore.setProject(d, project)
         val rec = SegmentRecorder(this, d) { onConfirmed() }
         try {
             rec.start()
         } catch (e: Exception) {
             rec.release()
             NextAttendees.set(this, attendees)
+            NextProject.set(this, project)
             RecordingStore.finish(d, 0, status = "failed")
             _state.value = RecState(error = "녹음을 시작하지 못했어요. 다른 앱이 마이크를 쓰고 있는지 확인해 주세요.")
             shutDown()

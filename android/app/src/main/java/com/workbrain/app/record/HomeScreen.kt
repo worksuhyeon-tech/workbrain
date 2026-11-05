@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
@@ -52,13 +53,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.workbrain.app.data.Para
+import com.workbrain.app.data.PlaceType
 import com.workbrain.app.data.Server
 import com.workbrain.app.ui.Banner
 import com.workbrain.app.ui.ControlShape
+import com.workbrain.app.ui.ParaGlyph
+import com.workbrain.app.ui.PillShape
 import com.workbrain.app.ui.GlassIcon
 import com.workbrain.app.ui.GlassTint
 import com.workbrain.app.ui.WbIcons
 import androidx.compose.material3.Icon
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.workbrain.app.ui.PageHeader
@@ -131,6 +138,19 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
             NextAttendees.rememberMyName(context, names.firstOrNull())
             if (rec.status == RecStatus.IDLE) attendees = NextAttendees.get(context)
         }
+    }
+
+    // 프로젝트(DEC-69, 목업 S04 '📁 프로젝트는 나중에'): 참석자와 같이 녹음 중이면 그 녹음의, 아니면 다음 녹음의 것. 올릴 때 연결된다
+    var chosenProject by remember(liveId) {
+        mutableStateOf(liveId?.let { RecordingStore.readProject(RecordingStore.dir(context, it)) } ?: NextProject.get(context))
+    }
+    fun chooseProject(p: ChosenProject?) {
+        chosenProject = p
+        if (liveId != null) RecordingStore.setProject(RecordingStore.dir(context, liveId), p) else NextProject.set(context, p)
+    }
+    var projectChoices by remember { mutableStateOf<List<ChosenProject>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        runCatching { Para.allProjects() }.onSuccess { all -> projectChoices = all.filterNot { it.archived }.map { ChosenProject(it.id, it.name) } }
     }
 
     // 휴지통은 접어도 펴도 화면 오른쪽 위(기록 상세의 ↪ 공유 자리)에 아이콘으로 둔다(사용자 요청 11/03).
@@ -227,11 +247,15 @@ fun HomeScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
             PageHeader("녹음", if (rec.status == RecStatus.IDLE) "말한 건 다 기억해 둘게요" else "잘 듣고 있어요") {
                 if (!wide) trashButton()
             }
-            AttendeeStrip(
-                names = attendees,
-                onAdd = { if (wide) runCatching { attendeeInput.requestFocus() } else editingAttendees = true },
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
+            // 목업 S04 .rec-meta: 프로젝트 고르기 · 참석자
+            Row(Modifier.padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                ProjectPicker(chosenProject, projectChoices, onPick = ::chooseProject)
+                AttendeeStrip(
+                    names = attendees,
+                    onAdd = { if (wide) runCatching { attendeeInput.requestFocus() } else editingAttendees = true },
+                    modifier = Modifier.weight(1f).padding(start = 8.dp),
+                )
+            }
             RecorderCard(
                 rec = rec,
                 onStart = ::startRecording,
@@ -565,6 +589,50 @@ private fun AttendeeStrip(names: List<String>, onAdd: () -> Unit, modifier: Modi
                 .dashedPill(Wb.colors.borderStrong)
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         )
+    }
+}
+
+/**
+ * 목업 S04 .proj-sel: '📁 프로젝트는 나중에' / 고른 프로젝트 이름 ▾. 진행 중 프로젝트만 고를 수 있다.
+ * 고른 프로젝트는 올릴 때 서버 기록에 연결된다(실패하면 기록 상세에서 다시 잇는다)
+ */
+@Composable
+private fun ProjectPicker(chosen: ChosenProject?, choices: List<ChosenProject>, onPick: (ChosenProject?) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier.clip(PillShape).background(Wb.colors.card, PillShape).border(1.dp, Wb.colors.border, PillShape)
+                .clickable(onClickLabel = "프로젝트 고르기") { open = true }
+                .heightIn(min = 36.dp).padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(WbIcons.Folder, contentDescription = null, tint = if (chosen == null) Wb.colors.muted else ParaGlyph.tint(PlaceType.PROJECT), modifier = Modifier.size(15.dp))
+            Text(
+                chosen?.name ?: "프로젝트는 나중에",
+                fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                color = if (chosen == null) Wb.colors.muted else Wb.colors.ink,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 6.dp).widthIn(max = 150.dp),
+            )
+            Icon(WbIcons.ChevronDown, contentDescription = null, tint = Wb.colors.muted, modifier = Modifier.padding(start = 4.dp).size(14.dp))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }, modifier = Modifier.widthIn(min = 220.dp, max = 320.dp)) {
+            DropdownMenuItem(text = { Text("프로젝트는 나중에") }, onClick = { open = false; onPick(null) })
+            if (choices.isEmpty()) {
+                Text(
+                    "진행 중인 프로젝트가 없어요. 프로젝트 탭에서 만들 수 있어요.",
+                    style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            choices.forEach { p ->
+                DropdownMenuItem(
+                    text = { Text(p.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    leadingIcon = { Icon(WbIcons.Folder, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    onClick = { open = false; onPick(p) },
+                )
+            }
+        }
     }
 }
 

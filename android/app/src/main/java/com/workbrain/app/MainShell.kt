@@ -116,7 +116,12 @@ fun MainShell() {
             openId != null && !detailInPane -> RecordDetailScreen(openId, detailTitle, onBack = { detailId = null }, onTrashed = afterTrash)
             else -> when (tab) {
                 Tab.TODAY -> TodayScreen(todayNav)
-                Tab.PROJECTS -> ProjectsScreen(startKey = projectsStart, onStartUsed = { projectsStart = null })
+                Tab.PROJECTS -> ProjectsScreen(
+                    startKey = projectsStart,
+                    onStartUsed = { projectsStart = null },
+                    // 프로젝트에서 연 기록을 닫으면 보던 항목으로 돌아오게 그 열쇠를 맡겨 둔다
+                    onOpenRecord = { id, title, returnKey -> projectsStart = returnKey; open(id, title) },
+                )
                 Tab.RECORD -> HomeScreen(onOpenRecord = open)
                 Tab.REVIEW -> ReviewScreen(
                     onOpenRecord = open,
