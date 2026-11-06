@@ -195,12 +195,18 @@ fun ResourceEditSheet(r: ResourceRow, onDismiss: () -> Unit, onSave: (title: Str
     val cleanUrl = normalizeUrl(url)
     val urlError = link && url.isNotBlank() && cleanUrl == null
     EditSheet(
-        "자료 수정", "자료는 링크·짧은 메모만 담아요(새 문서 편집기는 없어요).",
+        "자료 수정", "자료는 링크 · 짧은 메모 · 기존 기록 참조를 담아요(새 문서 편집기는 없어요).",
         canSave = title.isNotBlank() && !urlError, onDismiss = onDismiss,
         onSave = { onSave(title.trim(), if (link) cleanUrl else null, if (link) null else note.trim().ifEmpty { null }) },
     ) {
         FieldName("이름")
         OutlinedTextField(title, { title = it.take(MAX_TITLE) }, singleLine = true, shape = ControlShape, modifier = Modifier.fillMaxWidth())
+        if (r.isRecordRef) {
+            // 담은 기록은 서버가 바꾸지 못하게 한다(DEC-71). 보여 주기만
+            FieldName("담은 기록")
+            Text(r.record?.title ?: "기록을 읽지 못했어요", style = MaterialTheme.typography.bodyLarge, color = Wb.colors.ink)
+            Text("다른 기록이면 새로 만들고 이 자료는 아카이브해요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
+        }
         if (link) {
             FieldName("주소")
             OutlinedTextField(
@@ -212,7 +218,8 @@ fun ResourceEditSheet(r: ResourceRow, onDismiss: () -> Unit, onSave: (title: Str
         } else {
             FieldName("메모")
             OutlinedTextField(
-                note, { note = it.take(MAX_NOTE) }, minLines = 4, placeholder = { Text("짧게 적어 두세요") },
+                note, { note = it.take(MAX_NOTE) }, minLines = 4,
+                placeholder = { Text(if (r.isRecordRef) "어느 부분을 왜 참고하는지 적어 두세요" else "짧게 적어 두세요") },
                 supportingText = { Text("${note.length}/$MAX_NOTE") }, shape = ControlShape, modifier = Modifier.fillMaxWidth(),
             )
         }

@@ -51,7 +51,10 @@ import java.util.Locale
     val archived: Boolean get() = archivedAt != null
 }
 
-/** 자료: 링크·짧은 메모·기존 기록 참조(M15). 이름·종류만으로 먼저 만들고 내용은 '수정'에서 채운다(목업, 0031) */
+/**
+ * 자료: 링크·짧은 메모·기존 기록 참조(M15). 링크·메모는 이름·종류만으로 먼저 만들고 내용은 '수정'에서 채운다(목업, 0031).
+ * 기록 참조(record-ref)는 만들 때 기록이 필수이고 나중에 바꾸지 못한다(DEC-71). 메모(note)는 '어느 부분을 왜 참고하는지'
+ */
 @Serializable data class ResourceRow(
     val id: String,
     val kind: String,
@@ -60,10 +63,19 @@ import java.util.Locale
     val note: String? = null,
     val version: Int,
     @SerialName("archived_at") val archivedAt: String? = null,
+    @SerialName("source_record_id") val sourceRecordId: String? = null,
+    /** 트리를 읽을 때만 함께 읽는 담은 기록(못 읽으면 null) */
+    @SerialName("source_record") val sourceRecord: RecordBriefRow? = null,
 ) {
     val archived: Boolean get() = archivedAt != null
+    val isRecordRef: Boolean get() = kind == RECORD_REF
     val kindLabel: String get() = when (kind) { "link" -> "링크"; "note" -> "메모"; else -> "기록 참조" }
     val body: String? get() = (if (kind == "link") url else note)?.takeIf { it.isNotBlank() }
+    val record: RecordBrief? get() = sourceRecord?.toBrief()
+
+    companion object {
+        const val RECORD_REF = "record-ref"
+    }
 }
 
 @Serializable data class ResourceLinkRow(
@@ -78,17 +90,32 @@ enum class PlaceType(val table: String) { PROJECT("project"), AREA("area") }
 data class Place(val type: PlaceType, val id: String, val name: String)
 
 /**
- * 프로젝트에 연결된 기록 하나(DEC-69, 0032 기록 전체 연결). 트리 하위 기록·프로젝트 '관련 기록' 카드에 쓴다.
+ * 기록 한 건 요약: 트리 하위 기록·'관련 기록' 카드·기록 참조 자료·기록 고르기가 같이 쓴다.
  * at = 회의 시각(모르면 올린 시각), durationSec = 음성 길이(받아쓴 글은 없음)
  */
-data class LinkedRecord(
-    val recordId: String,
-    val projectId: String,
-    val title: String,
-    val at: String?,
-    val channel: String?,
-    val durationSec: Int?,
-)
+data class RecordBrief(val id: String, val title: String, val at: String?, val channel: String?, val durationSec: Int?)
+
+/** 프로젝트에 연결된 기록 하나(DEC-69, 0032 기록 전체 연결) */
+data class LinkedRecord(val projectId: String, val record: RecordBrief) {
+    val recordId: String get() = record.id
+    val title: String get() = record.title
+    val at: String? get() = record.at
+    val channel: String? get() = record.channel
+}
+
+/** PostgREST가 돌려주는 기록 요약 행(source_record + 음성 길이) */
+@Serializable data class RecordBriefRow(
+    val id: String,
+    val title: String? = null,
+    val channel: String? = null,
+    @SerialName("occurred_at") val occurredAt: String? = null,
+    @SerialName("ingested_at") val ingestedAt: String? = null,
+    @SerialName("audio_asset") val audio: JsonElement? = null,
+) {
+    fun toBrief() = RecordBrief(id, title ?: "제목 없는 기록", occurredAt ?: ingestedAt, channel, durationOf(audio))
+}
+
+private const val RECORD_BRIEF_COLUMNS = "id,title,channel,occurred_at,ingested_at,audio_asset(duration_sec)"
 
 /** 트리·상세를 그리는 데 필요한 것 전부. 할 일은 완료한 것까지(목업 '완료 포함'·프로젝트 할 일 카드) */
 data class ParaData(
@@ -160,21 +187,12 @@ private const val SOURCE_COLUMNS =
     "task_id,approval_event(change_proposal(analysis_run(transcript_version(source_record(title,occurred_at,ingested_at)))))"
 
 // 기록↔프로젝트 연결(0032): 확정된 것만 읽고, 기록 전체 연결(item_ref.scope = record)만 쓴다(항목 단위 AI 연결은 FR-06 때)
-@Serializable private data class LinkRecordRow(
-    val id: String,
-    val title: String? = null,
-    val channel: String? = null,
-    @SerialName("occurred_at") val occurredAt: String? = null,
-    @SerialName("ingested_at") val ingestedAt: String? = null,
-    @SerialName("audio_asset") val audio: JsonElement? = null,
-)
 @Serializable private data class RecordLinkRow(
     @SerialName("project_id") val projectId: String,
     @SerialName("item_ref") val itemRef: JsonObject,
-    @SerialName("source_record") val record: LinkRecordRow? = null,
+    @SerialName("source_record") val record: RecordBriefRow? = null,
 )
-private const val RECORD_LINK_COLUMNS =
-    "project_id,item_ref,source_record(id,title,channel,occurred_at,ingested_at,audio_asset(duration_sec))"
+private const val RECORD_LINK_COLUMNS = "project_id,item_ref,source_record($RECORD_BRIEF_COLUMNS)"
 
 private val RecordLinkRow.isRecordScope: Boolean
     get() = (itemRef["scope"] as? JsonPrimitive)?.content == "record"
@@ -199,7 +217,9 @@ object Para {
         }
         val projects = async { db.from("project").select().decodeList<ProjectRow>().sortedWith(compareBy(byName) { it.name }) }
         val areas = async { db.from("area").select().decodeList<AreaRow>().sortedWith(compareBy(byName) { it.name }) }
-        val resources = async { db.from("resource").select().decodeList<ResourceRow>().sortedWith(compareBy(byName) { it.title }) }
+        val resources = async {
+            db.from("resource").select(Columns.raw("*,source_record($RECORD_BRIEF_COLUMNS)")).decodeList<ResourceRow>().sortedWith(compareBy(byName) { it.title })
+        }
         val links = async { db.from("resource_link").select().decodeList<ResourceLinkRow>() }
         val tasks = async { db.from("task").select { order("created_at", Order.DESCENDING) }.decodeList<TaskRow>() }
         // 출처·연결된 기록은 보조 정보라 못 읽어도 화면은 그린다
@@ -216,10 +236,14 @@ object Para {
         db.from("source_project_link").select(Columns.raw(RECORD_LINK_COLUMNS)) { filter { eq("status", "confirmed") } }
             .decodeList<RecordLinkRow>()
             .filter { it.isRecordScope }
-            .mapNotNull { l ->
-                val r = l.record ?: return@mapNotNull null
-                LinkedRecord(r.id, l.projectId, r.title ?: "제목 없는 기록", r.occurredAt ?: r.ingestedAt, r.channel, durationOf(r.audio))
-            }
+            .mapNotNull { l -> l.record?.let { LinkedRecord(l.projectId, it.toBrief()) } }
+
+    /** 기록 고르기(기록 참조 자료): 보관 안 된 내 기록, 최근 회의부터 */
+    suspend fun records(): List<RecordBrief> =
+        db.from("source_record").select(Columns.raw(RECORD_BRIEF_COLUMNS)) { filter { exact("archived_at", null) } }
+            .decodeList<RecordBriefRow>()
+            .map { it.toBrief() }
+            .sortedByDescending { it.at.orEmpty() }
 
     /** 프로젝트 전부(보관된 것 포함, 이름순). 기록 상세가 연결된 프로젝트 이름과 연결할 후보를 고를 때 */
     suspend fun allProjects(): List<ProjectRow> =
@@ -270,9 +294,11 @@ object Para {
     suspend fun createArea(workspaceId: String, name: String): AreaRow =
         db.from("area").insert(buildJsonObject { put("workspace_id", workspaceId); put("name", name) }) { select() }.decodeSingle()
 
-    suspend fun createResource(workspaceId: String, kind: String, title: String): ResourceRow =
+    /** recordId는 기록 참조일 때만(서버가 내 기록인지 확인하고, 기록 없는 기록 참조는 거부한다) */
+    suspend fun createResource(workspaceId: String, kind: String, title: String, recordId: String? = null): ResourceRow =
         db.from("resource").insert(buildJsonObject {
             put("workspace_id", workspaceId); put("kind", kind); put("title", title)
+            recordId?.let { put("source_record_id", it) }
         }) { select() }.decodeSingle()
 
     // ── 다시 읽기(되돌리기는 지금 버전을 읽어 그 위에 고친다) ──

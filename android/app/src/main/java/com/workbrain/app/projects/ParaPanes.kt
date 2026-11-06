@@ -1,6 +1,7 @@
 package com.workbrain.app.projects
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,6 +28,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -271,33 +273,13 @@ private fun RecordsCard(records: List<LinkedRecord>?, onEvent: (ParaEvent) -> Un
                 else -> Column(Modifier.padding(top = 6.dp)) {
                     records.forEachIndexed { i, r ->
                         if (i > 0) HorizontalDivider(color = Wb.colors.border)
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
-                                .clickable(onClickLabel = "기록 열기") { onEvent(ParaEvent.OpenRecord(r.recordId, r.title)) }
-                                .heightIn(min = 44.dp).padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(if (r.channel == "text-import") WbIcons.Document else WbIcons.Mic, contentDescription = null, tint = Wb.colors.muted, modifier = Modifier.size(16.dp))
-                            Text(
-                                r.title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Wb.colors.ink,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f).padding(start = 8.dp),
-                            )
-                            Text(recordMeta(r), fontSize = 12.sp, color = Wb.colors.muted, modifier = Modifier.padding(start = 8.dp))
-                        }
+                        RecordLine(r.record, onClickLabel = "기록 열기") { onEvent(ParaEvent.OpenRecord(r.recordId, r.title)) }
                     }
                 }
             }
         }
     }
 }
-
-/** 목업 '10/16 · 녹음 42분'. 받아쓴 글은 길이 없이 */
-private fun recordMeta(r: LinkedRecord): String = listOfNotNull(
-    shortDay(r.at),
-    when (r.channel) { "recording" -> "녹음"; "upload" -> "파일"; "call-share" -> "통화"; "text-import" -> "받아쓴 글"; else -> null }
-        ?.let { kind -> r.durationSec?.let { "$kind ${maxOf(1, it / 60)}분" } ?: kind },
-).joinToString(" · ")
 
 /** 목업 정렬: 안 끝난 것 먼저, 그다음 우선순위(높음 먼저), 기한 이른 순 */
 private fun sorted(tasks: List<TaskRow>) = tasks.sortedWith(
@@ -454,7 +436,8 @@ private fun ResourcePane(d: ParaData, r: ResourceRow, layout: PaneLayout, onBack
                 Column(CardPad) {
                     SecH("내용")
                     val body = r.body
-                    Text(
+                    if (r.isRecordRef) RecordRefBody(r, onEvent)
+                    else Text(
                         body ?: "아직 내용이 없어요 · [수정]에서 ${if (r.kind == "link") "주소" else "메모"}를 적어요",
                         fontSize = 15.sp, lineHeight = 24.sp,
                         color = when { body == null -> Wb.colors.muted; r.kind == "link" -> Wb.colors.link; else -> Wb.colors.ink },
@@ -478,9 +461,44 @@ private fun ResourcePane(d: ParaData, r: ResourceRow, layout: PaneLayout, onBack
             }
         }
         item(key = "note") {
-            Note("자료는 여러 프로젝트·반복실행에 함께 연결할 수 있어요. 지금은 링크·메모를 담아요(기존 기록 참조는 다음 단계, 새 문서 편집기는 없어요).")
+            Note("자료는 여러 프로젝트·반복실행에 함께 연결할 수 있어요. 지금은 링크 · 메모 · 기존 기록 참조만 담아요(새 문서 편집기는 없어요).")
         }
     }
+}
+
+/**
+ * 기록 참조 자료의 '내용'(DEC-71): 담은 기록 한 줄(누르면 기록 상세, 닫으면 이 자료로) + [수정]에서 적는 메모.
+ * 기록은 만든 뒤 바꿀 수 없다(서버). 못 읽으면 그렇다고만 알린다
+ */
+@Composable
+private fun RecordRefBody(r: ResourceRow, onEvent: (ParaEvent) -> Unit) {
+    val rec = r.record
+    if (rec == null) {
+        Note("담은 기록을 읽지 못했어요. 인터넷 연결을 확인하거나 새로고침해 주세요.", Modifier.padding(top = 10.dp))
+    } else {
+        Surface(
+            onClick = { onEvent(ParaEvent.OpenRecord(rec.id, rec.title)) },
+            shape = ControlShape,
+            color = Wb.colors.surface,
+            border = BorderStroke(1.dp, Wb.colors.border),
+            modifier = Modifier.padding(top = 10.dp).fillMaxWidth(),
+        ) {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(recordIcon(rec.channel), contentDescription = null, tint = Wb.colors.muted, modifier = Modifier.size(18.dp))
+                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                    Text(rec.title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Wb.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(recordMeta(rec), fontSize = 12.sp, color = Wb.colors.muted)
+                }
+                Icon(WbIcons.ChevronRight, contentDescription = "기록 열기", tint = Wb.colors.muted, modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+    val memo = r.body
+    Text(
+        memo ?: "아직 메모가 없어요 · [수정]에서 어느 부분을 왜 참고하는지 적어요",
+        fontSize = 15.sp, lineHeight = 24.sp, color = if (memo == null) Wb.colors.muted else Wb.colors.ink,
+        modifier = Modifier.padding(top = 10.dp),
+    )
 }
 
 // ── 모든 할 일(S07, DEC-22) ──

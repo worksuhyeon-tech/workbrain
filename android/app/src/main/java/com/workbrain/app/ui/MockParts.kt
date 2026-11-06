@@ -44,7 +44,8 @@ object ParaGlyph {
     val allTasks = WbIcons.Review
     fun project() = WbIcons.Folder
     fun area() = WbIcons.Repeat
-    fun resource(kind: String) = if (kind == "link") WbIcons.Link else WbIcons.Document
+    /** 링크 · 메모 · 기록 참조(목업 🎙️, DEC-71) */
+    fun resource(kind: String) = when (kind) { "link" -> WbIcons.Link; "record-ref" -> WbIcons.Mic; else -> WbIcons.Document }
     fun place(type: PlaceType?) = when (type) { PlaceType.PROJECT -> project(); PlaceType.AREA -> area(); null -> allTasks }
 
     @Composable fun tint(type: PlaceType?): Color = when (type) {

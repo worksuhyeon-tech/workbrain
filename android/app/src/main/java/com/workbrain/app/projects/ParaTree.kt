@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.sp
 import com.workbrain.app.data.LinkedRecord
 import com.workbrain.app.data.ParaData
 import com.workbrain.app.data.PlaceType
+import com.workbrain.app.data.RecordBrief
+import com.workbrain.app.data.ResourceRow
 import com.workbrain.app.ui.ControlShape
 import com.workbrain.app.ui.MAX_TITLE
 import com.workbrain.app.ui.Tone
@@ -109,7 +111,7 @@ fun ParaTreePanel(
     openProjects: Set<String>,
     onToggleSection: (ParaSection) -> Unit,
     onAdd: (ParaSection?) -> Unit,
-    onCreate: (ParaSection, String, String) -> Unit,
+    onCreate: (section: ParaSection, kind: String, name: String, recordId: String?) -> Unit,
     onSelect: (String) -> Unit,
     onToggleProject: (String) -> Unit,
     onOpenRecord: (recordId: String, title: String) -> Unit,
@@ -128,7 +130,7 @@ fun ParaTreePanel(
                 val rows = itemsOf(d, s)
                 val open = s.no in openSections
                 SectionRow(s, rows.size, open, onToggle = { onToggleSection(s) }, onAdd = { onAdd(if (adding == s) null else s) })
-                if (adding == s) NewForm(s, onCancel = { onAdd(null) }) { kind, name -> onCreate(s, kind, name) }
+                if (adding == s) NewForm(s, onCancel = { onAdd(null) }) { kind, name, recordId -> onCreate(s, kind, name, recordId) }
                 if (open) rows.forEach { r ->
                     if (s == ParaSection.PROJECTS) {
                         val projectId = r.key.substringAfter(':')
@@ -210,14 +212,28 @@ private fun SectionRow(s: ParaSection, count: Int, open: Boolean, onToggle: () -
     }
 }
 
-/** 칸 아래 이름 입력 줄(목업 .tn-new). 자료는 종류(링크·메모)를 먼저 고른다. 기록 참조는 다음 단계 */
+/**
+ * 칸 아래 이름 입력 줄(목업 .tn-new). 자료는 종류(링크·메모·기록 참조)를 먼저 고른다.
+ * 기록 참조는 기록을 먼저 고르고 그 제목이 이름 칸에 들어간다(DEC-71, 서버가 기록 없는 기록 참조를 받지 않음)
+ */
 @Composable
-private fun NewForm(s: ParaSection, onCancel: () -> Unit, onCreate: (kind: String, name: String) -> Unit) {
+private fun NewForm(s: ParaSection, onCancel: () -> Unit, onCreate: (kind: String, name: String, recordId: String?) -> Unit) {
     var name by remember(s) { mutableStateOf("") }
     var kind by remember(s) { mutableStateOf("link") }
-    val submit = { if (name.isNotBlank()) onCreate(kind, name.trim()) }
+    var record by remember(s) { mutableStateOf<RecordBrief?>(null) }
+    var picking by remember { mutableStateOf(false) }
+    val recordRef = kind == ResourceRow.RECORD_REF
+    val submit = {
+        if (name.isNotBlank() && (!recordRef || record != null)) onCreate(kind, name.trim(), if (recordRef) record?.id else null)
+    }
     Column(Modifier.fillMaxWidth().padding(start = 24.dp, top = 4.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (s == ParaSection.RESOURCES) DarkSeg(listOf(SegItem("link", "링크"), SegItem("note", "메모")), kind) { kind = it }
+        if (s == ParaSection.RESOURCES) {
+            DarkSeg(listOf(SegItem("link", "링크"), SegItem("note", "메모"), SegItem(ResourceRow.RECORD_REF, "기록 참조")), kind) {
+                kind = it
+                if (it == ResourceRow.RECORD_REF && record == null) picking = true
+            }
+        }
+        if (recordRef) RecordPickField(record) { picking = true }
         OutlinedTextField(
             value = name, onValueChange = { name = it.take(MAX_TITLE) }, singleLine = true,
             placeholder = { Text(s.placeholder, fontSize = 13.sp) },
@@ -229,6 +245,38 @@ private fun NewForm(s: ParaSection, onCancel: () -> Unit, onCreate: (kind: Strin
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SmallButton("추가", primary = true, onClick = submit)
             SmallButton("취소", onClick = onCancel)
+        }
+    }
+    if (picking) {
+        RecordPickSheet(onDismiss = { picking = false }) { r ->
+            // 이름을 직접 고쳐 둔 게 아니면(비었거나 앞서 고른 기록 제목 그대로) 새 기록 제목으로 바꾼다
+            if (name.isBlank() || name == record?.title?.take(MAX_TITLE)) name = r.title.take(MAX_TITLE)
+            record = r
+            picking = false
+        }
+    }
+}
+
+/** 기록 참조: 고른 기록(없으면 '기록 고르기'). 누르면 기록 고르기 서랍 */
+@Composable
+private fun RecordPickField(record: RecordBrief?, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = ControlShape,
+        color = Wb.colors.card,
+        border = BorderStroke(1.dp, if (record == null) Wb.colors.primary else Wb.colors.borderStrong),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+    ) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(record?.let { recordIcon(it.channel) } ?: WbIcons.Mic, contentDescription = null, tint = Wb.colors.muted, modifier = Modifier.size(16.dp))
+            Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                Text(
+                    record?.title ?: "기록 고르기", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                    color = if (record == null) Wb.colors.link else Wb.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                record?.let { Text(recordMeta(it), fontSize = 12.sp, color = Wb.colors.muted) }
+            }
+            Icon(WbIcons.ChevronDown, contentDescription = "기록 고르기", tint = Wb.colors.muted, modifier = Modifier.size(18.dp))
         }
     }
 }
@@ -291,7 +339,7 @@ private fun RecordTreeRow(r: LinkedRecord, onClick: () -> Unit) {
             .heightIn(min = 36.dp).padding(start = 52.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(if (r.channel == "text-import") WbIcons.Document else WbIcons.Mic, contentDescription = null, tint = Wb.colors.muted, modifier = Modifier.size(13.dp))
+        Icon(recordIcon(r.channel), contentDescription = null, tint = Wb.colors.muted, modifier = Modifier.size(13.dp))
         Text(r.title, fontSize = 13.sp, color = Wb.colors.body, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 6.dp))
         shortDay(r.at)?.let { Text(it, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Wb.colors.muted, modifier = Modifier.padding(start = 6.dp)) }
     }

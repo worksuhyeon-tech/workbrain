@@ -156,13 +156,14 @@ fun ProjectsScreen(
         }
     }
 
-    fun create(d: ParaData, s: ParaSection, kind: String, name: String) {
+    /** recordId: 기록 참조 자료일 때 고른 기록(DEC-71) */
+    fun create(d: ParaData, s: ParaSection, kind: String, name: String, recordId: String?) {
         adding = null
         val ws = d.workspace.id
         when (s) {
             ParaSection.PROJECTS -> act("만들었어요 · $name") { Para.createProject(ws, name).also { selected = projectKey(it.id) } }
             ParaSection.AREAS -> act("만들었어요 · $name") { Para.createArea(ws, name).also { selected = areaKey(it.id) } }
-            ParaSection.RESOURCES -> act("만들었어요 · $name") { Para.createResource(ws, kind, name).also { selected = resourceKey(it.id) } }
+            ParaSection.RESOURCES -> act("만들었어요 · $name") { Para.createResource(ws, kind, name, recordId).also { selected = resourceKey(it.id) } }
             ParaSection.ARCHIVE -> Unit
         }
     }
@@ -259,7 +260,7 @@ fun ProjectsScreen(
                     openProjects = openProjects,
                     onToggleSection = { s -> openSections = if (s.no in openSections) openSections.replace(s.no.toString(), "") else openSections + s.no },
                     onAdd = { s -> adding = s; if (s != null && s.no !in openSections) openSections += s.no },
-                    onCreate = { s, kind, name -> create(d, s, kind, name) },
+                    onCreate = { s, kind, name, recordId -> create(d, s, kind, name, recordId) },
                     onSelect = { select(it); adding = null },
                     onToggleProject = ::toggleProject,
                     // 트리에서 연 기록을 닫으면 그 기록이 속한 프로젝트로 돌아온다
