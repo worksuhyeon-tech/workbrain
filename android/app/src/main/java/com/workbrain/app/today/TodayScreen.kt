@@ -55,7 +55,10 @@ import com.workbrain.app.record.RecordingStore
 import com.workbrain.app.record.UploadManager
 import com.workbrain.app.record.UploadProgress
 import com.workbrain.app.review.Snooze
+import com.workbrain.app.tasks.QuickAddBar
 import com.workbrain.app.tasks.TaskEditSheet
+import com.workbrain.app.tasks.quickAddedText
+import com.workbrain.app.tasks.quickDueLabel
 import com.workbrain.app.tasks.TaskLine
 import com.workbrain.app.tasks.UNSAVED_TEXT
 import com.workbrain.app.tasks.dueDay
@@ -104,7 +107,7 @@ private data class Pending(val recordId: String, val title: String, val day: Str
  * 왼쪽(접힌 화면은 위) '오늘 할 일': 모든 프로젝트·반복실행에서 오늘 마감 + 지연, 남이 맡은 일은 '챙길 팔로업'으로 나눈다.
  *   오늘 끝낸 일은 맨 아래 '오늘 완료'에 취소선으로 남긴다(DEC-64, 목업에 더한 것). 그 밖의 할 일은 '모든 할 일'에서 본다.
  * 오른쪽(접힌 화면은 아래) '검토 대기'(기록별, 승인 버튼 없음)와 '처리 중인 기록'.
- * 비용이 경고선을 넘을 때만 위에 띠. 한 줄 빠른 추가는 입력 해석(FR-08)과 함께 넣는다.
+ * '오늘 할 일' 머리 아래 한 줄 빠른 입력(기한을 안 적으면 오늘 마감, DEC-70). 비용이 경고선을 넘을 때만 위에 띠.
  */
 @Composable
 fun TodayScreen(nav: TodayNav) {
@@ -185,9 +188,18 @@ fun TodayScreen(nav: TodayNav) {
     val pendingGroups = groupPending(pending.filter { !Snooze.isActive(it.snoozedUntil) })
     val processing = sessions.filter { it.recordId != null && it.serverState != "ready" }
 
+    // 목업 S02 .qa-wrap: 기한을 안 적으면 오늘 마감. 오늘 화면에 안 보이는 것(내일 이후·모호)은 알림에 기한을 함께 쓴다
+    val quickAdd: @Composable () -> Unit = {
+        QuickAddBar(places, Modifier.padding(horizontal = 16.dp), noDueMeansToday = true) { r ->
+            val shownHere = r.dueDate?.let { !it.isAfter(today) } == true
+            val due = quickDueLabel(r, today) ?: "${r.vague} · 확인 필요"
+            message = (quickAddedText(r) + if (shownHere) "" else " · $due · ‘모든 할 일’에서 보여요") to Tone.Good
+            scope.launch { load() }
+        }
+    }
     val todayCard: @Composable () -> Unit = {
         TodayCard(
-            late, todays, follow, doneToday, loaded = tasks != null, sources,
+            late, todays, follow, doneToday, loaded = tasks != null, sources, quickAdd,
             onToggle = { t -> setDone(t, !t.done) },
             onOpen = { t -> editError = null; editing = t },
             onPlace = { p -> nav.openProjects(if (p.type == PlaceType.PROJECT) "p:${p.id}" else "a:${p.id}") },
@@ -277,6 +289,7 @@ private fun TodayCard(
     doneToday: List<TaskRow>,
     loaded: Boolean,
     sources: Map<String, String>,
+    quickAdd: @Composable () -> Unit,
     onToggle: (TaskRow) -> Unit,
     onOpen: (TaskRow) -> Unit,
     onPlace: (Place) -> Unit,
@@ -288,6 +301,7 @@ private fun TodayCard(
             val showPriority = maxWidth >= 480.dp
             Column {
                 CardHead("오늘 할 일", "${late.size + todays.size}건", "다음 7일 · 전체", onAll)
+                quickAdd()
                 val rows: @Composable ColumnScope.(List<TaskRow>) -> Unit = { list ->
                     list.forEachIndexed { i, t ->
                         if (i > 0) HorizontalDivider(color = Wb.colors.border)

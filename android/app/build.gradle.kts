@@ -72,4 +72,7 @@ dependencies {
     implementation("io.ktor:ktor-client-okhttp:3.1.2")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // 화면과 떼어 놓은 규칙(빠른 입력 해석 등)을 PC에서 시험한다(TC-26)
+    testImplementation("junit:junit:4.13.2")
 }

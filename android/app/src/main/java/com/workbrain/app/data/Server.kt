@@ -486,8 +486,8 @@ object Server {
     }
 
     /**
-     * 사용자가 직접 만드는 할 일(결정 카드 '할 일로 만들기', DEC-48). AI 후보 승인 경로가 아니다.
-     * fields는 CandidateEditSheet가 돌려주는 키(title·owner_kind·assignee·due_*)만 담는다. 소유자는 DB 기본값(auth.uid)
+     * 사용자가 직접 만드는 할 일(결정 카드 '할 일로 만들기' DEC-48, 한 줄 빠른 입력 DEC-70). AI 후보 승인 경로가 아니다.
+     * fields는 task 표의 사용자 입력 칸(title·priority·owner_kind·assignee·due_*·project_id/area_id)만 담는다. 소유자는 DB 기본값(auth.uid)
      */
     suspend fun createTask(fields: JsonObject) {
         db.from("task").insert(fields)

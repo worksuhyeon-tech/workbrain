@@ -63,6 +63,8 @@ sealed interface ParaEvent {
     data class Later(val which: String) : ParaEvent
     /** 트리 하위 기록·'관련 기록' 카드에서 기록 상세 열기(DEC-69) */
     data class OpenRecord(val recordId: String, val title: String) : ParaEvent
+    /** 한 줄 빠른 입력으로 넣었음(저장은 입력 줄이 이미 함): 다시 읽고 알림만(DEC-70) */
+    data class QuickAdded(val message: String) : ParaEvent
 }
 
 /** 아카이브 전에 묻기: 안 끝난 할 일이 '오늘'·'모든 할 일'에서 빠진다는 것을 알린다(DEC-65) */
@@ -72,7 +74,7 @@ private data class ArchiveAsk(val key: String, val name: String, val openTasks: 
  * S03 프로젝트(PARA 트리) — 목업 workbrain-project.html 모양(DEC-66), 기능 범위는 1단계(DEC-65).
  * 펼친 화면: 머리('프로젝트' + [+ 새로 만들기]) 아래 왼쪽 트리 패널 / 오른쪽 상세(목업 .pj-layout, DEC-47).
  * 접힌 화면: 머리 + 트리 패널 → 항목을 누르면 상세 전체 화면(뒤로 가기로 트리, Design §6.3).
- * 결과는 화면 아래 알림으로 알리고, 되돌릴 수 있으면 '되돌리기'(DEC-24). 끌어서 옮기기·기록 연결·한 줄 빠른 입력은 다음 단계.
+ * 결과는 화면 아래 알림으로 알리고, 되돌릴 수 있으면 '되돌리기'(DEC-24). 끌어서 옮기기는 다음 단계(DEC-69 ③).
  * startKey: 다른 탭에서 열 항목('all'·'p:ID'·'a:ID', 오늘 화면 링크). 쓰고 나면 onStartUsed로 비운다.
  * onOpenRecord(기록 ID, 제목, 돌아올 항목): 기록 상세를 연다. 상세를 닫으면 돌아올 항목이 startKey로 다시 온다
  */
@@ -214,6 +216,7 @@ fun ProjectsScreen(
                 else setArchived(d, e.key, e.archived)
             }
             is ParaEvent.EditLinks -> linkFor = e.resourceId
+            is ParaEvent.QuickAdded -> scope.launch { load(); announcer.show(e.message) }
             is ParaEvent.Later -> announcer.show(
                 if (e.which == "cal") "캘린더 보기는 P4예요 · 날짜·시각 기한을 그대로 달력에 놓아요(모호한 기한은 옆 칸에 따로)"
                 else "매트릭스는 P4예요 · 지금의 우선순위(중요)와 기한(급함)으로 4칸을 계산해 데이터 추가가 없어요",

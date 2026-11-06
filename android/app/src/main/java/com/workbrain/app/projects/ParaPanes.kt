@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import com.workbrain.app.data.AreaRow
 import com.workbrain.app.data.LinkedRecord
 import com.workbrain.app.data.ParaData
+import com.workbrain.app.data.Place
 import com.workbrain.app.data.PlaceType
 import com.workbrain.app.data.ProjectRow
 import com.workbrain.app.data.ResourceRow
@@ -81,8 +82,10 @@ import com.workbrain.app.ui.LinkChip
 import com.workbrain.app.ui.SegItem
 import com.workbrain.app.ui.DarkSeg
 import com.workbrain.app.ui.SmallButton
+import com.workbrain.app.tasks.QuickAddBar
 import com.workbrain.app.tasks.TaskLine
 import com.workbrain.app.tasks.dueDay
+import com.workbrain.app.tasks.quickAddedText
 
 /**
  * 오른쪽 칸(접힌 화면은 전체 화면): 트리에서 고른 것의 상세(목업 S03 #detail, DEC-66).
@@ -301,15 +304,27 @@ private fun sorted(tasks: List<TaskRow>) = tasks.sortedWith(
     compareBy<TaskRow>({ it.done }, { it.priority ?: 2 }, { dueDay(it) ?: LocalDate.MAX }, { it.title }),
 )
 
-/** 할 일 카드(목업 tasksCard): 머리 '할 일 N'(안 끝난 수) + 줄 목록. 한 줄 빠른 추가는 FR-08과 함께 */
+/**
+ * 할 일 카드(목업 tasksCard): 머리 '할 일 N'(안 끝난 수) + 한 줄 빠른 입력(이곳에 넣음, 보관된 곳은 없음) + 줄 목록.
+ * 빠른 입력에서 '#'으로 다른 곳을 고르면 그곳에 들어가고 알림에 이름이 나온다
+ */
 @Composable
-private fun TasksCard(title: String, d: ParaData, tasks: List<TaskRow>, readOnly: Boolean, layout: PaneLayout, onEvent: (ParaEvent) -> Unit) {
+private fun TasksCard(title: String, d: ParaData, place: Place, tasks: List<TaskRow>, readOnly: Boolean, layout: PaneLayout, onEvent: (ParaEvent) -> Unit) {
     MockCard {
         Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)) {
             SecH(title) { Text("${tasks.count { !it.done }}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Wb.colors.ink) }
         }
+        if (!readOnly) {
+            QuickAddBar(d.places, Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp), fixedPlace = place) { r ->
+                onEvent(ParaEvent.QuickAdded(quickAddedText(r)))
+            }
+        }
         if (tasks.isEmpty()) {
-            EmptyNote("할 일이 없어요", "회의를 올리면 기록 화면에서 할 일 후보를 골라 추가할 수 있어요. 다른 할 일은 눌러서 ‘어디에’를 이곳으로 고르면 와요.")
+            EmptyNote(
+                "할 일이 없어요",
+                if (readOnly) "회의를 올리면 기록 화면에서 할 일 후보를 골라 추가할 수 있어요."
+                else "위에 한 줄로 적거나, 회의를 올리면 기록 화면에서 할 일 후보를 골라 추가할 수 있어요.",
+            )
         } else {
             TaskLines(sorted(tasks), d, readOnly, layout, onEvent)
         }
@@ -371,7 +386,7 @@ private fun ProjectPane(d: ParaData, p: ProjectRow, layout: PaneLayout, onBack: 
         }
         item(key = "state") { StateCard() }
         item(key = "records") { RecordsCard(d.recordsOf(p.id), onEvent) }
-        item(key = "tasks") { TasksCard("할 일", d, tasks, p.archived, layout, onEvent) }
+        item(key = "tasks") { TasksCard("할 일", d, Place(PlaceType.PROJECT, p.id, p.name), tasks, p.archived, layout, onEvent) }
     }
 }
 
@@ -413,7 +428,7 @@ private fun AreaPane(d: ParaData, a: AreaRow, layout: PaneLayout, onBack: (() ->
             }
         }
         item(key = "records") { RecordsCard(null, onEvent) }
-        item(key = "tasks") { TasksCard("반복 할 일", d, d.tasksOf(PlaceType.AREA, a.id), a.archived, layout, onEvent) }
+        item(key = "tasks") { TasksCard("반복 할 일", d, Place(PlaceType.AREA, a.id, a.name), d.tasksOf(PlaceType.AREA, a.id), a.archived, layout, onEvent) }
     }
 }
 
@@ -473,17 +488,24 @@ private fun ResourcePane(d: ParaData, r: ResourceRow, layout: PaneLayout, onBack
 private val RANGES = listOf("next7" to "다음 7일", "late" to "지연", "all" to "전체")
 private val OWNERS = listOf("all" to "전체", "mine" to "내 할 일", "follow" to "팔로업")
 
-private fun inRange(t: TaskRow, range: String, today: LocalDate): Boolean = when (range) {
-    "late" -> !t.done && dueDay(t)?.isBefore(today) == true
-    "next7" -> dueDay(t)?.let { !it.isBefore(today) && !it.isAfter(today.plusDays(6)) } == true
+/** 기한 날짜가 기간 탭 안인지. 할 일 줄과 빠른 입력 알림('지금 고른 탭 밖')이 같이 쓴다 */
+private fun dayInRange(day: LocalDate?, range: String, today: LocalDate): Boolean = when (range) {
+    "late" -> day?.isBefore(today) == true
+    "next7" -> day != null && !day.isBefore(today) && !day.isAfter(today.plusDays(6))
     else -> true
 }
 
-private fun inOwner(t: TaskRow, owner: String): Boolean = when (owner) {
-    "mine" -> t.ownerKind != "other"
-    "follow" -> t.ownerKind == "other"
+private fun inRange(t: TaskRow, range: String, today: LocalDate): Boolean =
+    (range != "late" || !t.done) && dayInRange(dueDay(t), range, today)
+
+/** follow = 남이 맡은 일(팔로업) */
+private fun ownerIn(follow: Boolean, owner: String): Boolean = when (owner) {
+    "mine" -> !follow
+    "follow" -> follow
     else -> true
 }
+
+private fun inOwner(t: TaskRow, owner: String): Boolean = ownerIn(t.ownerKind == "other", owner)
 
 private data class Group(val type: PlaceType?, val name: String, val key: String?, val rows: List<TaskRow>)
 
@@ -544,6 +566,15 @@ private fun AllTasksPane(d: ParaData, layout: PaneLayout, onBack: (() -> Unit)?,
                 fontSize = 15.sp, color = Wb.colors.body,
             )
         }
+        item(key = "quick") {
+            // 목업 .quick-card. '#'이 없으면 이 기기에서 마지막에 넣은 곳(DEC-70)
+            MockCard {
+                QuickAddBar(d.places, Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) { r ->
+                    val shownHere = dayInRange(r.dueDate, range, today) && ownerIn(r.assignee != null, owner)
+                    onEvent(ParaEvent.QuickAdded(quickAddedText(r) + if (shownHere) "" else " · 지금 고른 탭 밖이라 ‘전체’에서 보여요"))
+                }
+            }
+        }
         item(key = "toolbar") {
             // 기간·담당 두 묶음은 늘 한 줄(11/05 사용자: 숫자가 두 자리가 되면 '전체·내 할 일·팔로업'만 아래 줄로 떨어졌음).
             // 그래도 넘치면 뒤 묶음이 남은 폭만 받아 그 안에서 옆으로 민다
@@ -564,7 +595,7 @@ private fun AllTasksPane(d: ParaData, layout: PaneLayout, onBack: (() -> Unit)?,
             MockCard {
                 EmptyNote(
                     if (range == "late") "지연된 할 일이 없어요" else "여기엔 할 일이 없어요",
-                    "다른 탭을 골라 보세요. 회의에서 나온 할 일은 기록 화면에서 골라 추가해요.",
+                    "다른 탭을 보거나 위에 한 줄로 추가해 보세요.",
                 )
             }
         }
@@ -579,7 +610,18 @@ private fun AllTasksPane(d: ParaData, layout: PaneLayout, onBack: (() -> Unit)?,
             }
         }
         item(key = "foot") {
-            Note("기한은 날짜만 / 날짜+시각 / 모호(확인 필요)를 구분해 보존해요. 회의에서 나온 할 일은 기록 화면에서 골라 추가해요. 한 줄 빠른 입력은 다음 단계, 반복·하위 작업·태그는 P4예요.")
+            // 목업 아래 .note(굵은 글씨 자리 그대로)
+            Text(
+                buildAnnotatedString {
+                    fun bold(s: String) = withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(s) }
+                    append("빠른 입력은 "); bold("오늘·내일·모레, 10/24, 금요일, 다음 주 월요일, 3시·15:00"); append(", ")
+                    bold("!높음"); append(", "); bold("#프로젝트"); append(", "); bold("@사람(팔로업)")
+                    append("을 규칙으로 알아봐요(AI 비용 없음). 못 알아본 말은 제목에 그대로 남아요. 기한은 ")
+                    bold("날짜만"); append(" / "); bold("날짜+시각"); append(" / "); bold("모호(확인 필요)")
+                    append("를 구분해 보존해요. 회의에서 나온 할 일은 기록 화면에서 골라 추가해요. 반복·하위 작업·태그는 P4예요.")
+                },
+                fontSize = 12.sp, lineHeight = 18.sp, color = Wb.colors.muted,
+            )
         }
     }
 }
