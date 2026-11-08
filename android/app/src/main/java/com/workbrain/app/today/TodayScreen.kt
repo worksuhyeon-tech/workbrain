@@ -64,6 +64,7 @@ import com.workbrain.app.tasks.quickAddedText
 import com.workbrain.app.tasks.quickDueLabel
 import com.workbrain.app.tasks.TaskLine
 import com.workbrain.app.tasks.UNSAVED_TEXT
+import com.workbrain.app.tasks.doneInstant
 import com.workbrain.app.tasks.dueDay
 import com.workbrain.app.tasks.isLate
 import com.workbrain.app.tasks.movedText
@@ -186,7 +187,7 @@ fun TodayScreen(nav: TodayNav) {
     val late = sortTasks(mine.filter { isLate(it, today) })
     val todays = sortTasks(mine.filter { !isLate(it, today) })
     val follow = sortTasks(due.filter { it.ownerKind == "other" })
-    val doneToday = all.filter { it.done }.sortedByDescending { t -> t.doneAt?.let { runCatching { OffsetDateTime.parse(it).toInstant() }.getOrNull() } }
+    val doneToday = all.filter { it.done }.sortedByDescending { doneInstant(it)?.toInstant() }
 
     val pendingGroups = groupPending(pending.filter { !Snooze.isActive(it.snoozedUntil) })
     val processing = sessions.filter { it.recordId != null && it.serverState != "ready" }

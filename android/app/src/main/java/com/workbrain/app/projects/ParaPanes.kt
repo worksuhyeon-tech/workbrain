@@ -88,7 +88,9 @@ import com.workbrain.app.ui.SmallButton
 import com.workbrain.app.tasks.QuickAddBar
 import com.workbrain.app.tasks.QuickAddDock
 import com.workbrain.app.tasks.TaskLine
+import com.workbrain.app.tasks.doneInstant
 import com.workbrain.app.tasks.dueDay
+import com.workbrain.app.tasks.isEarlierDone
 import com.workbrain.app.tasks.quickAddedText
 
 /**
@@ -290,10 +292,15 @@ private fun sorted(tasks: List<TaskRow>) = tasks.sortedWith(
 
 /**
  * 할 일 카드(목업 tasksCard): 머리 '할 일 N'(안 끝난 수) + 한 줄 빠른 입력(이곳에 넣음, 보관된 곳은 없음) + 줄 목록.
- * 빠른 입력에서 '#'으로 다른 곳을 고르면 그곳에 들어가고 알림에 이름이 나온다
+ * 빠른 입력에서 '#'으로 다른 곳을 고르면 그곳에 들어가고 알림에 이름이 나온다.
+ * 완료는 오늘 끝낸 것만 목록에 남기고, 어제 이전 완료는 맨 아래 '이전 완료 N개 ›'로 접는다(DEC-74, 목업은 다 남겨 쌓였음)
  */
 @Composable
 private fun TasksCard(title: String, d: ParaData, drag: ParaDragState, place: Place, tasks: List<TaskRow>, readOnly: Boolean, layout: PaneLayout, onEvent: (ParaEvent) -> Unit) {
+    val today = LocalDate.now(SEOUL)
+    val (earlierDone, current) = tasks.partition { isEarlierDone(it, today) }
+    // 다른 항목으로 갔다 오면 다시 접힌다(항목마다 카드가 새로 그려짐)
+    var showEarlier by rememberSaveable(place.id) { mutableStateOf(false) }
     MockCard {
         Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)) {
             SecH(title) { Text("${tasks.count { !it.done }}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Wb.colors.ink) }
@@ -310,8 +317,37 @@ private fun TasksCard(title: String, d: ParaData, drag: ParaDragState, place: Pl
                 else "위에 한 줄로 적거나, 회의를 올리면 기록 화면에서 할 일 후보를 골라 추가할 수 있어요.",
             )
         } else {
-            TaskLines(sorted(tasks), d, drag, readOnly, layout, onEvent)
+            TaskLines(sorted(current), d, drag, readOnly, layout, onEvent)
+            if (earlierDone.isNotEmpty()) {
+                if (current.isNotEmpty()) HorizontalDivider(color = Wb.colors.border)
+                EarlierDoneToggle(earlierDone.size, showEarlier) { showEarlier = !showEarlier }
+                if (showEarlier) {
+                    HorizontalDivider(color = Wb.colors.border)
+                    // 최근에 끝낸 것부터. 완료 시각이 없는 옛 완료는 맨 끝
+                    TaskLines(earlierDone.sortedByDescending { doneInstant(it)?.toInstant() }, d, drag, readOnly, layout, onEvent)
+                }
+            }
         }
+    }
+}
+
+/** 상세 할 일 카드 맨 아래 접힌 줄: '이전 완료 N개 ›' ↔ '이전 완료 N개 접기'(DEC-74) */
+@Composable
+private fun EarlierDoneToggle(count: Int, open: Boolean, onToggle: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .clickable(onClickLabel = if (open) "이전 완료 접기" else "이전 완료 펼치기", onClick = onToggle)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            if (open) "이전 완료 ${count}개 접기" else "이전 완료 ${count}개",
+            fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Wb.colors.muted,
+        )
+        Icon(
+            if (open) WbIcons.ChevronDown else WbIcons.ChevronRight, contentDescription = null, tint = Wb.colors.muted,
+            modifier = Modifier.padding(start = 2.dp).size(16.dp),
+        )
     }
 }
 

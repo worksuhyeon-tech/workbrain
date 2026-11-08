@@ -53,6 +53,19 @@ fun dueDay(t: TaskRow): LocalDate? = t.dueDate?.let { runCatching { LocalDate.pa
 /** 지났는데 안 끝남 */
 fun isLate(t: TaskRow, today: LocalDate = LocalDate.now(SEOUL)): Boolean = !t.done && dueDay(t)?.isBefore(today) == true
 
+/** 완료한 순간. 안 끝났거나 완료 시각이 없으면(0029 이전에 끝낸 것) null */
+fun doneInstant(t: TaskRow): OffsetDateTime? = t.doneAt?.let { runCatching { OffsetDateTime.parse(it) }.getOrNull() }
+
+/**
+ * 어제 이전에 끝낸 할 일: 상세 할 일 카드에서 '이전 완료'로 접는다(DEC-74). 오늘(서울) 끝낸 것은 '오늘' 탭처럼 목록에 남긴다.
+ * 완료 시각이 없는 옛 완료도 언제 끝냈는지 모르니 이전 완료로 본다
+ */
+fun isEarlierDone(t: TaskRow, today: LocalDate): Boolean {
+    if (!t.done) return false
+    val doneDay = doneInstant(t)?.atZoneSameInstant(SEOUL)?.toLocalDate() ?: return true
+    return doneDay.isBefore(today)
+}
+
 /** 목업 기한 칩 글자: 기한 없음 / '다음 주 · 확인 필요' / (지연 · )오늘·M/d( HH:mm) */
 private fun rowDue(t: TaskRow, today: LocalDate): String {
     if (t.dueAmbiguous && t.dueDate == null && t.dueTime == null) return "${t.dueText ?: "모호"} · 확인 필요"
