@@ -101,10 +101,12 @@ private fun itemsOf(d: ParaData, s: ParaSection): List<TreeItem> = when (s) {
  * 목업 .side: 흰 패널 안에 공간 버튼 → 모든 할 일 → 1~4칸 → 범례.
  * adding: 지금 이름을 받는 칸(칸 아래 입력 줄, 목업 .tn-new). onCreate(칸, 종류, 이름)
  * 프로젝트 아래에는 연결된 기록이 하위 줄로 펼쳐진다(DEC-24 깊이 고정, DEC-69). openProjects = 펼친 프로젝트 ID
+ * drag: 길게 눌러 끌어서 옮기기(DEC-72) — 끄는 것은 프로젝트·기록·자료, 놓는 곳은 1·4 칸 머리와 보관 안 된 프로젝트·반복실행 줄
  */
 @Composable
 fun ParaTreePanel(
     d: ParaData,
+    drag: ParaDragState,
     selectedKey: String?,
     openSections: String,
     adding: ParaSection?,
@@ -129,21 +131,32 @@ fun ParaTreePanel(
             ParaSection.entries.forEach { s ->
                 val rows = itemsOf(d, s)
                 val open = s.no in openSections
-                SectionRow(s, rows.size, open, onToggle = { onToggleSection(s) }, onAdd = { onAdd(if (adding == s) null else s) })
+                val sectionKey = DropKey.Section(s)
+                SectionRow(
+                    s, rows.size, open,
+                    modifier = Modifier.dropTarget(drag, sectionKey), hot = drag.hot == sectionKey,
+                    onToggle = { onToggleSection(s) }, onAdd = { onAdd(if (adding == s) null else s) },
+                )
                 if (adding == s) NewForm(s, onCancel = { onAdd(null) }) { kind, name, recordId -> onCreate(s, kind, name, recordId) }
                 if (open) rows.forEach { r ->
+                    val id = r.key.substringAfter(':')
+                    val target = dropKeyOf(s, id)
+                    val rowDrag = Modifier.dragSource(drag, dragItemOf(r, id)).dropTarget(drag, target)
+                    val hot = target != null && drag.hot == target
                     if (s == ParaSection.PROJECTS) {
-                        val projectId = r.key.substringAfter(':')
-                        val records = d.recordsOf(projectId)
-                        val expanded = projectId in openProjects && records.isNotEmpty()
+                        val records = d.recordsOf(id)
+                        val expanded = id in openProjects && records.isNotEmpty()
                         TreeRow(
                             r.icon, r.tint, r.name, r.count, selectedKey == r.key, indent = true,
+                            modifier = rowDrag, hot = hot,
                             expander = if (records.isEmpty()) Expander.SPACE else if (expanded) Expander.OPEN else Expander.CLOSED,
-                            onExpand = { onToggleProject(projectId) },
+                            onExpand = { onToggleProject(id) },
                         ) { onSelect(r.key) }
-                        if (expanded) records.forEach { rec -> RecordTreeRow(rec) { onOpenRecord(rec.recordId, rec.title) } }
+                        if (expanded) records.forEach { rec ->
+                            RecordTreeRow(rec, Modifier.dragSource(drag, DragItem.Record(rec.recordId, id, rec.title))) { onOpenRecord(rec.recordId, rec.title) }
+                        }
                     } else {
-                        TreeRow(r.icon, r.tint, r.name, r.count, selectedKey == r.key, indent = true, archived = r.archived) { onSelect(r.key) }
+                        TreeRow(r.icon, r.tint, r.name, r.count, selectedKey == r.key, indent = true, archived = r.archived, modifier = rowDrag, hot = hot) { onSelect(r.key) }
                     }
                 }
             }
@@ -191,10 +204,29 @@ private fun WorkspaceButton(name: String, description: String?) {
     }
 }
 
+/**
+ * 끄는 것(목업 draggable): 프로젝트(진행 중·보관된 것 모두 — 보관·복원), 보관 안 된 자료(연결).
+ * 반복실행은 옮길 곳이 없고, 보관된 반복실행·자료는 복원한 뒤 버튼으로 다룬다
+ */
+private fun dragItemOf(r: TreeItem, id: String): DragItem? = when {
+    r.key.startsWith("p:") -> DragItem.Project(id, r.name)
+    r.key.startsWith("r:") && !r.archived -> DragItem.Resource(id, r.name)
+    else -> null
+}
+
+/** 놓는 곳: 1·2칸의 줄(보관 안 된 프로젝트·반복실행). 무엇을 놓을 수 있는지는 DropRules가 정한다 */
+private fun dropKeyOf(s: ParaSection, id: String): DropKey? = when (s) {
+    ParaSection.PROJECTS -> DropKey.Node(PlaceType.PROJECT, id)
+    ParaSection.AREAS -> DropKey.Node(PlaceType.AREA, id)
+    else -> null
+}
+
+/** 칸 머리. 1. 프로젝트(복원)·4. 아카이브(보관)는 프로젝트를 놓는 곳이기도 하다(hot = 지금 놓을 수 있는 곳 위) */
 @Composable
-private fun SectionRow(s: ParaSection, count: Int, open: Boolean, onToggle: () -> Unit, onAdd: () -> Unit) {
+private fun SectionRow(s: ParaSection, count: Int, open: Boolean, modifier: Modifier, hot: Boolean, onToggle: () -> Unit, onAdd: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(4.dp))
+        modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(4.dp))
+            .dropHighlight(hot, Wb.colors.primary)
             .clickable(onClickLabel = if (open) "접기" else "펼치기", onClick = onToggle)
             .heightIn(min = 36.dp).padding(start = 6.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -293,13 +325,16 @@ private fun TreeRow(
     selected: Boolean,
     indent: Boolean,
     archived: Boolean = false,
+    modifier: Modifier = Modifier,
+    hot: Boolean = false,
     expander: Expander = Expander.NONE,
     onExpand: () -> Unit = {},
     onClick: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
-            .background(if (selected) Wb.colors.primary.copy(alpha = 0.13f) else Color.Transparent)
+        modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
+            .background(if (selected && !hot) Wb.colors.primary.copy(alpha = 0.13f) else Color.Transparent)
+            .dropHighlight(hot, Wb.colors.primary)
             .clickable(onClick = onClick)
             .heightIn(min = 40.dp)
             // 화살표 칸(24dp)이 있는 줄은 그만큼 덜 들여 써서 아이콘이 다른 줄과 같은 세로줄에 온다
@@ -331,11 +366,11 @@ private fun TreeRow(
     }
 }
 
-/** 프로젝트 아래 하위 기록 줄(목업 .tn.rec): 작은 아이콘 · 기록 이름 · 날짜. 누르면 기록 상세 */
+/** 프로젝트 아래 하위 기록 줄(목업 .tn.rec): 작은 아이콘 · 기록 이름 · 날짜. 누르면 기록 상세, 길게 눌러 다른 프로젝트로 끈다 */
 @Composable
-private fun RecordTreeRow(r: LinkedRecord, onClick: () -> Unit) {
+private fun RecordTreeRow(r: LinkedRecord, modifier: Modifier, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).clickable(onClickLabel = "기록 열기", onClick = onClick)
+        modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).clickable(onClickLabel = "기록 열기", onClick = onClick)
             .heightIn(min = 36.dp).padding(start = 52.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -345,7 +380,7 @@ private fun RecordTreeRow(r: LinkedRecord, onClick: () -> Unit) {
     }
 }
 
-/** 목업 .para-legend. 끌어서 옮기기는 아직 없어서(2단계) 지금 되는 옮기는 방법을 적는다 */
+/** 목업 .para-legend. 둘째 줄은 끌어서 옮기기(목업 ✋ 줄, Android는 길게 눌러 끈다) */
 @Composable
 private fun Legend() {
     HorizontalDivider(color = Wb.colors.border, modifier = Modifier.padding(top = 8.dp))
@@ -356,7 +391,8 @@ private fun Legend() {
             withStyle(b) { append("2") }; append(" 계속 맡는 일 · ")
             withStyle(b) { append("3") }; append(" 참고 자료 · ")
             withStyle(b) { append("4") }; append(" 끝난 것(복원 가능)\n")
-            append("옮기기: 할 일은 눌러서 ‘어디에’ · 프로젝트는 [아카이브로] · 자료는 ‘연결 편집’")
+            append("길게 눌러 끌기: 프로젝트 → "); withStyle(b) { append("4. 아카이브") }
+            append(" · 기록·할 일 → 다른 프로젝트 · 자료 → 프로젝트에 연결")
         },
         fontSize = 11.sp, lineHeight = 17.sp, color = Wb.colors.muted,
         modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 2.dp),

@@ -69,6 +69,7 @@ private fun rowDue(t: TaskRow, today: LocalDate): String {
  * 체크는 완료 ↔ 다시 열기. 줄을 누르면 수정 서랍. readOnly(아카이브)면 둘 다 막는다.
  * place: 여러 곳이 섞인 목록(오늘)에서만 넘긴다. onPlace가 있으면 눌러서 그 프로젝트로 간다(목업 .place).
  * showPriority: 좁은 칸에서는 목업처럼 우선순위 칸을 숨긴다(목업 max-width 700)
+ * modifier: 프로젝트 화면에서 길게 눌러 끌기를 붙일 때(DEC-72)
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -81,11 +82,12 @@ fun TaskLine(
     onOpen: () -> Unit,
     place: Place? = null,
     onPlace: ((Place) -> Unit)? = null,
+    modifier: Modifier = Modifier,
 ) {
     val today = LocalDate.now(SEOUL)
     val late = isLate(t, today)
     Row(
-        Modifier.fillMaxWidth().clickable(enabled = !readOnly, onClickLabel = "할 일 수정", onClick = onOpen)
+        modifier.fillMaxWidth().clickable(enabled = !readOnly, onClickLabel = "할 일 수정", onClick = onOpen)
             .padding(start = 4.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

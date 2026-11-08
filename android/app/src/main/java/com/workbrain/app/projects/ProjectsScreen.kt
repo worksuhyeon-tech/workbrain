@@ -17,14 +17,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.workbrain.app.data.Para
 import com.workbrain.app.data.ParaData
@@ -74,7 +80,7 @@ private data class ArchiveAsk(val key: String, val name: String, val openTasks: 
  * S03 프로젝트(PARA 트리) — 목업 workbrain-project.html 모양(DEC-66), 기능 범위는 1단계(DEC-65).
  * 펼친 화면: 머리('프로젝트' + [+ 새로 만들기]) 아래 왼쪽 트리 패널 / 오른쪽 상세(목업 .pj-layout, DEC-47).
  * 접힌 화면: 머리 + 트리 패널 → 항목을 누르면 상세 전체 화면(뒤로 가기로 트리, Design §6.3).
- * 결과는 화면 아래 알림으로 알리고, 되돌릴 수 있으면 '되돌리기'(DEC-24). 끌어서 옮기기는 다음 단계(DEC-69 ③).
+ * 결과는 화면 아래 알림으로 알리고, 되돌릴 수 있으면 '되돌리기'(DEC-24). 길게 눌러 끌어서 옮기기(DEC-72)는 같은 동작의 버튼과 함께 둔다.
  * startKey: 다른 탭에서 열 항목('all'·'p:ID'·'a:ID', 오늘 화면 링크). 쓰고 나면 onStartUsed로 비운다.
  * onOpenRecord(기록 ID, 제목, 돌아올 항목): 기록 상세를 연다. 상세를 닫으면 돌아올 항목이 startKey로 다시 온다
  */
@@ -94,11 +100,17 @@ fun ProjectsScreen(
     var openSections by rememberSaveable { mutableStateOf("123") }
     // 하위 기록을 펼친 프로젝트(쉼표로 이은 ID). 프로젝트를 고르면 함께 펼친다(목업: 고른 프로젝트 아래 기록이 보임)
     var openProjectIds by rememberSaveable { mutableStateOf("") }
-    val openProjects = openProjectIds.split(',').filter { it.isNotEmpty() }.toSet()
-    fun toggleProject(id: String) { openProjectIds = (if (id in openProjects) openProjects - id else openProjects + id).joinToString(",") }
+    // 펼침을 바꾸는 함수는 그릴 때 계산한 값이 아니라 누른 순간의 상태를 읽어야 한다.
+    // 트리에 넘긴 함수 참조(::toggleProject)는 처음 그릴 때 것이 계속 쓰여, 그때 값을 보면 다시 눌러도 안 접혔다(11/08 사용자 제보)
+    fun openSet(): Set<String> = openProjectIds.split(',').filter { it.isNotEmpty() }.toSet()
+    fun toggleProject(id: String) {
+        val now = openSet()
+        openProjectIds = (if (id in now) now - id else now + id).joinToString(",")
+    }
+    fun openProject(id: String) { openProjectIds = (openSet() + id).joinToString(",") }
     fun select(key: String) {
         selected = key
-        if (key.startsWith("p:")) openProjectIds = (openProjects + key.substringAfter(':')).joinToString(",")
+        if (key.startsWith("p:")) openProject(key.substringAfter(':'))
     }
     var adding by remember { mutableStateOf<ParaSection?>(null) }
 
@@ -168,6 +180,11 @@ fun ProjectsScreen(
         }
     }
 
+    /** 할 일을 원래 곳으로 되돌리기: 지금 버전을 다시 읽어 그 위에 고친다(서랍 '어디에'·끌어 놓기 공용) */
+    fun moveBack(t: TaskRow): suspend () -> Any? = {
+        Server.task(t.id)?.let { cur -> Server.updateTask(cur, cur.toEdit().copy(projectId = t.projectId, areaId = t.areaId)) }
+    }
+
     fun saveTask(t: TaskRow, e: TaskEdit) {
         val d = data ?: return
         taskSaving = true
@@ -182,7 +199,7 @@ fun ProjectsScreen(
                     when {
                         row == null -> announcer.show(CONFLICT_TEXT)
                         moved -> announcer.show(movedText(d.places.firstOrNull { it.id == (e.projectId ?: e.areaId) })) {
-                            act("되돌렸어요") { Server.task(t.id)?.let { cur -> Server.updateTask(cur, cur.toEdit().copy(projectId = t.projectId, areaId = t.areaId)) } }
+                            act("되돌렸어요", work = moveBack(t))
                         }
                         else -> announcer.show("수정했어요 · 변경 이력에 남아요")
                     }
@@ -225,6 +242,60 @@ fun ProjectsScreen(
         }
     }
 
+    /**
+     * 끌어 놓은 뒤(DEC-72): 버튼과 같은 서버 호출을 하고 3초 '되돌리기'를 준다.
+     * 안 끝난 할 일이 있는 프로젝트를 4. 아카이브에 놓으면 [아카이브로] 버튼과 같은 확인 창(Archive 이벤트가 맡음)
+     */
+    fun drop(a: DropAction) {
+        val d = data ?: return
+        when (a) {
+            is DropAction.Archive -> onEvent(ParaEvent.Archive(projectKey(a.project.id), true))
+            is DropAction.Restore -> setArchived(d, projectKey(a.project.id), false)
+            is DropAction.MoveTask -> {
+                val to = a.to
+                val edit = a.task.toEdit().copy(
+                    projectId = to.id.takeIf { to.type == PlaceType.PROJECT },
+                    areaId = to.id.takeIf { to.type == PlaceType.AREA },
+                )
+                act(movedText(to), undo = moveBack(a.task)) { Server.updateTask(a.task, edit) }
+            }
+            is DropAction.MoveRecord -> {
+                // 받은 프로젝트를 펼쳐 옮겨 간 기록이 보이게 한다(목업)
+                openProject(a.to.id)
+                act(
+                    "기록 ‘${a.title}’을(를) ‘${a.to.name}’에 연결했어요 · 그 기록에서 나온 할 일은 그대로",
+                    undo = { Para.moveRecord(a.recordId, a.to.id, a.fromProjectId) },
+                ) { Para.moveRecord(a.recordId, a.fromProjectId, a.to.id) }
+            }
+            is DropAction.LinkResource -> act(
+                "‘${a.resource.title}’을(를) ‘${a.to.name}’에 연결했어요",
+                undo = { Para.unlink(a.resource.id, a.to.type, a.to.id) },
+            ) { Para.link(a.resource.id, a.to.type, a.to.id) }
+        }
+    }
+    val currentDrop by rememberUpdatedState(::drop)
+    val drag = remember { ParaDragState(onDrop = { currentDrop(it) }, onBlocked = { announcer.show(it) }) }
+    SideEffect { drag.data = data }
+    // 끄는 동안 매 프레임 트리·'옮길 곳' 띠 가장자리를 보고 저절로 스크롤한다
+    val density = LocalDensity.current
+    val dragging = drag.item != null
+    LaunchedEffect(dragging) {
+        if (!dragging) return@LaunchedEffect
+        val edge = with(density) { 48.dp.toPx() }
+        val step = with(density) { 14.dp.toPx() }
+        while (true) {
+            withFrameNanos { }
+            drag.autoScroll(edge, step)
+        }
+    }
+    // 놓을 수 있는 접힌 칸 머리(1·4)에 올라가면 그 칸을 펼친다(목업)
+    LaunchedEffect(drag.hot) {
+        val s = (drag.hot as? DropKey.Section)?.section ?: return@LaunchedEffect
+        if (s.no !in openSections) openSections += s.no
+    }
+    // 따라오는 이름 칩은 화면 상자 안 좌표로 그린다
+    val boxOrigin = remember { OriginRef() }
+
     // 위쪽 '+ 새로 만들기'는 가장 자주 만드는 1. 프로젝트 칸의 (+)와 같다(목업)
     val newProject = {
         if (ParaSection.PROJECTS.no !in openSections) openSections += ParaSection.PROJECTS.no
@@ -237,7 +308,7 @@ fun ProjectsScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Wb.colors.surface)) {
+    Box(Modifier.fillMaxSize().background(Wb.colors.surface).onGloballyPositioned { boxOrigin.value = it.positionInRoot() }) {
         val d = data
         if (d == null) {
             Column(Modifier.padding(horizontal = 16.dp)) {
@@ -253,11 +324,12 @@ fun ProjectsScreen(
             val tree: @Composable (Modifier) -> Unit = { m ->
                 ParaTreePanel(
                     d,
+                    drag,
                     // 펼친 화면은 아무것도 안 골랐으면 '모든 할 일'을 오른쪽에 연다
                     selectedKey = selected ?: if (wide) ALL_TASKS else null,
                     openSections = openSections,
                     adding = adding,
-                    openProjects = openProjects,
+                    openProjects = openSet(),
                     onToggleSection = { s -> openSections = if (s.no in openSections) openSections.replace(s.no.toString(), "") else openSections + s.no },
                     onAdd = { s -> adding = s; if (s != null && s.no !in openSections) openSections += s.no },
                     onCreate = { s, kind, name, recordId -> create(d, s, kind, name, recordId) },
@@ -269,24 +341,32 @@ fun ProjectsScreen(
                 )
             }
             val current = selected
+            val treeScroll = rememberScrollState()
             when {
                 wide -> Column(Modifier.fillMaxSize()) {
                     header(Modifier.padding(horizontal = 24.dp))
                     Row(Modifier.fillMaxSize().padding(start = 24.dp)) {
                         // 목업 .side 288px. 트리는 패널째 따로 스크롤한다
-                        Column(Modifier.width(300.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) { tree(Modifier) }
+                        Column(
+                            Modifier.width(300.dp).fillMaxHeight().autoScrollZone(drag, "tree", treeScroll).verticalScroll(treeScroll).padding(bottom = 24.dp),
+                        ) { tree(Modifier) }
                         Spacer(Modifier.width(8.dp))
-                        Box(Modifier.weight(1f).fillMaxHeight()) { ParaDetail(d, current ?: ALL_TASKS, onBack = null, onEvent = ::onEvent) }
+                        Box(Modifier.weight(1f).fillMaxHeight()) { ParaDetail(d, drag, current ?: ALL_TASKS, onBack = null, onEvent = ::onEvent) }
                     }
                 }
-                current == null -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 96.dp)) {
+                current == null -> Column(
+                    Modifier.fillMaxSize().autoScrollZone(drag, "tree", treeScroll).verticalScroll(treeScroll).padding(start = 16.dp, end = 16.dp, bottom = 96.dp),
+                ) {
                     header(Modifier)
                     tree(Modifier)
                 }
-                else -> ParaDetail(d, current, onBack = { selected = null }, onEvent = ::onEvent)
+                else -> ParaDetail(d, drag, current, onBack = { selected = null }, onEvent = ::onEvent)
             }
+            // 접은 화면에서 할 일을 끌 때만 아래 '옮길 곳' 띠(DEC-72 ①). 펼친 화면은 왼쪽 트리에 놓는다
+            if (!wide) MoveTargetsPanel(drag, Modifier.align(Alignment.BottomCenter))
         }
         AnnounceHost(announcer, Modifier.align(Alignment.BottomCenter))
+        DragGhost(drag) { boxOrigin.value }
     }
 
     val d = data ?: return

@@ -264,6 +264,15 @@ object Para {
             put("p_record_id", recordId); put("p_project_id", projectId); put("p_linked", linked)
         }).decodeAs<JsonPrimitive>().content
 
+    /**
+     * 트리에서 기록을 다른 프로젝트로 끌어 놓기(DEC-24·72): 새 곳 연결과 옛 곳 해제를 서버가 한 번에 한다(0032).
+     * 새 곳이 아카이브됐거나 남의 것이면 거부되고 옛 연결은 그대로 남는다. 결과: moved · unchanged
+     */
+    suspend fun moveRecord(recordId: String, fromProjectId: String, toProjectId: String): String =
+        db.postgrest.rpc("wb_move_record_project", buildJsonObject {
+            put("p_record_id", recordId); put("p_from_project_id", fromProjectId); put("p_to_project_id", toProjectId)
+        }).decodeAs<JsonPrimitive>().content
+
     /** 할 일 → 출처 한 줄(오늘·프로젝트 화면 공용). AI 승인으로 생긴 할 일만 있고, 나머지는 직접 추가 */
     suspend fun sources(): Map<String, String> =
         db.from("task_revision").select(Columns.raw(SOURCE_COLUMNS)) { filter { eq("actor", "ai-approved") } }
@@ -350,7 +359,7 @@ object Para {
         put("archived_at", if (archived) JsonPrimitive(Instant.now().toString()) else JsonNull)
     }
 
-    // ── 자료 연결(목업 '연결 편집': 고른 곳만 남긴다) ──
+    // ── 자료 연결(목업 '연결 편집': 고른 곳만 남긴다 / 트리에서 자료를 끌어 놓으면 하나 더하기, DEC-72) ──
 
     /** 지금 연결과 고른 곳을 비교해 더하고 뺀다. 바뀐 게 없으면 아무것도 안 한다 */
     suspend fun setLinks(resourceId: String, current: List<Place>, wanted: List<Place>) {
@@ -360,13 +369,14 @@ object Para {
         (now - next).forEach { (type, id) -> unlink(resourceId, type, id) }
     }
 
-    private suspend fun link(resourceId: String, type: PlaceType, targetId: String) {
+    /** 아카이브된 곳·보관된 자료에 잇기는 서버가 WB409로 막는다(0030) */
+    suspend fun link(resourceId: String, type: PlaceType, targetId: String) {
         db.from("resource_link").insert(buildJsonObject {
             put("resource_id", resourceId); put("target_type", type.table); put("target_id", targetId)
         })
     }
 
-    private suspend fun unlink(resourceId: String, type: PlaceType, targetId: String) {
+    suspend fun unlink(resourceId: String, type: PlaceType, targetId: String) {
         db.from("resource_link").delete {
             filter { eq("resource_id", resourceId); eq("target_type", type.table); eq("target_id", targetId) }
         }

@@ -94,7 +94,7 @@ import com.workbrain.app.tasks.quickAddedText
  * onBack이 null이면 펼친 화면의 오른쪽 칸이라 뒤로 가기가 없다. 보관된 항목은 읽기 전용(복원 버튼만, 서버도 막는다)
  */
 @Composable
-fun ParaDetail(d: ParaData, key: String, onBack: (() -> Unit)?, onEvent: (ParaEvent) -> Unit) {
+fun ParaDetail(d: ParaData, drag: ParaDragState, key: String, onBack: (() -> Unit)?, onEvent: (ParaEvent) -> Unit) {
     BackHandler(enabled = onBack != null) { onBack?.invoke() }
     val id = key.substringAfter(':')
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -102,9 +102,9 @@ fun ParaDetail(d: ParaData, key: String, onBack: (() -> Unit)?, onEvent: (ParaEv
         val wide = maxWidth >= 560.dp
         val layout = PaneLayout(wideHead = wide, compactSeg = !wide, showPriority = maxWidth >= 480.dp)
         when {
-            key == ALL_TASKS -> AllTasksPane(d, layout, onBack, onEvent)
-            key.startsWith("p:") -> d.project(id)?.let { ProjectPane(d, it, layout, onBack, onEvent) } ?: Missing(onBack)
-            key.startsWith("a:") -> d.area(id)?.let { AreaPane(d, it, layout, onBack, onEvent) } ?: Missing(onBack)
+            key == ALL_TASKS -> AllTasksPane(d, drag, layout, onBack, onEvent)
+            key.startsWith("p:") -> d.project(id)?.let { ProjectPane(d, drag, it, layout, onBack, onEvent) } ?: Missing(onBack)
+            key.startsWith("a:") -> d.area(id)?.let { AreaPane(d, drag, it, layout, onBack, onEvent) } ?: Missing(onBack)
             key.startsWith("r:") -> d.resource(id)?.let { ResourcePane(d, it, layout, onBack, onEvent) } ?: Missing(onBack)
             else -> Missing(onBack)
         }
@@ -291,7 +291,7 @@ private fun sorted(tasks: List<TaskRow>) = tasks.sortedWith(
  * 빠른 입력에서 '#'으로 다른 곳을 고르면 그곳에 들어가고 알림에 이름이 나온다
  */
 @Composable
-private fun TasksCard(title: String, d: ParaData, place: Place, tasks: List<TaskRow>, readOnly: Boolean, layout: PaneLayout, onEvent: (ParaEvent) -> Unit) {
+private fun TasksCard(title: String, d: ParaData, drag: ParaDragState, place: Place, tasks: List<TaskRow>, readOnly: Boolean, layout: PaneLayout, onEvent: (ParaEvent) -> Unit) {
     MockCard {
         Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)) {
             SecH(title) { Text("${tasks.count { !it.done }}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Wb.colors.ink) }
@@ -308,19 +308,21 @@ private fun TasksCard(title: String, d: ParaData, place: Place, tasks: List<Task
                 else "위에 한 줄로 적거나, 회의를 올리면 기록 화면에서 할 일 후보를 골라 추가할 수 있어요.",
             )
         } else {
-            TaskLines(sorted(tasks), d, readOnly, layout, onEvent)
+            TaskLines(sorted(tasks), d, drag, readOnly, layout, onEvent)
         }
     }
 }
 
 @Composable
-private fun TaskLines(tasks: List<TaskRow>, d: ParaData, readOnly: Boolean, layout: PaneLayout, onEvent: (ParaEvent) -> Unit) {
+private fun TaskLines(tasks: List<TaskRow>, d: ParaData, drag: ParaDragState, readOnly: Boolean, layout: PaneLayout, onEvent: (ParaEvent) -> Unit) {
     tasks.forEachIndexed { i, t ->
         if (i > 0) HorizontalDivider(color = Wb.colors.border)
         TaskLine(
             t, d.sources[t.id], layout.showPriority, readOnly,
             onToggle = { onEvent(ParaEvent.ToggleTask(t)) },
             onOpen = { onEvent(ParaEvent.OpenTask(t)) },
+            // 길게 눌러 다른 프로젝트·반복실행으로 끈다(펼친 화면은 왼쪽 트리, 접은 화면은 아래 '옮길 곳' 띠, DEC-72). 보관된 곳은 읽기 전용
+            modifier = Modifier.dragSource(drag, if (readOnly) null else DragItem.Task(t.id, t.title)),
         )
     }
 }
@@ -337,7 +339,7 @@ private fun crumbOf(d: ParaData, archived: Boolean, section: ParaSection) =
 // ── 프로젝트 ──
 
 @Composable
-private fun ProjectPane(d: ParaData, p: ProjectRow, layout: PaneLayout, onBack: (() -> Unit)?, onEvent: (ParaEvent) -> Unit) {
+private fun ProjectPane(d: ParaData, drag: ParaDragState, p: ProjectRow, layout: PaneLayout, onBack: (() -> Unit)?, onEvent: (ParaEvent) -> Unit) {
     val area = d.area(p.areaId)
     val tasks = d.tasksOf(PlaceType.PROJECT, p.id)
     PaneFrame(onBack) {
@@ -368,7 +370,7 @@ private fun ProjectPane(d: ParaData, p: ProjectRow, layout: PaneLayout, onBack: 
         }
         item(key = "state") { StateCard() }
         item(key = "records") { RecordsCard(d.recordsOf(p.id), onEvent) }
-        item(key = "tasks") { TasksCard("할 일", d, Place(PlaceType.PROJECT, p.id, p.name), tasks, p.archived, layout, onEvent) }
+        item(key = "tasks") { TasksCard("할 일", d, drag, Place(PlaceType.PROJECT, p.id, p.name), tasks, p.archived, layout, onEvent) }
     }
 }
 
@@ -376,7 +378,7 @@ private fun ProjectPane(d: ParaData, p: ProjectRow, layout: PaneLayout, onBack: 
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AreaPane(d: ParaData, a: AreaRow, layout: PaneLayout, onBack: (() -> Unit)?, onEvent: (ParaEvent) -> Unit) {
+private fun AreaPane(d: ParaData, drag: ParaDragState, a: AreaRow, layout: PaneLayout, onBack: (() -> Unit)?, onEvent: (ParaEvent) -> Unit) {
     val projects = d.projects.filter { it.areaId == a.id }
     val resources = d.resourcesOf(PlaceType.AREA, a.id)
     PaneFrame(onBack) {
@@ -410,7 +412,7 @@ private fun AreaPane(d: ParaData, a: AreaRow, layout: PaneLayout, onBack: (() ->
             }
         }
         item(key = "records") { RecordsCard(null, onEvent) }
-        item(key = "tasks") { TasksCard("반복 할 일", d, Place(PlaceType.AREA, a.id, a.name), d.tasksOf(PlaceType.AREA, a.id), a.archived, layout, onEvent) }
+        item(key = "tasks") { TasksCard("반복 할 일", d, drag, Place(PlaceType.AREA, a.id, a.name), d.tasksOf(PlaceType.AREA, a.id), a.archived, layout, onEvent) }
     }
 }
 
@@ -529,7 +531,7 @@ private data class Group(val type: PlaceType?, val name: String, val key: String
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AllTasksPane(d: ParaData, layout: PaneLayout, onBack: (() -> Unit)?, onEvent: (ParaEvent) -> Unit) {
+private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, onBack: (() -> Unit)?, onEvent: (ParaEvent) -> Unit) {
     // 목업 기본: 다음 7일 · 전체 · 완료 빼고
     var range by rememberSaveable { mutableStateOf("next7") }
     var owner by rememberSaveable { mutableStateOf("all") }
@@ -623,7 +625,7 @@ private fun AllTasksPane(d: ParaData, layout: PaneLayout, onBack: (() -> Unit)?,
                     GroupHead(g) { g.key?.let { onEvent(ParaEvent.Select(it)) } }
                     if (g.type == null) Note("할 일을 눌러 ‘어디에’를 고르면 그 프로젝트·반복실행으로 옮겨져요.", Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
                     HorizontalDivider(color = Wb.colors.border)
-                    TaskLines(sorted(g.rows), d, readOnly = false, layout, onEvent)
+                    TaskLines(sorted(g.rows), d, drag, readOnly = false, layout, onEvent)
                 }
             }
         }
