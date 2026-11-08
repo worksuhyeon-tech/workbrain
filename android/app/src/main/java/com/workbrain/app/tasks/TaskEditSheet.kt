@@ -42,7 +42,6 @@ import androidx.compose.ui.unit.sp
 import com.workbrain.app.data.Place
 import com.workbrain.app.data.PlaceType
 import com.workbrain.app.data.TaskEdit
-import com.workbrain.app.data.TaskRow
 import com.workbrain.app.ui.Banner
 import com.workbrain.app.ui.ControlShape
 import com.workbrain.app.ui.PrimaryButton
@@ -85,16 +84,18 @@ private val PRIOS = listOf(SegItem("1", "높음"), SegItem("2", "보통"), SegIt
  * 할 일 수정 서랍(목업 S07 편집 서랍, DEC-66): 제목 · 어디에 · 담당 · 기한(없음/날짜/날짜+시각/모호) · 우선순위.
  * 오늘 탭과 프로젝트 탭이 같은 서랍을 쓴다. Android라서 오른쪽 서랍 대신 아래에서 올라온다(앱의 다른 서랍과 같음).
  * 저장이 안 되면(error) 서랍을 닫지 않고 입력을 그대로 둔 채 띠를 보여 준다(목업 '미저장 표시').
+ * isNew: 빠른 입력 '자세히 ›'로 여는 새 할 일 서랍(DEC-73) — 제목 '새 할 일', 버튼 [추가]. task는 처음 채울 값
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskEditSheet(
-    task: TaskRow,
+    task: TaskEdit,
     places: List<Place>,
     currentPlaceName: String?,
     error: String?,
     saving: Boolean,
     onDismiss: () -> Unit,
+    isNew: Boolean = false,
     onSave: (TaskEdit) -> Unit,
 ) {
     val timed = task.dueTime?.let { runCatching { OffsetDateTime.parse(it).atZoneSameInstant(SEOUL) }.getOrNull() }
@@ -133,7 +134,7 @@ fun TaskEditSheet(
             Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text("할 일 수정", style = MaterialTheme.typography.titleLarge, color = Wb.colors.ink, modifier = Modifier.padding(bottom = 8.dp))
+            Text(if (isNew) "새 할 일" else "할 일 수정", style = MaterialTheme.typography.titleLarge, color = Wb.colors.ink, modifier = Modifier.padding(bottom = 8.dp))
             error?.let { Banner(it, Tone.Crit, Modifier.padding(bottom = 4.dp)) }
 
             Label("제목")
@@ -185,7 +186,9 @@ fun TaskEditSheet(
 
             Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SecondaryButton("취소", onClick = onDismiss, modifier = Modifier.height(44.dp))
-                PrimaryButton(if (saving) "저장 중…" else "저장", enabled = valid && !saving, modifier = Modifier.weight(1f), onClick = {
+                PrimaryButton(
+                    when { saving && isNew -> "추가 중…"; saving -> "저장 중…"; isNew -> "추가"; else -> "저장" },
+                    enabled = valid && !saving, modifier = Modifier.weight(1f), onClick = {
                     val d = date
                     val t = time
                     onSave(

@@ -40,6 +40,7 @@ import com.workbrain.app.data.Server
 import com.workbrain.app.data.TaskEdit
 import com.workbrain.app.data.TaskRow
 import com.workbrain.app.data.toEdit
+import com.workbrain.app.tasks.QUICK_DOCK_SPACE
 import com.workbrain.app.tasks.TaskEditSheet
 import com.workbrain.app.tasks.UNSAVED_TEXT
 import com.workbrain.app.tasks.movedText
@@ -365,7 +366,9 @@ fun ProjectsScreen(
             // 접은 화면에서 할 일을 끌 때만 아래 '옮길 곳' 띠(DEC-72 ①). 펼친 화면은 왼쪽 트리에 놓는다
             if (!wide) MoveTargetsPanel(drag, Modifier.align(Alignment.BottomCenter))
         }
-        AnnounceHost(announcer, Modifier.align(Alignment.BottomCenter))
+        // '모든 할 일'을 볼 때는 아래 떠 있는 입력 띠(DEC-73) 위로 알림을 올린다
+        val dockShown = (selected ?: if (wide) ALL_TASKS else null) == ALL_TASKS
+        AnnounceHost(announcer, Modifier.align(Alignment.BottomCenter).padding(bottom = if (dockShown) QUICK_DOCK_SPACE else 0.dp))
         DragGhost(drag) { boxOrigin.value }
     }
 
@@ -420,6 +423,6 @@ fun ProjectsScreen(
 
     editingTask?.let { t ->
         val currentName = d.project(t.projectId)?.name ?: d.area(t.areaId)?.name
-        TaskEditSheet(t, d.places, currentName, taskError, taskSaving, onDismiss = { editingTask = null }) { e -> saveTask(t, e) }
+        TaskEditSheet(t.toEdit(), d.places, currentName, taskError, taskSaving, onDismiss = { editingTask = null }) { e -> saveTask(t, e) }
     }
 }

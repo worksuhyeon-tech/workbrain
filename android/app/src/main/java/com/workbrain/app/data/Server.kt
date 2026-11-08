@@ -248,6 +248,25 @@ data class TaskEdit(
 
 fun TaskRow.toEdit() = TaskEdit(title, priority, ownerKind, assignee, dueDate, dueTime, dueAmbiguous, dueText, projectId, areaId)
 
+/**
+ * 사용자가 직접 만드는 새 할 일(한 줄 빠른 입력·새 할 일 서랍, DEC-70·73)의 task 행.
+ * AI 승인 경로가 아니다. 소유자는 DB 기본값(auth.uid), 아카이브된 곳은 서버가 WB409로 막는다
+ */
+fun TaskEdit.toNewTaskFields(): JsonObject = buildJsonObject {
+    put("title", title)
+    priority?.let { put("priority", it) }
+    put("owner_kind", ownerKind)
+    assignee?.let { put("assignee", it) }
+    dueDate?.let { put("due_date", it) }
+    dueTime?.let { put("due_time", it) }
+    if (dueAmbiguous) {
+        put("due_ambiguous", true)
+        dueText?.let { put("due_text", it) }
+    }
+    projectId?.let { put("project_id", it) }
+    areaId?.let { put("area_id", it) }
+}
+
 private const val TASK_WITH_PLACE = "*,project(name,archived_at),area(name,archived_at)"
 
 /** 처리 함수 응답: stage(STT·EXTRACT·REVIEWABLE), state(PENDING·RUNNING·DONE·FAILED·BUDGET_WAIT·WAITING_KEY) */

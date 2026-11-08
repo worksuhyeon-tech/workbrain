@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -85,6 +86,7 @@ import com.workbrain.app.ui.SegItem
 import com.workbrain.app.ui.DarkSeg
 import com.workbrain.app.ui.SmallButton
 import com.workbrain.app.tasks.QuickAddBar
+import com.workbrain.app.tasks.QuickAddDock
 import com.workbrain.app.tasks.TaskLine
 import com.workbrain.app.tasks.dueDay
 import com.workbrain.app.tasks.quickAddedText
@@ -552,96 +554,95 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
         }
     }
 
-    PaneFrame(onBack) {
-        item(key = "head") {
-            // 보기 전환은 좁은 칸에서도 제목과 같은 줄, 완료 포함은 그 아래 줄 오른쪽에 고정한다
-            // (11/06 사용자: 기간·담당 버튼 줄 끝에 두면 숫자 자릿수에 따라 같은 줄·다음 줄을 오갔음)
-            Head(
-                d.workspace.name, ParaGlyph.allTasks, ParaGlyph.tint(null), "모든 할 일", wide = true,
-                buttons = {
-                    // 보기 전환: 목록만 P1. 캘린더·매트릭스는 자리만 두고 P4에서 연다(FR-24/25)
+    // 한 줄 빠른 입력은 목록 위 카드 대신 화면 아래 떠 있는 띠(DEC-73): 스크롤해도 보이고, 캘린더·매트릭스(P4)도 같은 띠를 쓴다.
+    // '#'이 없으면 이 기기에서 마지막에 넣은 곳(DEC-70)
+    Box(Modifier.fillMaxSize()) {
+        PaneFrame(onBack) {
+            item(key = "head") {
+                // 보기 전환은 좁은 칸에서도 제목과 같은 줄, 완료 포함은 그 아래 줄 오른쪽에 고정한다
+                // (11/06 사용자: 기간·담당 버튼 줄 끝에 두면 숫자 자릿수에 따라 같은 줄·다음 줄을 오갔음)
+                Head(
+                    d.workspace.name, ParaGlyph.allTasks, ParaGlyph.tint(null), "모든 할 일", wide = true,
+                    buttons = {
+                        // 보기 전환: 목록만 P1. 캘린더·매트릭스는 자리만 두고 P4에서 연다(FR-24/25)
+                        DarkSeg(
+                            listOf(SegItem("list", "목록"), SegItem("cal", "캘린더", laterTag = "P4"), SegItem("matrix", "매트릭스", laterTag = "P4")),
+                            "list", onLater = { onEvent(ParaEvent.Later(it)) },
+                        ) {}
+                    },
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Row(
+                        Modifier.clip(ControlShape).clickable { showDone = !showDone }.padding(end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = showDone, onCheckedChange = { showDone = it })
+                        Text("완료 포함", fontSize = 12.sp, color = Wb.colors.muted)
+                    }
+                }
+            }
+            item(key = "intro") {
+                Text(
+                    buildAnnotatedString {
+                        append("이 공간의 ")
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("프로젝트·반복실행") }
+                        append(" 할 일을 프로젝트별로 묶어 봐요. 오늘 할 일은 ‘오늘’ 화면에서 봐요.")
+                    },
+                    fontSize = 15.sp, color = Wb.colors.body,
+                )
+            }
+            item(key = "toolbar") {
+                // 기간·담당 두 묶음은 늘 한 줄(11/05 사용자: 숫자가 두 자리가 되면 '전체·내 할 일·팔로업'만 아래 줄로 떨어졌음).
+                // 그래도 넘치면 뒤 묶음이 남은 폭만 받아 그 안에서 옆으로 민다
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DarkSeg(
-                        listOf(SegItem("list", "목록"), SegItem("cal", "캘린더", laterTag = "P4"), SegItem("matrix", "매트릭스", laterTag = "P4")),
-                        "list", onLater = { onEvent(ParaEvent.Later(it)) },
-                    ) {}
-                },
-            )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Row(
-                    Modifier.clip(ControlShape).clickable { showDone = !showDone }.padding(end = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(checked = showDone, onCheckedChange = { showDone = it })
-                    Text("완료 포함", fontSize = 12.sp, color = Wb.colors.muted)
+                        RANGES.map { (k, label) -> SegItem(k, label, count = open.count { inRange(it, k, today) && inOwner(it, owner) }, alert = k == "late") },
+                        range,
+                        compact = layout.compactSeg,
+                    ) { range = it }
+                    DarkSeg(
+                        OWNERS.map { (k, label) -> SegItem(k, label, count = open.count { inRange(it, range, today) && inOwner(it, k) }) },
+                        owner,
+                        compact = layout.compactSeg,
+                    ) { owner = it }
                 }
             }
-        }
-        item(key = "intro") {
-            Text(
-                buildAnnotatedString {
-                    append("이 공간의 ")
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("프로젝트·반복실행") }
-                    append(" 할 일을 프로젝트별로 묶어 봐요. 오늘 할 일은 ‘오늘’ 화면에서 봐요.")
-                },
-                fontSize = 15.sp, color = Wb.colors.body,
-            )
-        }
-        item(key = "quick") {
-            // 목업 .quick-card. '#'이 없으면 이 기기에서 마지막에 넣은 곳(DEC-70)
-            MockCard {
-                QuickAddBar(d.places, Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) { r ->
-                    val shownHere = dayInRange(r.dueDate, range, today) && ownerIn(r.assignee != null, owner)
-                    onEvent(ParaEvent.QuickAdded(quickAddedText(r) + if (shownHere) "" else " · 지금 고른 탭 밖이라 ‘전체’에서 보여요"))
+            if (groups.isEmpty()) item(key = "empty") {
+                MockCard {
+                    EmptyNote(
+                        if (range == "late") "지연된 할 일이 없어요" else "여기엔 할 일이 없어요",
+                        "다른 탭을 보거나 위에 한 줄로 추가해 보세요.",
+                    )
                 }
             }
-        }
-        item(key = "toolbar") {
-            // 기간·담당 두 묶음은 늘 한 줄(11/05 사용자: 숫자가 두 자리가 되면 '전체·내 할 일·팔로업'만 아래 줄로 떨어졌음).
-            // 그래도 넘치면 뒤 묶음이 남은 폭만 받아 그 안에서 옆으로 민다
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DarkSeg(
-                    RANGES.map { (k, label) -> SegItem(k, label, count = open.count { inRange(it, k, today) && inOwner(it, owner) }, alert = k == "late") },
-                    range,
-                    compact = layout.compactSeg,
-                ) { range = it }
-                DarkSeg(
-                    OWNERS.map { (k, label) -> SegItem(k, label, count = open.count { inRange(it, range, today) && inOwner(it, k) }) },
-                    owner,
-                    compact = layout.compactSeg,
-                ) { owner = it }
+            groups.forEach { g ->
+                item(key = "g-${g.key ?: "unsorted"}") {
+                    MockCard {
+                        GroupHead(g) { g.key?.let { onEvent(ParaEvent.Select(it)) } }
+                        if (g.type == null) Note("할 일을 눌러 ‘어디에’를 고르면 그 프로젝트·반복실행으로 옮겨져요.", Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+                        HorizontalDivider(color = Wb.colors.border)
+                        TaskLines(sorted(g.rows), d, drag, readOnly = false, layout, onEvent)
+                    }
+                }
             }
-        }
-        if (groups.isEmpty()) item(key = "empty") {
-            MockCard {
-                EmptyNote(
-                    if (range == "late") "지연된 할 일이 없어요" else "여기엔 할 일이 없어요",
-                    "다른 탭을 보거나 위에 한 줄로 추가해 보세요.",
+            item(key = "foot") {
+                // 목업 아래 .note(굵은 글씨 자리 그대로)
+                Text(
+                    buildAnnotatedString {
+                        fun bold(s: String) = withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(s) }
+                        append("빠른 입력은 "); bold("오늘·내일·모레, 10/24, 금요일, 다음 주 월요일, 3시·15:00"); append(", ")
+                        bold("!높음"); append(", "); bold("#프로젝트"); append(", "); bold("@사람(팔로업)")
+                        append("을 규칙으로 알아봐요(AI 비용 없음). 못 알아본 말은 제목에 그대로 남아요. 기한은 ")
+                        bold("날짜만"); append(" / "); bold("날짜+시각"); append(" / "); bold("모호(확인 필요)")
+                        append("를 구분해 보존해요. 회의에서 나온 할 일은 기록 화면에서 골라 추가해요. 반복·하위 작업·태그는 P4예요.")
+                    },
+                    fontSize = 12.sp, lineHeight = 18.sp, color = Wb.colors.muted,
                 )
             }
         }
-        groups.forEach { g ->
-            item(key = "g-${g.key ?: "unsorted"}") {
-                MockCard {
-                    GroupHead(g) { g.key?.let { onEvent(ParaEvent.Select(it)) } }
-                    if (g.type == null) Note("할 일을 눌러 ‘어디에’를 고르면 그 프로젝트·반복실행으로 옮겨져요.", Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
-                    HorizontalDivider(color = Wb.colors.border)
-                    TaskLines(sorted(g.rows), d, drag, readOnly = false, layout, onEvent)
-                }
-            }
-        }
-        item(key = "foot") {
-            // 목업 아래 .note(굵은 글씨 자리 그대로)
-            Text(
-                buildAnnotatedString {
-                    fun bold(s: String) = withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(s) }
-                    append("빠른 입력은 "); bold("오늘·내일·모레, 10/24, 금요일, 다음 주 월요일, 3시·15:00"); append(", ")
-                    bold("!높음"); append(", "); bold("#프로젝트"); append(", "); bold("@사람(팔로업)")
-                    append("을 규칙으로 알아봐요(AI 비용 없음). 못 알아본 말은 제목에 그대로 남아요. 기한은 ")
-                    bold("날짜만"); append(" / "); bold("날짜+시각"); append(" / "); bold("모호(확인 필요)")
-                    append("를 구분해 보존해요. 회의에서 나온 할 일은 기록 화면에서 골라 추가해요. 반복·하위 작업·태그는 P4예요.")
-                },
-                fontSize = 12.sp, lineHeight = 18.sp, color = Wb.colors.muted,
-            )
+        QuickAddDock(d.places, Modifier.align(Alignment.BottomCenter)) { r ->
+            val shownHere = dayInRange(r.dueDate, range, today) && ownerIn(r.assignee != null, owner)
+            onEvent(ParaEvent.QuickAdded(quickAddedText(r) + if (shownHere) "" else " · 지금 고른 탭 밖이라 ‘전체’에서 보여요"))
         }
     }
 }

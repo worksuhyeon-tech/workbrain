@@ -6,7 +6,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.add
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -161,7 +165,11 @@ fun MainShell() {
         }
     } else {
         Column(Modifier.fillMaxSize().background(Wb.colors.surface)) {
-            Box(Modifier.weight(1f).fillMaxWidth().statusBarsPadding()) { body() }
+            // 화면 안에서 키보드만큼 올리는 것(빠른 입력 띠 imePadding, DEC-73)은 아래 메뉴(64 + 구분선 1)와 시스템 막대 높이를 빼고 올린다
+            Box(
+                Modifier.weight(1f).fillMaxWidth().statusBarsPadding()
+                    .consumeWindowInsets(WindowInsets.navigationBars.add(WindowInsets(bottom = 65.dp))),
+            ) { body() }
             HorizontalDivider(color = Wb.colors.border)
             Row(
                 Modifier.fillMaxWidth().background(Wb.colors.card).navigationBarsPadding().height(64.dp),

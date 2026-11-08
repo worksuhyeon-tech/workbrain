@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -49,13 +50,15 @@ import com.workbrain.app.data.Place
 import com.workbrain.app.data.PlaceType
 import com.workbrain.app.data.Server
 import com.workbrain.app.data.TaskEdit
+import com.workbrain.app.data.toEdit
 import com.workbrain.app.data.TaskRow
 import com.workbrain.app.record.RecordingSession
 import com.workbrain.app.record.RecordingStore
 import com.workbrain.app.record.UploadManager
 import com.workbrain.app.record.UploadProgress
 import com.workbrain.app.review.Snooze
-import com.workbrain.app.tasks.QuickAddBar
+import com.workbrain.app.tasks.QUICK_DOCK_SPACE
+import com.workbrain.app.tasks.QuickAddDock
 import com.workbrain.app.tasks.TaskEditSheet
 import com.workbrain.app.tasks.quickAddedText
 import com.workbrain.app.tasks.quickDueLabel
@@ -107,7 +110,7 @@ private data class Pending(val recordId: String, val title: String, val day: Str
  * 왼쪽(접힌 화면은 위) '오늘 할 일': 모든 프로젝트·반복실행에서 오늘 마감 + 지연, 남이 맡은 일은 '챙길 팔로업'으로 나눈다.
  *   오늘 끝낸 일은 맨 아래 '오늘 완료'에 취소선으로 남긴다(DEC-64, 목업에 더한 것). 그 밖의 할 일은 '모든 할 일'에서 본다.
  * 오른쪽(접힌 화면은 아래) '검토 대기'(기록별, 승인 버튼 없음)와 '처리 중인 기록'.
- * '오늘 할 일' 머리 아래 한 줄 빠른 입력(기한을 안 적으면 오늘 마감, DEC-70). 비용이 경고선을 넘을 때만 위에 띠.
+ * 한 줄 빠른 입력은 화면 아래 떠 있는 띠(기한을 안 적으면 오늘 마감, DEC-70·73). 비용이 경고선을 넘을 때만 위에 띠.
  */
 @Composable
 fun TodayScreen(nav: TodayNav) {
@@ -188,18 +191,9 @@ fun TodayScreen(nav: TodayNav) {
     val pendingGroups = groupPending(pending.filter { !Snooze.isActive(it.snoozedUntil) })
     val processing = sessions.filter { it.recordId != null && it.serverState != "ready" }
 
-    // 목업 S02 .qa-wrap: 기한을 안 적으면 오늘 마감. 오늘 화면에 안 보이는 것(내일 이후·모호)은 알림에 기한을 함께 쓴다
-    val quickAdd: @Composable () -> Unit = {
-        QuickAddBar(places, Modifier.padding(horizontal = 16.dp), noDueMeansToday = true) { r ->
-            val shownHere = r.dueDate?.let { !it.isAfter(today) } == true
-            val due = quickDueLabel(r, today) ?: "${r.vague} · 확인 필요"
-            message = (quickAddedText(r) + if (shownHere) "" else " · $due · ‘모든 할 일’에서 보여요") to Tone.Good
-            scope.launch { load() }
-        }
-    }
     val todayCard: @Composable () -> Unit = {
         TodayCard(
-            late, todays, follow, doneToday, loaded = tasks != null, sources, quickAdd,
+            late, todays, follow, doneToday, loaded = tasks != null, sources,
             onToggle = { t -> setDone(t, !t.done) },
             onOpen = { t -> editError = null; editing = t },
             onPlace = { p -> nav.openProjects(if (p.type == PlaceType.PROJECT) "p:${p.id}" else "a:${p.id}") },
@@ -211,41 +205,52 @@ fun TodayScreen(nav: TodayNav) {
         ProcessingCard(processing, uploads, onResume = { s -> UploadManager.resume(context, s) }, onOpenAll = nav.openRecords)
     }
 
-    Column(
-        Modifier.fillMaxSize().background(Wb.colors.surface).verticalScroll(rememberScrollState())
-            .padding(horizontal = if (wide) 24.dp else 16.dp).padding(bottom = 24.dp),
-    ) {
-        PageHeader("오늘", "오늘 챙길 것만 모았어요") {
-            TextButton(onClick = { scope.launch { message = null; load() } }) { Text("새로고침", color = Wb.colors.link) }
-        }
-        // 목업 .page-head .sub
-        Text("${today.format(HEAD_DATE)} · 모든 프로젝트 · 확정 상태 기준", fontSize = 14.sp, color = Wb.colors.muted, modifier = Modifier.padding(bottom = 12.dp))
-        CostWarn(budget, cost, nav.openMore)
-        message?.let { (text, tone) -> Banner(text, tone, Modifier.padding(bottom = 12.dp)) }
-
-        if (wide) {
-            // 목업 .dash: 왼쪽 1.25 : 오른쪽 1
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
-                Column(Modifier.weight(1.25f)) { todayCard() }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) { reviewCard(); processingCard() }
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            // 맨 아래 내용이 떠 있는 입력 띠에 가리지 않게 띠 높이만큼 더 비운다(DEC-73)
+            Modifier.fillMaxSize().background(Wb.colors.surface).verticalScroll(rememberScrollState())
+                .padding(horizontal = if (wide) 24.dp else 16.dp).padding(bottom = 24.dp + QUICK_DOCK_SPACE),
+        ) {
+            PageHeader("오늘", "오늘 챙길 것만 모았어요") {
+                TextButton(onClick = { scope.launch { message = null; load() } }) { Text("새로고침", color = Wb.colors.link) }
             }
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { todayCard(); reviewCard(); processingCard() }
-        }
+            // 목업 .page-head .sub
+            Text("${today.format(HEAD_DATE)} · 모든 프로젝트 · 확정 상태 기준", fontSize = 14.sp, color = Wb.colors.muted, modifier = Modifier.padding(bottom = 12.dp))
+            CostWarn(budget, cost, nav.openMore)
+            message?.let { (text, tone) -> Banner(text, tone, Modifier.padding(bottom = 12.dp)) }
 
-        // 목업 .page-foot
-        HorizontalDivider(color = Wb.colors.border, modifier = Modifier.padding(top = 24.dp, bottom = 12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Note("프로젝트별 상태·요약은 ")
-            FootLink("프로젝트") { nav.openProjects(null) }
-            Note(", 비용 상세는 ")
-            FootLink("더보기") { nav.openMore() }
-            Note("에서 봐요.")
+            if (wide) {
+                // 목업 .dash: 왼쪽 1.25 : 오른쪽 1
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
+                    Column(Modifier.weight(1.25f)) { todayCard() }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) { reviewCard(); processingCard() }
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { todayCard(); reviewCard(); processingCard() }
+            }
+
+            // 목업 .page-foot
+            HorizontalDivider(color = Wb.colors.border, modifier = Modifier.padding(top = 24.dp, bottom = 12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Note("프로젝트별 상태·요약은 ")
+                FootLink("프로젝트") { nav.openProjects(null) }
+                Note(", 비용 상세는 ")
+                FootLink("더보기") { nav.openMore() }
+                Note("에서 봐요.")
+            }
+        }
+        // 한 줄 빠른 입력은 '오늘 할 일' 카드 머리 대신 화면 아래 떠 있는 띠(DEC-73). 기한을 안 적으면 오늘 마감(목업 S02).
+        // 오늘 화면에 안 보이는 것(내일 이후·모호)은 알림에 기한을 함께 쓴다
+        QuickAddDock(places, Modifier.align(Alignment.BottomCenter), noDueMeansToday = true) { r ->
+            val shownHere = r.dueDate?.let { !it.isAfter(today) } == true
+            val due = quickDueLabel(r, today) ?: "${r.vague} · 확인 필요"
+            message = (quickAddedText(r) + if (shownHere) "" else " · $due · ‘모든 할 일’에서 보여요") to Tone.Good
+            scope.launch { load() }
         }
     }
 
     editing?.let { t ->
-        TaskEditSheet(t, places, currentPlaceName = t.placeName, error = editError, saving = saving, onDismiss = { editing = null }) { e -> save(t, e) }
+        TaskEditSheet(t.toEdit(), places, currentPlaceName = t.placeName, error = editError, saving = saving, onDismiss = { editing = null }) { e -> save(t, e) }
     }
 }
 
@@ -289,7 +294,6 @@ private fun TodayCard(
     doneToday: List<TaskRow>,
     loaded: Boolean,
     sources: Map<String, String>,
-    quickAdd: @Composable () -> Unit,
     onToggle: (TaskRow) -> Unit,
     onOpen: (TaskRow) -> Unit,
     onPlace: (Place) -> Unit,
@@ -301,7 +305,6 @@ private fun TodayCard(
             val showPriority = maxWidth >= 480.dp
             Column {
                 CardHead("오늘 할 일", "${late.size + todays.size}건", "다음 7일 · 전체", onAll)
-                quickAdd()
                 val rows: @Composable ColumnScope.(List<TaskRow>) -> Unit = { list ->
                     list.forEachIndexed { i, t ->
                         if (i > 0) HorizontalDivider(color = Wb.colors.border)
