@@ -86,6 +86,11 @@ fun MainShell() {
     // 앱을 열 때: 결과가 아직 없는 녹음은 백그라운드 처리를 다시 건다(강제 중지 뒤에도 이어 가기, DEC-37)
     val context = LocalContext.current
     LaunchedEffect(Unit) { UploadManager.ensureRunning(context) }
+    // 밀린 프로젝트 연결 제안(FR-06, DEC-75): 지난 기록·실패한 기록의 제안을 몇 건씩 채운다. 보조 기능이라 화면에는 알리지 않고,
+    // 앱을 닫으면 멈췄다가 다음에 열 때 이어진다(실패만 개발 기록 logcat 'WorkBrainLink')
+    LaunchedEffect(Unit) {
+        runCatching { Server.suggestLinks() }.onFailure { android.util.Log.w("WorkBrainLink", "link sweep stopped", it) }
+    }
     // 다른 앱에서 음성·글을 공유하면 녹음 화면으로 와서 가져오기를 이어 간다(DEC-40·53). 지침 zip은 더보기로(FR-30)
     val shared by SharedImport.pending.collectAsStateWithLifecycle()
     LaunchedEffect(shared) {

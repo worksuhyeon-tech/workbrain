@@ -223,7 +223,7 @@ private fun Modifier.dashedBorder(color: Color) = drawBehind {
 
 /**
  * 목적이 비어 있을 때: 점선 상자 안에서 바로 적고 저장(목업 .purpose-empty).
- * 목업 문구는 'AI가 관련 기록을 더 잘 연결해요'지만, 기록 연결(FR-06)이 아직 없어 약속하지 않는 말로 바꿨다
+ * 목적은 AI 연결 제안(FR-06, DEC-75)이 프로젝트를 고를 때도 읽는다. 문구는 목업('AI가 관련 기록을 더 잘 연결해요') 대신 약속하지 않는 말
  */
 @Composable
 private fun PurposeBox(onSave: (String) -> Unit) {

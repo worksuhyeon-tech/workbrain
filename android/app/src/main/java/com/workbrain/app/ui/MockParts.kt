@@ -25,6 +25,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -54,6 +58,13 @@ object ParaGlyph {
         null -> GlassTint.Green.deep
     }
     @Composable fun resourceTint(): Color = Wb.colors.muted
+}
+
+/** 점선 테두리 알약(목업 .att-add 참석자 추가, AI 연결 제안 칩 FR-06): 아직 확정되지 않은 것 */
+fun Modifier.dashedPill(color: Color): Modifier = drawBehind {
+    val stroke = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())))
+    val r = size.height / 2
+    drawRoundRect(color = color, cornerRadius = CornerRadius(r, r), style = stroke)
 }
 
 /** 목업 .card: 흰 바탕 + 옅은 테두리 + 14dp 모서리. 안쪽 여백은 쓰는 곳이 정한다 */
@@ -155,18 +166,18 @@ fun DarkSeg(
     }
 }
 
-/** 목업 .btn(흰 바탕 테두리) / .btn.primary(파랑) — 상세 머리·카드 안의 작은 버튼 */
+/** 목업 .btn(흰 바탕 테두리) / .btn.primary(파랑) — 상세 머리·카드 안의 작은 버튼. enabled = false면 흐리게 하고 누르지 못하게 */
 @Composable
-fun SmallButton(text: String, primary: Boolean = false, onClick: () -> Unit) {
+fun SmallButton(text: String, primary: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
     val shape = RoundedCornerShape(4.dp)
     Text(
         text,
         fontSize = 14.sp,
         fontWeight = FontWeight.SemiBold,
         color = if (primary) Wb.colors.onPrimary else Wb.colors.body,
-        modifier = Modifier.heightIn(min = 36.dp).clip(shape)
+        modifier = Modifier.heightIn(min = 36.dp).alpha(if (enabled) 1f else 0.5f).clip(shape)
             .background(if (primary) Wb.colors.primary else Wb.colors.card)
             .border(1.dp, if (primary) Wb.colors.primary else Wb.colors.borderStrong, shape)
-            .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
+            .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
     )
 }

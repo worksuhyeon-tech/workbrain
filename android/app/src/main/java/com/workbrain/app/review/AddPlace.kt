@@ -14,6 +14,7 @@ import com.workbrain.app.data.PlaceType
 import com.workbrain.app.tasks.PlaceField
 import com.workbrain.app.tasks.UNSORTED
 import com.workbrain.app.ui.Wb
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -45,6 +46,10 @@ fun placeKeys(place: Place?): Map<String, JsonPrimitive> {
     return mapOf(key to JsonPrimitive(place.id))
 }
 
-/** '추가할 곳'을 골랐으면 승인 함수가 읽는 위치 키를 고친 값에 더한다(approve_proposal이 project_id·area_id를 읽음) */
-fun withPlace(edits: JsonObject?, place: Place?): JsonObject? =
-    if (place == null) edits else JsonObject(edits.orEmpty() + placeKeys(place))
+/**
+ * 새 할 일 후보를 승인할 때 '추가할 곳'을 승인 함수가 읽는 위치 키로 고친 값에 더한다(approve_proposal이 project_id·area_id를 읽음).
+ * 화면에 보이는 '추가할 곳'이 곧 들어갈 곳이다: '정리 안 됨'이면 두 키를 비워 보내, AI가 후보에 적어 둔 프로젝트로
+ * 몰래 들어가지 않게 한다(DEC-75, 기록 단위 연결 제안만 쓰기로 함)
+ */
+fun withPlace(edits: JsonObject?, place: Place?): JsonObject =
+    JsonObject(edits.orEmpty() + mapOf("project_id" to JsonNull, "area_id" to JsonNull) + placeKeys(place))

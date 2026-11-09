@@ -39,8 +39,12 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.time.LocalDate
 
-/** 카드에서 누른 칸: 제목·담당 뱃지·기한 뱃지(Q3) */
-enum class CandidateField(val heading: String) { Title("제목 고치기"), Owner("담당 고치기"), Due("기한 고치기") }
+/**
+ * 카드에서 누른 칸: 제목·담당 뱃지·기한 뱃지(Q3).
+ * OwnerOther = 담당 ▾ 목록에서 '다른 사람…'을 고른 것: 담당 칸을 '다른 사람'으로 놓고 이름 칸부터 연다
+ * (11/09 사용자 제보: 지금 값인 '확인 필요'로 열려서 다시 골라야 했음)
+ */
+enum class CandidateField(val heading: String) { Title("제목 고치기"), Owner("담당 고치기"), OwnerOther("담당 고치기"), Due("기한 고치기") }
 
 /**
  * 할 일 후보 고치기(FR-10): 고친 값은 승인 때 AI 값 위에 덮어 할 일로 만든다(approve_proposal p_edits).
@@ -61,7 +65,8 @@ fun CandidateEditSheet(
 ) {
     val wasVague = current["due_ambiguous"]?.jsonPrimitive?.booleanOrNull == true
     var title by remember { mutableStateOf(current.str("title").orEmpty()) }
-    var owner by remember { mutableStateOf(current.str("owner_kind") ?: "unknown") }
+    val startOther = field == CandidateField.OwnerOther
+    var owner by remember { mutableStateOf(if (startOther) "other" else current.str("owner_kind") ?: "unknown") }
     var assignee by remember { mutableStateOf(current.str("assignee").orEmpty()) }
     var dueKind by remember { mutableStateOf(dueKindOf(current.str("due_date"), wasVague)) }
     var date by remember { mutableStateOf(current.str("due_date")?.let { runCatching { LocalDate.parse(it) }.getOrNull() }) }
@@ -87,7 +92,7 @@ fun CandidateEditSheet(
             )
 
             // 만들 때(field == null)는 모든 칸을, 고칠 때는 누른 칸만 보여 준다. 칸 순서는 할 일 수정 서랍과 같다(제목·어디에·담당·기한)
-            fun shows(f: CandidateField) = field == null || field == f
+            fun shows(f: CandidateField) = field == null || field == f || (f == CandidateField.Owner && startOther)
             if (shows(CandidateField.Title)) {
                 if (field == null) FieldLabel("제목")
                 OutlinedTextField(

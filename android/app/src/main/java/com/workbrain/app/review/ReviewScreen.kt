@@ -41,9 +41,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.workbrain.app.data.InboxRow
+import com.workbrain.app.data.LinkSuggest
+import com.workbrain.app.data.LinkSuggestion
 import com.workbrain.app.data.Para
 import com.workbrain.app.data.Place
 import com.workbrain.app.data.ProcessedRow
+import com.workbrain.app.data.ProjectRow
 import com.workbrain.app.data.Server
 import com.workbrain.app.tasks.UNSORTED
 import com.workbrain.app.ui.Banner
@@ -102,6 +105,11 @@ fun ReviewScreen(
     var recordProjects by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
     var pickedPlace by remember { mutableStateOf<Place?>(null) }
     var placeTouched by remember { mutableStateOf(false) }
+    // AI 연결 제안(FR-06, DEC-75): 기록 묶음 줄 아래 점선 칩. 누르면 그 기록의 제안 창(기록 ID·제목)
+    var suggestions by remember { mutableStateOf<List<LinkSuggestion>>(emptyList()) }
+    var allProjects by remember { mutableStateOf<List<ProjectRow>>(emptyList()) }
+    var suggestFor by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var linkBusy by remember { mutableStateOf(false) }
 
     val list = items.orEmpty()
     val (snoozedRows, todayRows) = list.partition { Snooze.isActive(it.snoozedUntil) }
@@ -124,11 +132,19 @@ fun ReviewScreen(
     LaunchedEffect(refreshKey) { load() }
     // 처리됨은 그 탭을 열 때만 읽는다(최근 100건)
     LaunchedEffect(tab, refreshKey) { if (tab == TAB_DONE) loadProcessed() }
-    // 추가할 곳은 보조 정보라 못 읽어도 검토함은 그린다('정리 안 됨'으로 추가될 뿐)
+    // 추가할 곳·연결 제안은 보조 정보라 못 읽어도 검토함은 그린다('정리 안 됨'으로 추가될 뿐)
+    suspend fun loadLinks() {
+        runCatching { Para.recordLinks() }.onSuccess { links -> recordProjects = links.groupBy({ it.recordId }, { it.projectId }) }
+        runCatching { LinkSuggest.pending() }.onSuccess { suggestions = it }
+    }
     LaunchedEffect(refreshKey) {
         runCatching { Para.places() }.onSuccess { places = it }
-        runCatching { Para.recordLinks() }.onSuccess { links -> recordProjects = links.groupBy({ it.recordId }, { it.projectId }) }
+        runCatching { Para.allProjects() }.onSuccess { allProjects = it }
+        loadLinks()
     }
+    // 이 기록에 보일 제안: 아직 잇지 않은 진행 중 프로젝트만
+    fun suggestionsOf(recordId: String): List<ProjectSuggestion> =
+        visibleSuggestions(suggestions.filter { it.recordId == recordId }, allProjects, recordProjects[recordId].orEmpty())
 
     val todaySelected = todayRows.filter { checked[it.id] == true }
     val snoozedSelected = snoozedRows.filter { snoozeChecked[it.id] == true }
@@ -165,6 +181,21 @@ fun ReviewScreen(
             // 다음에 고르는 후보는 다시 연결된 프로젝트로 처음 값을 잡는다
             placeTouched = false
             load(); busy = false; onChanged()
+        }
+    }
+    // AI 연결 제안 [연결]·[아니요](0032 함수 그대로). 연결하면 '추가할 곳' 처음 값이 그 프로젝트로 따라간다(직접 고르지 않았을 때).
+    // 그 기록에 남은 제안이 없으면 창을 닫는다
+    fun decide(recordId: String, p: ProjectRow, linked: Boolean) {
+        linkBusy = true
+        scope.launch {
+            message = runCatching { Para.linkRecord(recordId, p.id, linked) }.fold(
+                { (if (linked) "‘${p.name}’에 연결했어요" else "‘${p.name}’ 연결 제안을 넘겼어요 · 다시 제안하지 않아요") to Tone.Good },
+                { e -> (if (e.message.orEmpty().contains("WB409")) "아카이브된 프로젝트에는 연결할 수 없어요" else "바꾸지 못했어요. 인터넷 연결을 확인해 주세요") to Tone.Crit },
+            )
+            loadLinks()
+            if (suggestionsOf(recordId).isEmpty()) suggestFor = null
+            linkBusy = false
+            onChanged()
         }
     }
     // until = null이면 지금 검토(미룸 해제). 옮긴 후보는 체크를 지워, 다시 '오늘'로 오면 기본값(체크됨)으로 보이게 한다
@@ -205,6 +236,18 @@ fun ReviewScreen(
                     rowHeight = 40.dp,
                     modifier = if (index == 0) Modifier else Modifier.padding(top = 8.dp),
                 )
+            }
+            // 이 기록의 AI 연결 제안 칩(DEC-75): 후보를 고르기 전에 프로젝트부터 정하면 '추가할 곳'이 따라간다
+            val recordId = record.first
+            val recordSuggestions = recordId?.let { suggestionsOf(it) }.orEmpty()
+            if (recordId != null && recordSuggestions.isNotEmpty()) item(key = "s-$tab-$recordId") {
+                FlowRow(
+                    Modifier.padding(start = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    recordSuggestions.forEach { SuggestionChip(it.project.name) { suggestFor = recordId to record.second } }
+                }
             }
             items(group, key = { it.id }) { row ->
                 CandidateCard(
@@ -361,6 +404,17 @@ fun ReviewScreen(
             evidenceUntil = expiries.mapNotNull(Snooze::date).minOrNull(),
             onPick = { date -> snoozeTarget = null; snooze(rows, date) },
             onDismiss = { snoozeTarget = null },
+        )
+    }
+
+    suggestFor?.let { (recordId, title) ->
+        SuggestionSheet(
+            recordTitle = title,
+            suggestions = suggestionsOf(recordId),
+            busy = linkBusy,
+            onAccept = { decide(recordId, it, true) },
+            onReject = { decide(recordId, it, false) },
+            onDismiss = { suggestFor = null },
         )
     }
 

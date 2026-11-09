@@ -1,11 +1,13 @@
 // 기록 처리 (P1 2단계, Design §2.3·§3.1, DEC-28/30)
 // 호출 한 번에 한 단계만 진행한다: STT(gpt-transcribe) → CORRECT(용어 교정, 용어집 있을 때) → EXTRACT(gpt-6-luna) → REVIEWABLE.
 // 회의록 문서는 사용자가 '회의록 만들기'를 눌렀을 때만 따로 만든다(action: "document", DEC-56).
+// 프로젝트 연결 제안(FR-06, DEC-75)은 EXTRACT 직후에 만들고, 지난 기록·실패분은 앱이 켜질 때 action: "suggest_links"로 채운다.
 // 무료 플랜의 함수 실행 시간 제한 안에 들도록 단계를 나눴고, 앱이 끝날 때까지 다시 부른다(같은 작업은 한 번만 잡힘).
 // AI 결과는 초안·제안으로만 저장한다. 할 일은 사용자가 승인해야 생긴다(§3.4).
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { OUTPUT_SCHEMA, PROMPT_VERSION, SYSTEM_PROMPT } from "./prompt.ts";
 import { cleanDocument, DEFAULT_GUIDELINE, DOCUMENT_SCHEMA, DOCUMENT_SYSTEM_RULES, sha256Hex } from "./document.ts";
+import { cleanLinks, LINK_DONE_VERSIONS, LINK_PROMPT, LINK_PROMPT_VERSION, LINK_SCHEMA, linkQuote } from "./link.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -35,6 +37,8 @@ Deno.serve(async (req) => {
 
   let recordId = "", action = "";
   try { const body = await req.json(); recordId = String(body.record_id ?? ""); action = String(body.action ?? ""); } catch { /* 아래에서 거부 */ }
+  // 밀린 연결 제안(FR-06): 기록 하나가 아니라 내 기록 전체에서 몇 건씩
+  if (action === "suggest_links") return reply(200, await sweepLinks(db, uid));
   if (!/^[0-9a-f-]{36}$/i.test(recordId)) return reply(400, { error: "기록 ID가 올바르지 않아요" });
 
   const { data: job } = await db.from("processing_job").select("id,stage,stage_state,retry_count")
@@ -47,10 +51,7 @@ Deno.serve(async (req) => {
 
   // 예산: 이번 달 확정 비용이 대기선을 넘으면 새 유료 작업을 기다리게 한다(NFR-07)
   const cycle = new Date().toISOString().slice(0, 7);
-  const { data: setting } = await db.from("settings").select("budget_wait_krw").eq("user_id", uid).single();
-  const { data: spent } = await db.from("cost_ledger").select("confirmed_krw").eq("owner_id", uid).eq("billing_cycle", cycle);
-  const spentKrw = (spent ?? []).reduce((n, r) => n + (r.confirmed_krw ?? 0), 0);
-  if (spentKrw >= (setting?.budget_wait_krw ?? 24000)) {
+  if (await overBudget(db, uid, cycle)) {
     // 회의록 만들기는 끝난 처리 작업의 상태를 건드리지 않고 알리기만 한다
     if (action === "document") return reply(200, { error: "이번 달 AI 예산 대기선을 넘어 지금은 만들 수 없어요" });
     await db.from("processing_job").update({ stage_state: "BUDGET_WAIT", updated_at: new Date().toISOString() }).eq("id", job.id);
@@ -88,6 +89,14 @@ Deno.serve(async (req) => {
     return reply(200, { stage: job.stage, state: "FAILED", error: message });
   }
 });
+
+/** 이번 달 확정 비용이 예산 대기선(기본 2만4천 원)을 넘었는지(NFR-07) */
+async function overBudget(db: SupabaseClient, uid: string, cycle: string): Promise<boolean> {
+  const { data: setting } = await db.from("settings").select("budget_wait_krw").eq("user_id", uid).single();
+  const { data: spent } = await db.from("cost_ledger").select("confirmed_krw").eq("owner_id", uid).eq("billing_cycle", cycle);
+  const spentKrw = (spent ?? []).reduce((n, r) => n + (r.confirmed_krw ?? 0), 0);
+  return spentKrw >= (setting?.budget_wait_krw ?? 24000);
+}
 
 async function addCost(db: SupabaseClient, uid: string, cycle: string, usd: number) {
   await db.from("cost_ledger").insert({ owner_id: uid, billing_cycle: cycle, confirmed_krw: Math.max(1, Math.ceil(usd * KRW_PER_USD)) });
@@ -482,6 +491,136 @@ async function runExtract(db: SupabaseClient, uid: string, recordId: string, job
   await db.from("processing_job").update({
     stage: "REVIEWABLE", stage_state: "DONE", retry_count: 0, last_error: null, lease_until: null, updated_at: new Date().toISOString(),
   }).eq("id", job.id);
+  // 프로젝트 연결 제안(FR-06): 실패해도 처리 결과는 그대로 두고, 앱이 켜질 때 밀린 제안으로 다시 만든다
+  await suggestLinks(db, uid, recordId, cycle).catch((e) => console.error("link suggestion failed", String(e)));
+}
+
+// ── 프로젝트 연결 제안(FR-06, DEC-75, Design §3.11) ──
+
+const SWEEP_BATCH = 4;                       // 한 번 부를 때 만드는 기록 수(함수 실행 시간 제한 안)
+const FAILED_RETRY_MS = 24 * 3600 * 1000;    // 실패한 기록은 하루 뒤 다시
+
+/**
+ * 기록 하나의 연결 제안을 만든다. 만든 제안 수를 돌려준다.
+ * 개인 기록·보관한 기록·이미 이 전사 버전으로 만든 기록·공간에 진행 중 프로젝트가 없는 기록은 건너뛴다(AI 호출 없음)
+ */
+async function suggestLinks(db: SupabaseClient, uid: string, recordId: string, cycle: string): Promise<number> {
+  const { data: rec } = await db.from("source_record").select("title,record_kind,workspace_id,classification,archived_at")
+    .eq("id", recordId).eq("owner_id", uid).single();
+  if (!rec || rec.archived_at || rec.classification === "personal") return 0;
+  const { data: tv } = await db.from("transcript_version").select("id,segments")
+    .eq("source_record_id", recordId).eq("owner_id", uid).order("created_at", { ascending: false }).limit(1).single();
+  if (!tv) return 0;
+  const { data: runs } = await db.from("analysis_run").select("status,created_at")
+    .eq("owner_id", uid).eq("input_transcript_version_id", tv.id).in("prompt_version", LINK_DONE_VERSIONS);
+  if (settled(runs ?? [])) return 0;
+  const { data: projects } = await db.from("project").select("id,name,purpose")
+    .eq("owner_id", uid).eq("workspace_id", rec.workspace_id).is("archived_at", null);
+  if (!projects?.length) return 0;
+
+  const segments: { idx: number; text: string }[] = tv.segments ?? [];
+  const run = (status: string, usage: unknown = null, requestId: string | null = null) =>
+    db.from("analysis_run").insert({
+      owner_id: uid, input_transcript_version_id: tv.id, model_id: LLM_MODEL, prompt_version: LINK_PROMPT_VERSION,
+      config_hash: `${LLM_MODEL}:${LINK_PROMPT_VERSION}`, status, provider_request_id: requestId, usage,
+    }).select("id").single();
+  // 빈 전사는 볼 것이 없다: 다시 고르지 않게 실행만 남긴다
+  if (!segments.length) { await run("empty"); return 0; }
+
+  const input = `기록 제목: ${rec.title ?? "제목 없음"}\n기록 종류: ${rec.record_kind}\n\n` +
+    `진행 중 프로젝트:\n${projects.map((p) => `- ${p.id}: ${p.name}${p.purpose ? " — " + p.purpose : ""}`).join("\n")}\n\n` +
+    `전사:\n${segments.map((s) => `[${s.idx}] ${s.text}`).join("\n")}`;
+  let parsed: unknown, usage = { input_tokens: 0, output_tokens: 0 }, requestId: string | null = null;
+  try {
+    const r = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
+      body: JSON.stringify({
+        model: LLM_MODEL, instructions: LINK_PROMPT, input,
+        text: { format: { type: "json_schema", name: "project_links", schema: LINK_SCHEMA, strict: true } },
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error("연결 제안 실패: " + (d?.error?.message ?? r.status));
+    usage = { input_tokens: d.usage?.input_tokens ?? 0, output_tokens: d.usage?.output_tokens ?? 0 };
+    requestId = d.id ?? null;
+    await addCost(db, uid, cycle, (usage.input_tokens * LLM_USD_PER_1M.input + usage.output_tokens * LLM_USD_PER_1M.output) / 1e6);
+    const raw = d.output_text ?? d.output?.flatMap((o: { content?: unknown[] }) => o.content ?? [])
+      .find((c: { type?: string }) => c.type === "output_text")?.text;
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    await run("failed", usage, requestId);   // 하루 뒤 밀린 제안으로 다시 시도한다
+    throw e;
+  }
+
+  const { data: saved, error: runErr } = await run("done", usage, requestId);
+  if (runErr || !saved) throw new Error("연결 제안 실행 저장 실패");
+  // 이미 연결·해제·거절한 프로젝트는 다시 제안하지 않는다(같은 기록·프로젝트 행은 하나, 0032)
+  const { data: existing } = await db.from("source_project_link").select("project_id,item_ref")
+    .eq("owner_id", uid).eq("source_record_id", recordId);
+  const taken = new Set((existing ?? []).filter((l) => l.item_ref?.scope === "record").map((l) => l.project_id as string));
+  const links = cleanLinks(parsed, new Set(projects.map((p) => p.id)), segments.length, taken);
+  let made = 0;
+  for (const l of links) {
+    const { data: link, error } = await db.from("source_project_link").insert({
+      owner_id: uid, source_record_id: recordId, transcript_version_id: tv.id, item_ref: { scope: "record" },
+      project_id: l.projectId, status: "proposed", created_by: "ai", rationale: l.reason,
+      confidence: l.confidence, uncertainty_reasons: l.reasons, analysis_run_id: saved.id,
+    }).select("id").single();
+    // 23505 = 다른 호출이 같은 제안을 막 만든 경우(행은 하나만)
+    if (error || !link) { if (error?.code !== "23505") console.error("link insert failed", error?.message); continue; }
+    made++;
+    if (l.segments.length) {
+      await db.from("evidence_link").insert({
+        owner_id: uid, source_project_link_id: link.id, transcript_version_id: tv.id,
+        segment_ref: { idx: l.segments }, quote: linkQuote(segments, l.segments),
+      });
+    }
+  }
+  return made;
+}
+
+/** 이 전사 버전의 연결 제안이 끝났는지: 만들었거나(빈 전사 포함), 실패한 지 하루가 안 됐으면 끝난 것으로 본다 */
+function settled(runs: { status: string; created_at: string }[]): boolean {
+  return runs.some((r) => r.status !== "failed" || Date.now() - new Date(r.created_at).getTime() < FAILED_RETRY_MS);
+}
+
+/** 밀린 연결 제안: 처리 끝난 내 기록(보관 안 됨·개인 아님, 진행 중 프로젝트가 있는 공간) 중 최신 전사에 제안이 끝나지 않은 것, 최근 기록부터 */
+async function pendingLinkRecords(db: SupabaseClient, uid: string): Promise<string[]> {
+  const [{ data: jobs }, { data: recs }, { data: projects }, { data: tvs }, { data: runs }] = await Promise.all([
+    db.from("processing_job").select("source_record_id").eq("owner_id", uid).eq("stage", "REVIEWABLE"),
+    db.from("source_record").select("id,workspace_id,classification,ingested_at").eq("owner_id", uid).is("archived_at", null),
+    db.from("project").select("workspace_id").eq("owner_id", uid).is("archived_at", null),
+    db.from("transcript_version").select("id,source_record_id,created_at").eq("owner_id", uid).order("created_at", { ascending: false }),
+    db.from("analysis_run").select("input_transcript_version_id,status,created_at").eq("owner_id", uid).in("prompt_version", LINK_DONE_VERSIONS),
+  ]);
+  const ready = new Set((jobs ?? []).map((j) => j.source_record_id as string));
+  const spaces = new Set((projects ?? []).map((p) => p.workspace_id as string));
+  const latest = new Map<string, string>();
+  for (const t of tvs ?? []) if (!latest.has(t.source_record_id)) latest.set(t.source_record_id, t.id);
+  const runsByTv = new Map<string, { status: string; created_at: string }[]>();
+  for (const r of runs ?? []) runsByTv.set(r.input_transcript_version_id, [...(runsByTv.get(r.input_transcript_version_id) ?? []), r]);
+  return (recs ?? [])
+    .filter((r) => ready.has(r.id) && r.classification !== "personal" && spaces.has(r.workspace_id))
+    .filter((r) => { const tv = latest.get(r.id); return tv !== undefined && !settled(runsByTv.get(tv) ?? []); })
+    .sort((a, b) => String(b.ingested_at).localeCompare(String(a.ingested_at)))
+    .map((r) => r.id);
+}
+
+/** 앱이 켜질 때 부르는 밀린 연결 제안 정리. remaining이 0이 될 때까지 앱이 다시 부른다 */
+async function sweepLinks(db: SupabaseClient, uid: string): Promise<{ made: number; done: number; failed: number; remaining: number; error?: string }> {
+  if (!OPENAI_KEY) return { made: 0, done: 0, failed: 0, remaining: 0, error: "AI 키가 아직 설정되지 않았어요" };
+  const cycle = new Date().toISOString().slice(0, 7);
+  if (await overBudget(db, uid, cycle)) return { made: 0, done: 0, failed: 0, remaining: 0, error: "이번 달 AI 예산 대기선을 넘어 지금은 만들 수 없어요" };
+  const pending = await pendingLinkRecords(db, uid);
+  const batch = pending.slice(0, SWEEP_BATCH);
+  const results = await Promise.allSettled(batch.map((id) => suggestLinks(db, uid, id, cycle)));
+  let made = 0, failed = 0;
+  for (const r of results) {
+    if (r.status === "fulfilled") made += r.value;
+    else { failed++; console.error("link sweep failed", String(r.reason)); }
+  }
+  return { made, done: batch.length - failed, failed, remaining: pending.length - batch.length };
 }
 
 /**

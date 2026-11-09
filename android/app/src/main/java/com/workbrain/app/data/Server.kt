@@ -10,6 +10,7 @@ import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.storage.storage
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -178,6 +179,8 @@ class GuidelineRejected(reason: String) : Exception(reason)
 /** 기록 상세 머리(목업 S05 '녹음 · 42분 · 10/16 15:00')와 참석자 명단 */
 @Serializable data class RecordInfoRow(
     val attendees: List<String>? = null,
+    /** AI가 붙이고 사용자가 고치는 분류: work · personal · uncertain(FR-06). 처리 전이면 null */
+    val classification: String? = null,
     val channel: String? = null,
     @SerialName("occurred_at") val occurredAt: String? = null,
     @SerialName("ingested_at") val ingestedAt: String? = null,
@@ -390,21 +393,24 @@ object Server {
         auth.importSession(renewed)
     }
 
-    /** 처리 함수를 한 번 불러 다음 단계를 진행한다 */
+    /** 서버 함수 호출. 세션이 만료돼 401이면 다시 로그인한 뒤 한 번 더 부른다 */
+    private suspend fun invokeFunction(name: String, body: JsonObject): HttpResponse {
+        ensureSession()
+        return try {
+            db.functions.invoke(name, body = body)
+        } catch (e: RestException) {
+            if (e.statusCode != 401) throw e
+            ensureSession(force = true)
+            db.functions.invoke(name, body = body)
+        }
+    }
+
     /**
      * 회의록 만들기(FR-30, DEC-56): 처리 함수가 이 호출 안에서 문서를 만든다(짧은 회의도 1~2분).
      * 실패하면 사용자에게 보여 줄 문구를, 성공하면 null을 돌려준다
      */
     suspend fun makeMinutes(recordId: String): String? {
-        val body = buildJsonObject { put("record_id", recordId); put("action", "document") }
-        ensureSession()
-        val res = try {
-            db.functions.invoke("process-record", body = body)
-        } catch (e: RestException) {
-            if (e.statusCode != 401) throw e
-            ensureSession(force = true)
-            db.functions.invoke("process-record", body = body)
-        }
+        val res = invokeFunction("process-record", buildJsonObject { put("record_id", recordId); put("action", "document") })
         val json = Json.parseToJsonElement(res.bodyAsText()) as JsonObject
         return if (json["document"]?.jsonPrimitive?.content == "DONE") null
         else json["error"]?.jsonPrimitive?.content ?: "회의록을 만들지 못했어요"
@@ -415,33 +421,35 @@ object Server {
      * 회의 날짜(서울)는 파일 이름·메일 제목에 쓴다. 문서가 없거나 남의 것이면 서버가 404로 거부한다
      */
     suspend fun minutesWord(meetingVersionId: String): MinutesWord {
-        val body = buildJsonObject { put("meeting_version_id", meetingVersionId) }
-        ensureSession()
-        val res = try {
-            db.functions.invoke("minutes-word", body = body)
-        } catch (e: RestException) {
-            if (e.statusCode != 401) throw e
-            ensureSession(force = true)
-            db.functions.invoke("minutes-word", body = body)
-        }
+        val res = invokeFunction("minutes-word", buildJsonObject { put("meeting_version_id", meetingVersionId) })
         return MinutesWord(res.bodyAsBytes(), res.headers["x-wb-meeting-date"].orEmpty(), res.headers["x-wb-draft"] != "false")
     }
 
+    /** 처리 함수를 한 번 불러 다음 단계를 진행한다 */
     suspend fun process(recordId: String): ProcessStatus {
-        val body = buildJsonObject { put("record_id", recordId) }
-        ensureSession()
-        val res = try {
-            db.functions.invoke("process-record", body = body)
-        } catch (e: RestException) {
-            if (e.statusCode != 401) throw e
-            ensureSession(force = true)
-            db.functions.invoke("process-record", body = body)
-        }
+        val res = invokeFunction("process-record", buildJsonObject { put("record_id", recordId) })
         val json = Json.parseToJsonElement(res.bodyAsText()) as JsonObject
         val failMessage = json["error"]?.jsonPrimitive?.content
         // 단계가 없는 응답은 거부(로그인 만료·기록 없음 등)다. 계속 다시 부르지 않고 바로 알린다
         val stage = json["stage"]?.jsonPrimitive?.content ?: error(failMessage ?: "처리 상태를 알 수 없어요")
         return ProcessStatus(stage = stage, state = json["state"]?.jsonPrimitive?.content ?: "", error = failMessage)
+    }
+
+    /**
+     * 밀린 프로젝트 연결 제안 만들기(FR-06, DEC-75): 처리 함수가 한 번에 몇 건씩 만들고 남은 수를 알려 준다.
+     * 남은 게 없거나, 이번에 하나도 못 만들었거나(실패·예산 대기선), 15번을 부르면 멈춘다. 만든 제안 수를 돌려준다
+     */
+    suspend fun suggestLinks(): Int {
+        var made = 0
+        repeat(15) {
+            val res = invokeFunction("process-record", buildJsonObject { put("action", "suggest_links") })
+            val json = Json.parseToJsonElement(res.bodyAsText()) as JsonObject
+            made += json["made"]?.jsonPrimitive?.intOrNull ?: 0
+            val done = json["done"]?.jsonPrimitive?.intOrNull ?: 0
+            val remaining = json["remaining"]?.jsonPrimitive?.intOrNull ?: 0
+            if (remaining == 0 || done == 0) return made
+        }
+        return made
     }
 
     private suspend fun transcriptIds(recordId: String): List<String> =
@@ -589,9 +597,14 @@ object Server {
      * 명단은 처리가 끝난 뒤에도 기록 상세에서 고칠 수 있다(DEC-59)
      */
     suspend fun recordInfo(recordId: String): RecordInfoRow =
-        db.from("source_record").select(Columns.raw("attendees,channel,occurred_at,ingested_at,audio_asset(duration_sec)")) {
+        db.from("source_record").select(Columns.raw("attendees,classification,channel,occurred_at,ingested_at,audio_asset(duration_sec)")) {
             filter { eq("id", recordId) }
         }.decodeSingle<RecordInfoRow>()
+
+    /** 분류 고치기(FR-06, DEC-75). 개인으로 바꾸면 그 기록에는 새 연결 제안을 만들지 않는다 */
+    suspend fun setClassification(recordId: String, value: String) {
+        db.from("source_record").update({ set("classification", value) }) { filter { eq("id", recordId) } }
+    }
 
     /** 고친 명단은 다음 회의록 만들기부터 쓰인다. 이미 뽑은 할 일 후보·교정본은 다시 만들지 않는다 */
     suspend fun saveAttendees(recordId: String, names: List<String>) {

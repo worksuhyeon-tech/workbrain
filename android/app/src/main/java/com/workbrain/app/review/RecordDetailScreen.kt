@@ -63,9 +63,12 @@ import com.workbrain.app.record.TrashNotice
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.border
 import androidx.compose.material3.AlertDialog
+import com.workbrain.app.data.LinkSuggest
+import com.workbrain.app.data.LinkSuggestion
 import com.workbrain.app.data.Para
 import com.workbrain.app.data.Place
 import com.workbrain.app.data.ProjectRow
+import com.workbrain.app.data.RecordClass
 import com.workbrain.app.data.RecordInfoRow
 import com.workbrain.app.tasks.PlaceField
 import com.workbrain.app.tasks.UNSORTED
@@ -142,6 +145,8 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     // 연결된 프로젝트(DEC-69): 머리 칩·'연결된 프로젝트' 창. 프로젝트 이름은 보관된 것까지 모두 읽어 둔다
     var allProjects by remember { mutableStateOf<List<ProjectRow>>(emptyList()) }
     var linkedIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    // AI 연결 제안(FR-06, DEC-75): 아직 확인하지 않은 것. [연결]하면 linkedIds로 옮겨 간다
+    var suggestions by remember { mutableStateOf<List<LinkSuggestion>>(emptyList()) }
     var projectsOpen by remember { mutableStateOf(false) }
     var linkBusy by remember { mutableStateOf(false) }
     // '추가할 곳'을 사용자가 직접 골랐으면 연결된 프로젝트로 처음 값을 다시 채우지 않는다
@@ -155,6 +160,12 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     var view by remember { mutableStateOf("fields") }
     val context = LocalContext.current
 
+    // 연결된 프로젝트와 AI 제안은 보조 정보라 못 읽어도 화면은 그린다
+    suspend fun loadLinks() {
+        runCatching { Para.projectsOfRecord(recordId) }.onSuccess { linkedIds = it }
+        runCatching { LinkSuggest.pending(recordId) }.onSuccess { suggestions = it }
+    }
+
     suspend fun load() {
         runCatching {
             meeting = Server.meeting(recordId)
@@ -165,7 +176,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             currentGuidelineRev = Server.guideline().rev
             info = Server.recordInfo(recordId).also { attendees = it.attendees.orEmpty() }
         }.onFailure { message = "불러오지 못했어요. 인터넷 연결을 확인해 주세요." to Tone.Crit }
-        runCatching { Para.projectsOfRecord(recordId) }.onSuccess { linkedIds = it }
+        loadLinks()
         // 결정과 겹치는 후보는 결정과 중복일 가능성이 커서 처음에는 체크하지 않는다(DEC-48).
         // 검토함에서 미룬 후보도 모르고 추가하지 않게 처음에는 체크하지 않는다(DEC-63)
         val decisions = meeting?.fields?.decisions().orEmpty()
@@ -181,6 +192,8 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         runCatching { Para.allProjects() }.onSuccess { allProjects = it }
     }
     val linkedProjects = linkedIds.mapNotNull { id -> allProjects.firstOrNull { it.id == id } }
+    val shownSuggestions = visibleSuggestions(suggestions, allProjects, linkedIds)
+    val recordClass = RecordClass.of(info?.classification)
     // 프로젝트 하나에 연결된 기록이면 '추가할 곳' 처음 값을 그 프로젝트로(DEC-69). 여럿이면 사용자가 고른다
     LaunchedEffect(linkedIds, places) {
         if (!placeTouched) {
@@ -188,17 +201,39 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         }
     }
 
-    // 연결·해제: 끝나면 연결 목록을 다시 읽는다. 아카이브·남의 것은 서버가 거부한다(0032)
+    // 연결·해제·AI 제안 확인: 끝나면 연결 목록과 제안을 다시 읽는다. 아카이브·남의 것은 서버가 거부한다(0032).
+    // 제안 [아니요]도 같은 함수(해제)라, 연결돼 있지 않던 곳이면 '제안을 넘겼다'고 알린다
     fun setLinked(p: ProjectRow, linked: Boolean) {
+        val wasLinked = p.id in linkedIds
         linkBusy = true
         scope.launch {
             message = runCatching { Para.linkRecord(recordId, p.id, linked) }.fold(
-                { (if (linked) "‘${p.name}’에 연결했어요" else "‘${p.name}’ 연결을 풀었어요") to Tone.Good },
+                {
+                    when {
+                        linked -> "‘${p.name}’에 연결했어요"
+                        wasLinked -> "‘${p.name}’ 연결을 풀었어요"
+                        else -> "‘${p.name}’ 연결 제안을 넘겼어요 · 다시 제안하지 않아요"
+                    } to Tone.Good
+                },
                 { e -> (if (e.message.orEmpty().contains("WB409")) "아카이브된 프로젝트에는 연결할 수 없어요" else "바꾸지 못했어요. 인터넷 연결을 확인해 주세요") to Tone.Crit },
             )
-            runCatching { Para.projectsOfRecord(recordId) }.onSuccess { linkedIds = it }
+            loadLinks()
             linkBusy = false
             onChanged()
+        }
+    }
+
+    // 분류(업무·개인·불확실, DEC-75): 바로 저장. 개인으로 바꾸면 이 기록에는 새 연결 제안을 만들지 않는다
+    fun classify(c: RecordClass) {
+        // 누른 순간의 값을 읽는다(그릴 때 계산한 값을 잡아 두면 바뀐 뒤에도 옛 값을 본다, 11/08 트리 화살표 결함과 같은 이유)
+        if (c == RecordClass.of(info?.classification)) return
+        linkBusy = true
+        scope.launch {
+            message = runCatching { Server.setClassification(recordId, c.value) }.fold(
+                { info = info?.copy(classification = c.value); "분류를 바꿨어요 · ${c.label}" to Tone.Good },
+                { "바꾸지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit },
+            )
+            linkBusy = false
         }
     }
 
@@ -337,7 +372,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         followNames = followNames,
         onTitle = { edit(p, "title" to JsonPrimitive(it)) },
         onOwner = { kind, who -> edit(p, "owner_kind" to JsonPrimitive(kind), "assignee" to (who?.let(::JsonPrimitive) ?: JsonNull)) },
-        onOwnerOther = { editing = p to CandidateField.Owner },
+        onOwnerOther = { editing = p to CandidateField.OwnerOther },
         onDue = { editing = p to CandidateField.Due },
         // 미룸은 승인과 무관해 여기서도 추가할 수 있지만, 미뤄 둔 것임을 보여 준다(FR-28)
         badges = listOfNotNull(Snooze.label(p.snoozedUntil)?.takeIf { Snooze.isActive(p.snoozedUntil) }?.let { "미룸 $it" to Tone.Info }),
@@ -401,8 +436,8 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                     color = Wb.colors.muted,
                 )
             }
-            // 목업 S05 머리 프로젝트 칩. 누르면 '연결된 프로젝트' 창(DEC-69, 사용자 선택: 탭 대신 창)
-            RecordProjectChips(linkedProjects, onOpen = { projectsOpen = true }, modifier = Modifier.padding(top = 6.dp))
+            // 목업 S05 머리 프로젝트 칩(+ 분류·AI 제안 칩). 누르면 '관련 프로젝트' 창(DEC-69, 사용자 선택: 탭 대신 창)
+            RecordProjectChips(linkedProjects, shownSuggestions, recordClass, onOpen = { projectsOpen = true }, modifier = Modifier.padding(top = 6.dp))
             if (meeting != null) {
                 SegmentPills(
                     listOf("fields" to "추출 항목", "doc" to "회의록 문서"),
@@ -585,9 +620,12 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
 
     if (projectsOpen) {
         RecordProjectsSheet(
+            recordClass = recordClass,
+            suggestions = shownSuggestions,
             linked = linkedProjects,
             candidates = allProjects.filter { !it.archived && it.id !in linkedIds },
             busy = linkBusy,
+            onClassify = { classify(it) },
             onLink = { setLinked(it, true) },
             onUnlink = { setLinked(it, false) },
             onDismiss = { projectsOpen = false },

@@ -23,11 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -58,6 +54,7 @@ import com.workbrain.app.data.PlaceType
 import com.workbrain.app.data.Server
 import com.workbrain.app.ui.Banner
 import com.workbrain.app.ui.ControlShape
+import com.workbrain.app.ui.dashedPill
 import com.workbrain.app.ui.ParaGlyph
 import com.workbrain.app.ui.PillShape
 import com.workbrain.app.ui.GlassIcon
@@ -634,13 +631,6 @@ private fun ProjectPicker(chosen: ChosenProject?, choices: List<ChosenProject>, 
             }
         }
     }
-}
-
-/** 목업 .att-add: 점선 테두리 알약 */
-private fun Modifier.dashedPill(color: Color): Modifier = drawBehind {
-    val stroke = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())))
-    val r = size.height / 2
-    drawRoundRect(color = color, cornerRadius = CornerRadius(r, r), style = stroke)
 }
 
 /** 목업 .up-row: 녹음 한 건의 상태와 다음 행동 */
