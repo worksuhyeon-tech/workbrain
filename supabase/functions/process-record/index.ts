@@ -36,8 +36,11 @@ Deno.serve(async (req) => {
   const uid = who?.user?.id;
   if (!uid) return reply(401, { error: "로그인이 필요해요" });
 
-  let recordId = "", action = "";
-  try { const body = await req.json(); recordId = String(body.record_id ?? ""); action = String(body.action ?? ""); } catch { /* 아래에서 거부 */ }
+  let recordId = "", action = "", requestKey = "";
+  try {
+    const body = await req.json();
+    recordId = String(body.record_id ?? ""); action = String(body.action ?? ""); requestKey = String(body.request_key ?? "");
+  } catch { /* 아래에서 거부 */ }
   // 밀린 연결 제안(FR-06): 기록 하나가 아니라 내 기록 전체에서 몇 건씩
   if (action === "suggest_links") return reply(200, await sweepLinks(db, uid));
   if (!/^[0-9a-f-]{36}$/i.test(recordId)) return reply(400, { error: "기록 ID가 올바르지 않아요" });
@@ -62,14 +65,28 @@ Deno.serve(async (req) => {
     await db.from("processing_job").update({ stage_state: "PENDING" }).eq("id", job.id);
   }
 
-  // 회의록 만들기(FR-30): 작업 단계와 별개로 이 호출 안에서 바로 만든다
+  // 회의록 만들기(FR-30): 작업 단계와 별개로 이 호출 안에서 바로 만든다.
+  // 같은 요청 열쇠로 다시 오면(이동 중 끊겨 앱 작업이 다시 돎) 다시 만들지 않는다(DEC-79). 열쇠가 없는 옛 앱은 부를 때마다 새 요청
   if (action === "document") {
+    const key = /^[0-9a-f-]{36}$/i.test(requestKey) ? requestKey : crypto.randomUUID();
+    const { data: claim, error: claimError } = await db.rpc("wb_claim_document", { p_job_id: job.id, p_key: key });
+    if (claimError) console.error("document claim failed", claimError.message);
+    if (claim === "DONE") return reply(200, { document: "DONE" });
+    if (claim === "RUNNING") return reply(200, { document: "RUNNING" });
+    if (claim === "BUSY") return reply(200, { error: "이미 회의록을 만드는 중이에요. 다 되면 화면에 보여요" });
+    if (claim !== "CLAIMED") return reply(200, { error: "회의록을 만들지 못했어요. 다시 시도해 주세요" });
+    let result: "DONE" | "FAILED" = "FAILED";
     try {
       await writeDocument(db, uid, recordId, cycle);
+      result = "DONE";
       return reply(200, { document: "DONE" });
     } catch (e) {
       console.error("document failed", String(e));
       return reply(200, { error: "회의록을 만들지 못했어요. 다시 시도해 주세요" });
+    } finally {
+      // 응답을 못 받은 앱이 wb_document_status로 결과를 확인한다
+      await db.from("processing_job").update({ document_lease_until: null, document_result: result })
+        .eq("id", job.id).eq("document_key", key);
     }
   }
 

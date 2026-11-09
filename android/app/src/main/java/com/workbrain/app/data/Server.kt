@@ -197,6 +197,13 @@ class GuidelineRejected(reason: String) : Exception(reason)
 /** 서버가 만든 회의록 Word. meetingDate = 회의 날짜(서울, YYYY-MM-DD), draft = 승인 전 문서 */
 class MinutesWord(val bytes: ByteArray, val meetingDate: String, val draft: Boolean)
 
+/** 회의록 만들기 응답: 다 됨 · 같은 요청을 아직 만드는 중(앱 작업이 다시 돌았을 때) · 실패(보여 줄 문구) */
+sealed interface MinutesAnswer {
+    data object Done : MinutesAnswer
+    data object Running : MinutesAnswer
+    data class Failed(val message: String) : MinutesAnswer
+}
+
 @Serializable data class TranscriptRow(val id: String, val kind: String = "", val content: String? = null, val segments: List<TranscriptSegment>? = null)
 
 /** 전사 문장 구간. speaker·offsetMs는 가져온 txt의 화자·시각으로 화면 표시 전용(DEC-54) */
@@ -411,13 +418,26 @@ object Server {
 
     /**
      * 회의록 만들기(FR-30, DEC-56): 처리 함수가 이 호출 안에서 문서를 만든다(짧은 회의도 1~2분).
-     * 실패하면 사용자에게 보여 줄 문구를, 성공하면 null을 돌려준다
+     * requestKey는 누를 때 한 번 만든 열쇠: 앱 작업이 멈췄다 다시 돌아도 같은 열쇠라 서버가 두 번 만들지 않는다(DEC-79)
      */
-    suspend fun makeMinutes(recordId: String): String? {
-        val res = invokeFunction("process-record", buildJsonObject { put("record_id", recordId); put("action", "document") })
+    suspend fun makeMinutes(recordId: String, requestKey: String): MinutesAnswer {
+        val res = invokeFunction("process-record", buildJsonObject {
+            put("record_id", recordId); put("action", "document"); put("request_key", requestKey)
+        })
         val json = Json.parseToJsonElement(res.bodyAsText()) as JsonObject
-        return if (json["document"]?.jsonPrimitive?.content == "DONE") null
-        else json["error"]?.jsonPrimitive?.content ?: "회의록을 만들지 못했어요"
+        return when (json["document"]?.jsonPrimitive?.content) {
+            "DONE" -> MinutesAnswer.Done
+            "RUNNING" -> MinutesAnswer.Running
+            else -> MinutesAnswer.Failed(json["error"]?.jsonPrimitive?.content ?: "회의록을 만들지 못했어요")
+        }
+    }
+
+    /** 응답을 못 받은 회의록 요청이 서버에서 어떻게 됐는지: DONE·FAILED·RUNNING·BUSY·NONE, 내 기록이 아니면 null(DEC-79) */
+    suspend fun minutesStatus(recordId: String, requestKey: String): String? {
+        ensureSession()
+        return db.postgrest.rpc("wb_document_status", buildJsonObject {
+            put("p_record_id", recordId); put("p_key", requestKey)
+        }).decodeAs<JsonElement>().jsonPrimitive.contentOrNull
     }
 
     /**
