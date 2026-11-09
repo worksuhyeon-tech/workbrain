@@ -9,8 +9,10 @@ gpt-6-luna와 Haiku 5.5 중 한국어 회의록에서 할 일을 더 정확하�
 | `holdout.json` | **보류 평가용 15건**(H13~H15는 요구사항 정리형 회의). 정답을 프롬프트·예시에 넣거나 보고 프롬프트를 고치지 않는다 |
 | `security.json` | 보안 공격 입력 10건(원문 속 명령문, NFR-08) |
 | `schema.json` | 모델 출력 JSON 형식 |
-| `prompt-v1.md` · `prompt-v2.md` | 추출 지시문(시스템 프롬프트). v2가 지금 처리 함수에 들어 있다(`scripts/gen-prompt.mjs`) |
-| `prompt-v3.md` | 결정·미결을 할 일로 다시 쓰지 않게 고친 v3(DEC-46). 측정 결과 승인 전까지 처리 함수 미반영 |
+| `prompt-v1.md` · `prompt-v2.md` | 추출 지시문(시스템 프롬프트). v2는 2026-11-09까지 처리 함수에 들어 있었다(`scripts/gen-prompt.mjs`) |
+| `prompt-v3.md` | 결정·미결을 할 일로 다시 쓰지 않게 고친 v3(DEC-46). 보류 미달로 미채택(DEC-48) |
+| `prompt-v4.md` | v2 + 이름 붙은 화자 담당(DEC-76)·받는 사람 `recipients`(DEC-77). 2026-11-10부터 처리 함수에 들어 있다. 결과 `docs/03-analysis/prompt-v4-eval.md` |
+| `run-speakers.ts` | 화자 이름이 있는 실제 회의(data-private, git 제외)로 v4를 돌려 지금 후보와 비교(deno, 처리 함수의 입력·검증 코드를 그대로 씀) |
 | (`data-private/eval/real-holdout.json`) | 실사용 회의 보류 케이스(R*). **git 제외**, 이 PC에 있을 때만 `--split real`로 실행·채점. 결과도 같은 폴더 `runs/`에 저장 |
 | `run.mjs` | 두 모델을 호출해 결과·토큰·비용을 `runs/`에 저장 |
 | `score.mjs` | 정답과 비교해 정밀도·재현율·필수 게이트를 계산. `--validate`는 정답 파일 점검 |

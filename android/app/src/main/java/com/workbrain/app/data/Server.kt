@@ -226,6 +226,8 @@ data class Transcript(val content: String, val segments: List<TranscriptSegment>
     /** 오늘 화면용으로 함께 읽은 속한 곳 이름·보관 여부(TASK_WITH_PLACE). 다른 조회에서는 null */
     val project: PlaceRef? = null,
     val area: PlaceRef? = null,
+    /** 받는 사람(DEC-77, 0035): 메일·공유·전달·알려 줄 상대. 없으면 빈 목록(칩이 안 보임) */
+    val recipients: List<String> = emptyList(),
 ) {
     val done: Boolean get() = status == "done"
     val placeName: String? get() = project?.name ?: area?.name
@@ -247,9 +249,10 @@ data class TaskEdit(
     val dueText: String?,
     val projectId: String?,
     val areaId: String?,
+    val recipients: List<String> = emptyList(),
 )
 
-fun TaskRow.toEdit() = TaskEdit(title, priority, ownerKind, assignee, dueDate, dueTime, dueAmbiguous, dueText, projectId, areaId)
+fun TaskRow.toEdit() = TaskEdit(title, priority, ownerKind, assignee, dueDate, dueTime, dueAmbiguous, dueText, projectId, areaId, recipients)
 
 /**
  * 사용자가 직접 만드는 새 할 일(한 줄 빠른 입력·새 할 일 서랍, DEC-70·73)의 task 행.
@@ -268,6 +271,7 @@ fun TaskEdit.toNewTaskFields(): JsonObject = buildJsonObject {
     }
     projectId?.let { put("project_id", it) }
     areaId?.let { put("area_id", it) }
+    if (recipients.isNotEmpty()) put("recipients", JsonArray(recipients.map(::JsonPrimitive)))
 }
 
 private const val TASK_WITH_PLACE = "*,project(name,archived_at),area(name,archived_at)"
@@ -687,6 +691,10 @@ object Server {
             .filter { it.project?.archivedAt == null && it.area?.archivedAt == null }
     }
 
+    /** 받는 사람 고르기 칩(DEC-77): 그 기록의 참석자 + 이름 붙은 화자(서버가 번호 화자·'(나)'를 뺌) */
+    suspend fun recordPeople(recordId: String): List<String> =
+        db.postgrest.rpc("wb_record_people", buildJsonObject { put("p_record_id", recordId) }).decodeAs<List<String>>()
+
     suspend fun task(id: String): TaskRow? =
         db.from("task").select { filter { eq("id", id) } }.decodeList<TaskRow>().firstOrNull()
 
@@ -707,6 +715,7 @@ object Server {
             put("due_text", json(e.dueText))
             put("project_id", json(e.projectId))
             put("area_id", json(e.areaId))
+            put("recipients", JsonArray(e.recipients.map(::JsonPrimitive)))
             put("version", t.version + 1)
         }) {
             select()

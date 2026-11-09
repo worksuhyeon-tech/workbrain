@@ -29,7 +29,7 @@
       "type": "array",
       "items": {
         "type": "object", "additionalProperties": false,
-        "required": ["title", "owner_kind", "assignee", "due_kind", "due_date", "due_time", "due_text", "project_id", "segments"],
+        "required": ["title", "owner_kind", "assignee", "due_kind", "due_date", "due_time", "due_text", "project_id", "recipients", "segments"],
         "properties": {
           "title": {"type": "string"},
           "owner_kind": {"type": "string", "enum": ["me", "other", "unknown"]},
@@ -39,6 +39,7 @@
           "due_time": {"type": ["string", "null"], "description": "HH:MM (Asia/Seoul)"},
           "due_text": {"type": ["string", "null"], "description": "모호한 기한의 원문"},
           "project_id": {"type": ["string", "null"]},
+          "recipients": {"type": "array", "items": {"type": "string"}, "description": "결과를 받는 사람·팀(DEC-77)"},
           "segments": {"type": "array", "items": {"type": "integer"}}
         }
       }

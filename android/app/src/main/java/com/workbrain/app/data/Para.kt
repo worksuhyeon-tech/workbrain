@@ -117,6 +117,18 @@ data class LinkedRecord(val projectId: String, val record: RecordBrief) {
 
 private const val RECORD_BRIEF_COLUMNS = "id,title,channel,occurred_at,ingested_at,audio_asset(duration_sec)"
 
+/**
+ * 할 일 출처: 줄에 보이는 한 줄('AI 제안 승인 · 회의 이름 10/14')과 그 기록.
+ * 기록은 받는 사람 고르기 칩(그 기록의 참석자·화자, DEC-77)에 쓴다
+ */
+data class TaskSource(val label: String, val recordId: String?)
+
+/** 할 일들에서 쓴 사람 이름(팔로업 담당·받는 사람), 자주 쓴 순으로 최대 12개. '나'는 고르기 칩이 따로 둔다 */
+fun usedNamesOf(tasks: List<TaskRow>): List<String> =
+    tasks.flatMap { t -> listOfNotNull(t.assignee?.takeIf { t.ownerKind == "other" }) + t.recipients }
+        .map { it.trim() }.filter { it.isNotEmpty() && it != "나" }
+        .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key }.take(12)
+
 /** 트리·상세를 그리는 데 필요한 것 전부. 할 일은 완료한 것까지(목업 '완료 포함'·프로젝트 할 일 카드) */
 data class ParaData(
     val workspace: WorkspaceRow,
@@ -125,8 +137,8 @@ data class ParaData(
     val resources: List<ResourceRow>,
     val links: List<ResourceLinkRow>,
     val tasks: List<TaskRow>,
-    /** 할 일 → 출처 한 줄('AI 제안 승인 · 회의 이름 10/14'). 없으면 직접 추가 */
-    val sources: Map<String, String>,
+    /** 할 일 → 출처(AI 제안 승인이면 그 기록). 없으면 직접 추가 */
+    val sources: Map<String, TaskSource>,
     /** 프로젝트에 연결된 기록(확정된 기록 전체 연결만) */
     val recordLinks: List<LinkedRecord> = emptyList(),
 ) {
@@ -157,6 +169,9 @@ data class ParaData(
     fun tasksOf(type: PlaceType, id: String): List<TaskRow> =
         tasks.filter { if (type == PlaceType.PROJECT) it.projectId == id else it.areaId == id }
 
+    /** 받는 사람 고르기 칩에 보탤 이름(DEC-77): 이 공간 할 일의 팔로업 담당·받는 사람, 자주 쓴 순 */
+    val usedNames: List<String> get() = usedNamesOf(tasks)
+
     /** 속한 곳을 못 찾는 할 일(어디에도 없음·다른 기기에서 막 지운 곳)은 '정리 안 됨' */
     fun unsorted(t: TaskRow): Boolean = project(t.projectId) == null && area(t.areaId) == null
 
@@ -176,7 +191,7 @@ data class ParaData(
 }
 
 // 할 일 출처: 승인 이력(task_revision, actor=ai-approved) → 승인 → 후보 → 분석 → 전사 → 기록
-@Serializable private data class SrcRecord(val title: String? = null, @SerialName("occurred_at") val occurredAt: String? = null, @SerialName("ingested_at") val ingestedAt: String? = null)
+@Serializable private data class SrcRecord(val id: String? = null, val title: String? = null, @SerialName("occurred_at") val occurredAt: String? = null, @SerialName("ingested_at") val ingestedAt: String? = null)
 @Serializable private data class SrcTranscript(@SerialName("source_record") val record: SrcRecord? = null)
 @Serializable private data class SrcRun(@SerialName("transcript_version") val transcript: SrcTranscript? = null)
 @Serializable private data class SrcProposal(@SerialName("analysis_run") val run: SrcRun? = null)
@@ -184,7 +199,7 @@ data class ParaData(
 @Serializable private data class SrcRevision(@SerialName("task_id") val taskId: String, @SerialName("approval_event") val event: SrcEvent? = null)
 
 private const val SOURCE_COLUMNS =
-    "task_id,approval_event(change_proposal(analysis_run(transcript_version(source_record(title,occurred_at,ingested_at)))))"
+    "task_id,approval_event(change_proposal(analysis_run(transcript_version(source_record(id,title,occurred_at,ingested_at)))))"
 
 // 기록↔프로젝트 연결(0032): 확정된 것만 읽고, 기록 전체 연결(item_ref.scope = record)만 쓴다(항목 단위 AI 연결은 FR-06 때)
 @Serializable private data class RecordLinkRow(
@@ -274,7 +289,7 @@ object Para {
         }).decodeAs<JsonPrimitive>().content
 
     /** 할 일 → 출처 한 줄(오늘·프로젝트 화면 공용). AI 승인으로 생긴 할 일만 있고, 나머지는 직접 추가 */
-    suspend fun sources(): Map<String, String> =
+    suspend fun sources(): Map<String, TaskSource> =
         db.from("task_revision").select(Columns.raw(SOURCE_COLUMNS)) { filter { eq("actor", "ai-approved") } }
             .decodeList<SrcRevision>()
             .mapNotNull { r ->
@@ -283,7 +298,7 @@ object Para {
                     runCatching { OffsetDateTime.parse(it).atZoneSameInstant(seoul).let { z -> "${z.monthValue}/${z.dayOfMonth}" } }.getOrNull()
                 }
                 // 목업 표기: 'AI 제안 승인 · IT 개발팀 통화 10/14'
-                r.taskId to "AI 제안 승인 · ${rec.title ?: "기록"}${day?.let { " $it" } ?: ""}"
+                r.taskId to TaskSource("AI 제안 승인 · ${rec.title ?: "기록"}${day?.let { " $it" } ?: ""}", rec.id)
             }
             .toMap()
 

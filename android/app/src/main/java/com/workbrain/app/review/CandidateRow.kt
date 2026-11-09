@@ -72,6 +72,8 @@ fun CandidateRow(
     onOwnerOther: () -> Unit,
     onDue: () -> Unit,
     badges: List<Pair<String, Tone>> = emptyList(),
+    /** '→ 받는 사람' 칩을 눌렀을 때(DEC-77): 작은 서랍에서 고른 값은 승인 때 덮는다 */
+    onRecipients: (() -> Unit)? = null,
 ) {
     val editable = onChecked != null
     val title = after.str("title").orEmpty()
@@ -99,6 +101,8 @@ fun CandidateRow(
         }
         badges.forEach { (text, tone) -> WbChip(text, tone) }
     }
+    val extraChips: @Composable () -> Unit = { CandidateExtraChips(after, if (editable) onRecipients else null) }
+    val hasExtras = after.ownerBySpeaker() || after.recipients().isNotEmpty()
 
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val wide = maxWidth >= 600.dp
@@ -120,13 +124,14 @@ fun CandidateRow(
                             Box(Modifier.width(160.dp).padding(start = 10.dp)) { ownerChip() }
                             Box(Modifier.width(120.dp).padding(start = 6.dp)) { dueChip() }
                         }
-                        if (status != "pending" || badges.isNotEmpty()) {
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) { statusChips() }
+                        if (status != "pending" || badges.isNotEmpty() || hasExtras) {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) { extraChips(); statusChips() }
                         }
                     } else {
                         TitleCell(title, editable, onTitle, Modifier.fillMaxWidth())
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             ownerChip()
+                            extraChips()
                             dueChip()
                             statusChips()
                         }

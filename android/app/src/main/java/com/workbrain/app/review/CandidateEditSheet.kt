@@ -139,5 +139,7 @@ private fun edits(current: JsonObject, title: String, owner: String, assignee: S
         "due_time" to if (dueKind == "date" && sameDate) (current["due_time"] ?: JsonNull) else JsonNull,
         "due_ambiguous" to JsonPrimitive(dueKind == "vague"),
         "due_text" to if (dueKind == "vague") (current["due_text"] ?: JsonNull) else JsonNull,
+        // 담당을 바꾸면 '말한 사람 기준' 표시를 지운다(DEC-76). 그대로면 둔다
+        "owner_basis" to if (owner == current.str("owner_kind") && (owner != "other" || assignee == current.str("assignee"))) (current["owner_basis"] ?: JsonNull) else JsonNull,
     ))
 }

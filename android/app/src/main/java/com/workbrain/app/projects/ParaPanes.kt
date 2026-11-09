@@ -320,7 +320,7 @@ private fun TasksCard(title: String, d: ParaData, drag: ParaDragState, place: Pl
             TaskLines(sorted(current), d, drag, readOnly, layout, onEvent)
             if (earlierDone.isNotEmpty()) {
                 if (current.isNotEmpty()) HorizontalDivider(color = Wb.colors.border)
-                EarlierDoneToggle(earlierDone.size, showEarlier) { showEarlier = !showEarlier }
+                FoldToggle("이전 완료", earlierDone.size, showEarlier) { showEarlier = !showEarlier }
                 if (showEarlier) {
                     HorizontalDivider(color = Wb.colors.border)
                     // 최근에 끝낸 것부터. 완료 시각이 없는 옛 완료는 맨 끝
@@ -331,17 +331,20 @@ private fun TasksCard(title: String, d: ParaData, drag: ParaDragState, place: Pl
     }
 }
 
-/** 상세 할 일 카드 맨 아래 접힌 줄: '이전 완료 N개 ›' ↔ '이전 완료 N개 접기'(DEC-74) */
+/**
+ * 카드 맨 아래 접힌 줄: '{label} N개 ›' ↔ '{label} N개 접기'.
+ * 상세 할 일 카드의 이전 완료(DEC-74)와 모든 할 일의 기한 없음(DEC-78)이 같은 모양을 쓴다
+ */
 @Composable
-private fun EarlierDoneToggle(count: Int, open: Boolean, onToggle: () -> Unit) {
+private fun FoldToggle(label: String, count: Int, open: Boolean, onToggle: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp)
-            .clickable(onClickLabel = if (open) "이전 완료 접기" else "이전 완료 펼치기", onClick = onToggle)
+            .clickable(onClickLabel = if (open) "$label 접기" else "$label 펼치기", onClick = onToggle)
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            if (open) "이전 완료 ${count}개 접기" else "이전 완료 ${count}개",
+            if (open) "$label ${count}개 접기" else "$label ${count}개",
             fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Wb.colors.muted,
         )
         Icon(
@@ -351,14 +354,30 @@ private fun EarlierDoneToggle(count: Int, open: Boolean, onToggle: () -> Unit) {
     }
 }
 
+/** 할 일이 속한 곳. '정리 안 됨'(속한 곳을 못 찾음)이면 null */
+private fun placeOf(d: ParaData, t: TaskRow): Place? =
+    d.project(t.projectId)?.let { Place(PlaceType.PROJECT, it.id, it.name) }
+        ?: d.area(t.areaId)?.let { Place(PlaceType.AREA, it.id, it.name) }
+
+/**
+ * 할 일 줄 목록. withPlace: 여러 곳이 섞인 목록(모든 할 일의 기한 없음, DEC-78)에서 줄마다 속한 곳을 붙인다.
+ * 속한 곳을 누르면 그 상세로 간다
+ */
 @Composable
-private fun TaskLines(tasks: List<TaskRow>, d: ParaData, drag: ParaDragState, readOnly: Boolean, layout: PaneLayout, onEvent: (ParaEvent) -> Unit) {
+private fun TaskLines(
+    tasks: List<TaskRow>, d: ParaData, drag: ParaDragState, readOnly: Boolean, layout: PaneLayout, onEvent: (ParaEvent) -> Unit,
+    withPlace: Boolean = false,
+) {
     tasks.forEachIndexed { i, t ->
         if (i > 0) HorizontalDivider(color = Wb.colors.border)
         TaskLine(
-            t, d.sources[t.id], layout.showPriority, readOnly,
+            t, d.sources[t.id]?.label, layout.showPriority, readOnly,
             onToggle = { onEvent(ParaEvent.ToggleTask(t)) },
             onOpen = { onEvent(ParaEvent.OpenTask(t)) },
+            place = if (withPlace) placeOf(d, t) else null,
+            onPlace = if (withPlace) { p -> onEvent(ParaEvent.Select(placeKey(p.type, p.id))) } else null,
+            showUnsorted = withPlace,
+            onRecipients = { onEvent(ParaEvent.EditRecipients(t)) },
             // 길게 눌러 다른 프로젝트·반복실행으로 끈다(펼친 화면은 왼쪽 트리, 접은 화면은 아래 '옮길 곳' 띠, DEC-72). 보관된 곳은 읽기 전용
             modifier = Modifier.dragSource(drag, if (readOnly) null else DragItem.Task(t.id, t.title)),
         )
@@ -567,6 +586,20 @@ private fun inOwner(t: TaskRow, owner: String): Boolean = ownerIn(t.ownerKind ==
 
 private data class Group(val type: PlaceType?, val name: String, val key: String?, val rows: List<TaskRow>)
 
+/** '정리 안 됨' → 프로젝트 → 반복실행 순 묶음. 빈 묶음은 뺀다 */
+private fun groupTasks(d: ParaData, rows: List<TaskRow>): List<Group> = buildList {
+    val unsorted = rows.filter { d.unsorted(it) }
+    if (unsorted.isNotEmpty()) add(Group(null, UNSORTED, null, unsorted))
+    d.activeProjects.forEach { p ->
+        val mine = rows.filter { it.projectId == p.id }
+        if (mine.isNotEmpty()) add(Group(PlaceType.PROJECT, p.name, projectKey(p.id), mine))
+    }
+    d.activeAreas.forEach { a ->
+        val mine = rows.filter { it.areaId == a.id }
+        if (mine.isNotEmpty()) add(Group(PlaceType.AREA, a.name, areaKey(a.id), mine))
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, onBack: (() -> Unit)?, onEvent: (ParaEvent) -> Unit) {
@@ -574,21 +607,14 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
     var range by rememberSaveable { mutableStateOf("next7") }
     var owner by rememberSaveable { mutableStateOf("all") }
     var showDone by rememberSaveable { mutableStateOf(false) }
+    var showNoDue by rememberSaveable { mutableStateOf(false) }
     val today = LocalDate.now(SEOUL)
     val open = d.liveTasks.filter { !it.done }
     val shown = d.liveTasks.filter { inRange(it, range, today) && inOwner(it, owner) && (showDone || !it.done) }
-    val groups = buildList {
-        val unsorted = shown.filter { d.unsorted(it) }
-        if (unsorted.isNotEmpty()) add(Group(null, UNSORTED, null, unsorted))
-        d.activeProjects.forEach { p ->
-            val rows = shown.filter { it.projectId == p.id }
-            if (rows.isNotEmpty()) add(Group(PlaceType.PROJECT, p.name, projectKey(p.id), rows))
-        }
-        d.activeAreas.forEach { a ->
-            val rows = shown.filter { it.areaId == a.id }
-            if (rows.isNotEmpty()) add(Group(PlaceType.AREA, a.name, areaKey(a.id), rows))
-        }
-    }
+    val groups = groupTasks(d, shown)
+    // '다음 7일'에서는 날짜가 없는 할 일(기한 없음·날짜 없는 모호 기한)이 안 보여 맨 아래 접힌 줄로 둔다(DEC-78).
+    // '전체'는 이미 묶음 안에 있고, '지연'은 날짜가 있어야 하므로 이 줄이 없다
+    val noDue = if (range == "next7") d.liveTasks.filter { dueDay(it) == null && inOwner(it, owner) && (showDone || !it.done) } else emptyList()
 
     // 한 줄 빠른 입력은 목록 위 카드 대신 화면 아래 떠 있는 띠(DEC-73): 스크롤해도 보이고, 캘린더·매트릭스(P4)도 같은 띠를 쓴다.
     // '#'이 없으면 이 기기에서 마지막에 넣은 곳(DEC-70)
@@ -647,7 +673,7 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
                 MockCard {
                     EmptyNote(
                         if (range == "late") "지연된 할 일이 없어요" else "여기엔 할 일이 없어요",
-                        "다른 탭을 보거나 위에 한 줄로 추가해 보세요.",
+                        "다른 탭을 보거나 아래 띠에 한 줄로 추가해 보세요.",
                     )
                 }
             }
@@ -658,6 +684,16 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
                         if (g.type == null) Note("할 일을 눌러 ‘어디에’를 고르면 그 프로젝트·반복실행으로 옮겨져요.", Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
                         HorizontalDivider(color = Wb.colors.border)
                         TaskLines(sorted(g.rows), d, drag, readOnly = false, layout, onEvent)
+                    }
+                }
+            }
+            if (noDue.isNotEmpty()) item(key = "nodue") {
+                // 펼치면 카드 하나에 한 줄씩, 줄마다 속한 곳(11/09 사용자 선택). 순서는 위 묶음과 같은 곳 순서
+                MockCard {
+                    FoldToggle("기한 없음", noDue.size, showNoDue) { showNoDue = !showNoDue }
+                    if (showNoDue) {
+                        HorizontalDivider(color = Wb.colors.border)
+                        TaskLines(groupTasks(d, noDue).flatMap { sorted(it.rows) }, d, drag, readOnly = false, layout, onEvent, withPlace = true)
                     }
                 }
             }
@@ -677,8 +713,13 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
             }
         }
         QuickAddDock(d.places, Modifier.align(Alignment.BottomCenter)) { r ->
-            val shownHere = dayInRange(r.dueDate, range, today) && ownerIn(r.assignee != null, owner)
-            onEvent(ParaEvent.QuickAdded(quickAddedText(r) + if (shownHere) "" else " · 지금 고른 탭 밖이라 ‘전체’에서 보여요"))
+            val ownerHere = ownerIn(r.assignee != null, owner)
+            val where = when {
+                ownerHere && dayInRange(r.dueDate, range, today) -> ""
+                ownerHere && range == "next7" && r.dueDate == null -> " · 맨 아래 ‘기한 없음’에 있어요"
+                else -> " · 지금 고른 탭 밖이라 ‘전체’에서 보여요"
+            }
+            onEvent(ParaEvent.QuickAdded(quickAddedText(r) + where))
         }
     }
 }

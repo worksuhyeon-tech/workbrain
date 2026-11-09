@@ -81,6 +81,8 @@ private fun rowDue(t: TaskRow, today: LocalDate): String {
  * 할 일 한 줄: 체크 · 제목(+팔로업/담당 확인) · (속한 곳) 출처 · 우선순위 · 기한.
  * 체크는 완료 ↔ 다시 열기. 줄을 누르면 수정 서랍. readOnly(아카이브)면 둘 다 막는다.
  * place: 여러 곳이 섞인 목록(오늘)에서만 넘긴다. onPlace가 있으면 눌러서 그 프로젝트로 간다(목업 .place).
+ * showUnsorted: place가 없을 때 '정리 안 됨'이라고 적는다(모든 할 일의 기한 없음 목록, DEC-78). '오늘'은 지금처럼 비워 둔다
+ * onRecipients: 제목 옆 '→ 받는 사람' 칩을 눌렀을 때(DEC-77). 없으면 줄을 누른 것처럼 수정 서랍을 연다
  * showPriority: 좁은 칸에서는 목업처럼 우선순위 칸을 숨긴다(목업 max-width 700)
  * modifier: 프로젝트 화면에서 길게 눌러 끌기를 붙일 때(DEC-72)
  */
@@ -95,6 +97,8 @@ fun TaskLine(
     onOpen: () -> Unit,
     place: Place? = null,
     onPlace: ((Place) -> Unit)? = null,
+    showUnsorted: Boolean = false,
+    onRecipients: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val today = LocalDate.now(SEOUL)
@@ -121,15 +125,16 @@ fun TaskLine(
                     "other" -> OwnChip("${t.assignee.orEmpty()} · 팔로업", Wb.colors.info, WbIcons.Person)
                     "unknown" -> OwnChip("담당 확인", Wb.colors.warn, null)
                 }
+                RecipientsChip(t.recipients, if (readOnly) null else onRecipients ?: onOpen)
             }
             Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                place?.let { p ->
+                if (place != null || showUnsorted) {
                     Row(
-                        Modifier.clip(RoundedCornerShape(4.dp)).clickable(enabled = onPlace != null) { onPlace?.invoke(p) }.padding(end = 6.dp),
+                        Modifier.clip(RoundedCornerShape(4.dp)).clickable(enabled = place != null && onPlace != null) { place?.let { onPlace?.invoke(it) } }.padding(end = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(ParaGlyph.place(p.type), contentDescription = null, tint = ParaGlyph.tint(p.type), modifier = Modifier.size(12.dp))
-                        Text(p.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Wb.colors.body, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 3.dp))
+                        Icon(ParaGlyph.place(place?.type), contentDescription = null, tint = ParaGlyph.tint(place?.type), modifier = Modifier.size(12.dp))
+                        Text(place?.name ?: UNSORTED, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Wb.colors.body, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 3.dp))
                     }
                 }
                 Text(

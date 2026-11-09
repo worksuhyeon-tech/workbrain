@@ -71,6 +71,7 @@ import com.workbrain.app.data.ProjectRow
 import com.workbrain.app.data.RecordClass
 import com.workbrain.app.data.RecordInfoRow
 import com.workbrain.app.tasks.PlaceField
+import com.workbrain.app.tasks.RecipientsSheet
 import com.workbrain.app.tasks.UNSORTED
 import com.workbrain.app.ui.PillShape
 import com.workbrain.app.ui.SEOUL
@@ -128,6 +129,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     // 고친 값(승인 전까지 이 화면에만): 후보 ID → 승인 함수에 넘길 p_edits
     val edits = remember { mutableStateMapOf<String, JsonObject>() }
     var editing by remember { mutableStateOf<Pair<ProposalRow, CandidateField>?>(null) }
+    var recipientsFor by remember { mutableStateOf<ProposalRow?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<Pair<String, Tone>?>(null) }
     var shownTitle by remember { mutableStateOf(title) }
@@ -371,7 +373,9 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         onChecked = if (p.status == "pending") ({ checked[p.id] = it }) else null,
         followNames = followNames,
         onTitle = { edit(p, "title" to JsonPrimitive(it)) },
-        onOwner = { kind, who -> edit(p, "owner_kind" to JsonPrimitive(kind), "assignee" to (who?.let(::JsonPrimitive) ?: JsonNull)) },
+        // 담당을 고르면 '말한 사람 기준' 표시는 더 맞지 않아 지운다(DEC-76)
+        onOwner = { kind, who -> edit(p, "owner_kind" to JsonPrimitive(kind), "assignee" to (who?.let(::JsonPrimitive) ?: JsonNull), "owner_basis" to JsonNull) },
+        onRecipients = { recipientsFor = p },
         onOwnerOther = { editing = p to CandidateField.OwnerOther },
         onDue = { editing = p to CandidateField.Due },
         // 미룸은 승인과 무관해 여기서도 추가할 수 있지만, 미뤄 둔 것임을 보여 준다(FR-28)
@@ -687,8 +691,15 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             current = JsonObject(p.after + edits[p.id].orEmpty()),
             field = field,
             onDismiss = { editing = null },
-            onApply = { edits[p.id] = it; checked[p.id] = true; editing = null },
+            // 앞서 고친 다른 칸(받는 사람 등)을 지우지 않게 합친다
+            onApply = { edits[p.id] = JsonObject(edits[p.id].orEmpty() + it); checked[p.id] = true; editing = null },
         )
+    }
+    recipientsFor?.let { p ->
+        RecipientsSheet(current(p).recipients(), recordId, followNames, onDismiss = { recipientsFor = null }) { names ->
+            edit(p, "recipients" to JsonArray(names.map(::JsonPrimitive)))
+            recipientsFor = null
+        }
     }
 
     // 결정 → 할 일: 사용자가 직접 만드는 할 일이라 AI 후보 승인을 거치지 않는다. 담당은 '나'로 시작하고 시트에서 바꿀 수 있다.

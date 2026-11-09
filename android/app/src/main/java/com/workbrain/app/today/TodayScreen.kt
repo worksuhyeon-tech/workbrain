@@ -52,6 +52,8 @@ import com.workbrain.app.data.Server
 import com.workbrain.app.data.TaskEdit
 import com.workbrain.app.data.toEdit
 import com.workbrain.app.data.TaskRow
+import com.workbrain.app.data.TaskSource
+import com.workbrain.app.data.usedNamesOf
 import com.workbrain.app.record.RecordingSession
 import com.workbrain.app.record.RecordingStore
 import com.workbrain.app.record.UploadManager
@@ -59,6 +61,7 @@ import com.workbrain.app.record.UploadProgress
 import com.workbrain.app.review.Snooze
 import com.workbrain.app.tasks.QUICK_DOCK_SPACE
 import com.workbrain.app.tasks.QuickAddDock
+import com.workbrain.app.tasks.RecipientsSheet
 import com.workbrain.app.tasks.TaskEditSheet
 import com.workbrain.app.tasks.quickAddedText
 import com.workbrain.app.tasks.quickDueLabel
@@ -121,7 +124,7 @@ fun TodayScreen(nav: TodayNav) {
     val uploads by UploadManager.progress.collectAsStateWithLifecycle()
 
     var tasks by remember { mutableStateOf<List<TaskRow>?>(null) }
-    var sources by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var sources by remember { mutableStateOf<Map<String, TaskSource>>(emptyMap()) }
     var pending by remember { mutableStateOf<List<InboxRow>>(emptyList()) }
     var budget by remember { mutableStateOf<Budget?>(null) }
     var cost by remember { mutableStateOf<Int?>(null) }
@@ -129,6 +132,7 @@ fun TodayScreen(nav: TodayNav) {
     var sessions by remember { mutableStateOf<List<RecordingSession>>(emptyList()) }
     var message by remember { mutableStateOf<Pair<String, Tone>?>(null) }
     var editing by remember { mutableStateOf<TaskRow?>(null) }
+    var recipientsEditing by remember { mutableStateOf<TaskRow?>(null) }
     var editError by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
 
@@ -168,6 +172,7 @@ fun TodayScreen(nav: TodayNav) {
         saving = false
         result.onSuccess { row ->
             editing = null
+            recipientsEditing = null
             message = when {
                 row == null -> CONFLICT_TEXT to Tone.Warn
                 moved -> movedText(places.firstOrNull { it.id == (e.projectId ?: e.areaId) }) to Tone.Good
@@ -197,6 +202,7 @@ fun TodayScreen(nav: TodayNav) {
             late, todays, follow, doneToday, loaded = tasks != null, sources,
             onToggle = { t -> setDone(t, !t.done) },
             onOpen = { t -> editError = null; editing = t },
+            onRecipients = { t -> editError = null; recipientsEditing = t },
             onPlace = { p -> nav.openProjects(if (p.type == PlaceType.PROJECT) "p:${p.id}" else "a:${p.id}") },
             onAll = { nav.openProjects("all") },
         )
@@ -251,7 +257,15 @@ fun TodayScreen(nav: TodayNav) {
     }
 
     editing?.let { t ->
-        TaskEditSheet(t.toEdit(), places, currentPlaceName = t.placeName, error = editError, saving = saving, onDismiss = { editing = null }) { e -> save(t, e) }
+        TaskEditSheet(
+            t.toEdit(), places, currentPlaceName = t.placeName, error = editError, saving = saving, onDismiss = { editing = null },
+            recordId = sources[t.id]?.recordId, usedNames = usedNamesOf(all),
+        ) { e -> save(t, e) }
+    }
+    recipientsEditing?.let { t ->
+        RecipientsSheet(t.recipients, sources[t.id]?.recordId, usedNamesOf(all), saving, editError, onDismiss = { recipientsEditing = null }) { names ->
+            save(t, t.toEdit().copy(recipients = names))
+        }
     }
 }
 
@@ -294,9 +308,10 @@ private fun TodayCard(
     follow: List<TaskRow>,
     doneToday: List<TaskRow>,
     loaded: Boolean,
-    sources: Map<String, String>,
+    sources: Map<String, TaskSource>,
     onToggle: (TaskRow) -> Unit,
     onOpen: (TaskRow) -> Unit,
+    onRecipients: (TaskRow) -> Unit,
     onPlace: (Place) -> Unit,
     onAll: () -> Unit,
 ) {
@@ -309,7 +324,7 @@ private fun TodayCard(
                 val rows: @Composable ColumnScope.(List<TaskRow>) -> Unit = { list ->
                     list.forEachIndexed { i, t ->
                         if (i > 0) HorizontalDivider(color = Wb.colors.border)
-                        TaskLine(t, sources[t.id], showPriority, readOnly = false, onToggle = { onToggle(t) }, onOpen = { onOpen(t) }, place = placeOf(t), onPlace = onPlace)
+                        TaskLine(t, sources[t.id]?.label, showPriority, readOnly = false, onToggle = { onToggle(t) }, onOpen = { onOpen(t) }, place = placeOf(t), onPlace = onPlace, onRecipients = { onRecipients(t) })
                     }
                 }
                 if (late.isNotEmpty()) { SubHead("지연 ${late.size}", Wb.colors.crit); rows(late) }

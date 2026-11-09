@@ -41,6 +41,7 @@ import com.workbrain.app.data.TaskEdit
 import com.workbrain.app.data.TaskRow
 import com.workbrain.app.data.toEdit
 import com.workbrain.app.tasks.QUICK_DOCK_SPACE
+import com.workbrain.app.tasks.RecipientsSheet
 import com.workbrain.app.tasks.TaskEditSheet
 import com.workbrain.app.tasks.UNSAVED_TEXT
 import com.workbrain.app.tasks.movedText
@@ -60,6 +61,8 @@ import kotlinx.coroutines.launch
 sealed interface ParaEvent {
     data class Select(val key: String) : ParaEvent
     data class OpenTask(val task: TaskRow) : ParaEvent
+    /** 할 일 줄의 '→ 받는 사람' 칩: 작은 서랍에서 고르기(DEC-77) */
+    data class EditRecipients(val task: TaskRow) : ParaEvent
     data class ToggleTask(val task: TaskRow) : ParaEvent
     /** 상세 머리 [수정]: 프로젝트(이름·반복실행·목적) / 반복실행(이름·설명) / 자료(이름·내용) */
     data class Edit(val key: String) : ParaEvent
@@ -121,6 +124,7 @@ fun ProjectsScreen(
     var editingTask by remember { mutableStateOf<TaskRow?>(null) }
     var taskError by remember { mutableStateOf<String?>(null) }
     var taskSaving by remember { mutableStateOf(false) }
+    var recipientsTask by remember { mutableStateOf<TaskRow?>(null) }
 
     suspend fun load() {
         runCatching { Para.load() }
@@ -211,12 +215,30 @@ fun ProjectsScreen(
         }
     }
 
+    /** 받는 사람만 저장(다른 칸은 지금 값 그대로). 실패하면 서랍을 닫지 않고 띠를 보여 준다 */
+    fun saveRecipients(t: TaskRow, names: List<String>) {
+        taskSaving = true
+        scope.launch {
+            val result = runCatching { Server.updateTask(t, t.toEdit().copy(recipients = names)) }
+            taskSaving = false
+            result.fold(
+                onSuccess = { row ->
+                    recipientsTask = null
+                    load()
+                    announcer.show(if (row == null) CONFLICT_TEXT else "받는 사람을 저장했어요 · 변경 이력에 남아요")
+                },
+                onFailure = { taskError = UNSAVED_TEXT },
+            )
+        }
+    }
+
     fun onEvent(e: ParaEvent) {
         val d = data ?: return
         when (e) {
             is ParaEvent.Select -> select(e.key)
             is ParaEvent.OpenRecord -> onOpenRecord(e.recordId, e.title, selected)
             is ParaEvent.OpenTask -> { taskError = null; editingTask = e.task }
+            is ParaEvent.EditRecipients -> { taskError = null; recipientsTask = e.task }
             is ParaEvent.ToggleTask -> {
                 val t = e.task
                 act(if (t.done) "다시 열었어요" else "완료로 표시했어요") { t.takeIf { Server.setTaskDone(t, !t.done) } }
@@ -423,6 +445,15 @@ fun ProjectsScreen(
 
     editingTask?.let { t ->
         val currentName = d.project(t.projectId)?.name ?: d.area(t.areaId)?.name
-        TaskEditSheet(t.toEdit(), d.places, currentName, taskError, taskSaving, onDismiss = { editingTask = null }) { e -> saveTask(t, e) }
+        TaskEditSheet(
+            t.toEdit(), d.places, currentName, taskError, taskSaving, onDismiss = { editingTask = null },
+            recordId = d.sources[t.id]?.recordId, usedNames = d.usedNames,
+        ) { e -> saveTask(t, e) }
+    }
+    recipientsTask?.let { t ->
+        RecipientsSheet(
+            t.recipients, d.sources[t.id]?.recordId, d.usedNames, saving = taskSaving, error = taskError,
+            onDismiss = { recipientsTask = null },
+        ) { names -> saveRecipients(t, names) }
     }
 }

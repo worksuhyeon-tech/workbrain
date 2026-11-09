@@ -34,12 +34,29 @@ import com.workbrain.app.ui.dueLabel
 import com.workbrain.app.ui.dueTone
 import com.workbrain.app.ui.ownerLabel
 import com.workbrain.app.ui.ownerTone
+import com.workbrain.app.tasks.RecipientsChip
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 fun JsonObject.str(key: String): String? = this[key]?.jsonPrimitive?.contentOrNull
+
+/** 후보의 받는 사람(DEC-77). 배열이 아니면 빈 목록 */
+fun JsonObject.recipients(): List<String> =
+    (this["recipients"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
+
+/** 담당을 말한 사람 기준으로 정했는지(DEC-76, 처리 함수가 남김). 사용자가 담당을 고치면 지운다 */
+fun JsonObject.ownerBySpeaker(): Boolean = str("owner_basis") == "speaker"
+
+/** 후보 담당 옆 작은 표시 + '→ 받는 사람' 칩. 받는 사람 칩은 onRecipients가 있을 때만 눌린다 */
+@Composable
+fun CandidateExtraChips(after: JsonObject, onRecipients: (() -> Unit)?) {
+    if (after.ownerBySpeaker()) WbChip("말한 사람 기준", Tone.Mute)
+    RecipientsChip(after.recipients(), onRecipients)
+}
 
 /**
  * 할 일 후보 카드(기록 상세·검토함 공용). 체크한 것만 추가된다.
@@ -106,6 +123,8 @@ fun CandidateCard(
                             // 기한이 없으면 고칠 수 있을 때만 '+ 기한'으로 넣을 자리를 보인다
                             onEdit != null -> WbChip("+ 기한", Tone.Mute, Modifier.clip(PillShape).clickable { onEdit(CandidateField.Due) })
                         }
+                        // 검토함에서는 보기만 한다. 받는 사람은 기록 상세나 추가한 뒤 할 일 줄에서 고친다
+                        CandidateExtraChips(after, null)
                     }
                     if (edited) WbChip("고침", Tone.Info)
                     when (status) {

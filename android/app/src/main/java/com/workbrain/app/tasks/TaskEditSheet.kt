@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -85,6 +86,7 @@ private val PRIOS = listOf(SegItem("1", "높음"), SegItem("2", "보통"), SegIt
  * 오늘 탭과 프로젝트 탭이 같은 서랍을 쓴다. Android라서 오른쪽 서랍 대신 아래에서 올라온다(앱의 다른 서랍과 같음).
  * 저장이 안 되면(error) 서랍을 닫지 않고 입력을 그대로 둔 채 띠를 보여 준다(목업 '미저장 표시').
  * isNew: 빠른 입력 '자세히 ›'로 여는 새 할 일 서랍(DEC-73) — 제목 '새 할 일', 버튼 [추가]. task는 처음 채울 값
+ * recordId·usedNames: '받는 사람' 고르기 칩(그 기록의 참석자·화자, 이 공간에서 쓴 이름, DEC-77)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,6 +98,8 @@ fun TaskEditSheet(
     saving: Boolean,
     onDismiss: () -> Unit,
     isNew: Boolean = false,
+    recordId: String? = null,
+    usedNames: List<String> = emptyList(),
     onSave: (TaskEdit) -> Unit,
 ) {
     val timed = task.dueTime?.let { runCatching { OffsetDateTime.parse(it).atZoneSameInstant(SEOUL) }.getOrNull() }
@@ -111,6 +115,9 @@ fun TaskEditSheet(
     var time by remember { mutableStateOf(timed?.toLocalTime()) }
     var vague by remember { mutableStateOf(task.dueText.orEmpty()) }
     var priority by remember { mutableStateOf((task.priority ?: 2).toString()) }
+    var recipients by remember { mutableStateOf(task.recipients) }
+    var recordPeople by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(recordId) { recordPeople = loadRecordPeople(recordId) }
     var pickingDate by remember { mutableStateOf(false) }
     var pickingTime by remember { mutableStateOf(false) }
 
@@ -158,6 +165,9 @@ fun TaskEditSheet(
             }
             Note("팔로업은 남이 맡은 일이에요. 내가 챙길 수 있게 모아 보여 줘요.")
 
+            Label("받는 사람")
+            RecipientsField(recipients, recipientChoices(task.recipients, recordPeople, usedNames)) { recipients = it }
+
             Label("기한")
             DarkSeg(DUES, dueKind) { k ->
                 dueKind = k
@@ -203,6 +213,7 @@ fun TaskEditSheet(
                             dueText = if (dueKind == "vague") vague.trim().ifEmpty { "미정" } else null,
                             projectId = projectId,
                             areaId = areaId,
+                            recipients = recipients,
                         ),
                     )
                 })

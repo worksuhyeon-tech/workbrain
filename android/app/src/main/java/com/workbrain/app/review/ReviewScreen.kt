@@ -423,7 +423,8 @@ fun ReviewScreen(
             current = JsonObject(row.after + edits[row.id].orEmpty()),
             field = field,
             onDismiss = { editing = null },
-            onApply = { edits[row.id] = it; checked[row.id] = true; editing = null },
+            // 앞서 고친 다른 칸을 지우지 않게 합친다
+            onApply = { edits[row.id] = JsonObject(edits[row.id].orEmpty() + it); checked[row.id] = true; editing = null },
         )
     }
 }
