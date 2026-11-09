@@ -182,10 +182,71 @@ class QuickParseTest {
         assertEquals(review, many.place)
         assertEquals("#사고 회의", many.title)
         assertEquals(1, many.warnings.size)
+        assertEquals(listOf(claim, accident), many.placeChoices)
+        assertEquals("#사고", many.placeAsked)
         val none = parse("#없는곳 회의")
         assertNull(none.place)
         assertEquals("#없는곳 회의", none.title)
         assertEquals(listOf("#없는곳 프로젝트를 못 찾았어요"), none.warnings)
+    }
+
+    // DEC-80: 이름이 비슷한 프로젝트가 많을 때(합성 이름)
+    private val crm12 = Place(PlaceType.PROJECT, "c1", "CRM) 이관 12건")
+    private val crm31 = Place(PlaceType.PROJECT, "c2", "CRM)3-1.협력사 정산")
+    private val crm52 = Place(PlaceType.PROJECT, "c3", "CRM)5-2.고객 알림")
+    private val crmPay = Place(PlaceType.PROJECT, "c4", "CRM) 고객 정산")
+    private val crm = listOf(crm12, crm31, crm52, crmPay)
+    private fun parseCrm(raw: String) = QuickParse.parse(raw, friday, crm, null)
+
+    @Test fun `#조각 맞추기 - 영문·숫자·한글 덩어리가 이름에 순서대로 있으면 찾는다`() {
+        assertEquals(crm12, parseCrm("#CRM12건 보고서").place)
+        assertEquals(crm31, parseCrm("#crm3 일정").place)
+        assertEquals("일정", parseCrm("#crm3 일정").title)
+        assertEquals(crm12, parseCrm("#이관 보고서").place)
+    }
+
+    @Test fun `#여럿이면 띄어 쓴 다음 낱말까지 붙여 좁히고 그 낱말은 제목에서 뺀다`() {
+        val r = parseCrm("#CRM 12건 보고서 수정")
+        assertEquals(crm12, r.place)
+        assertEquals("보고서 수정", r.title)
+        assertTrue(r.warnings.isEmpty())
+        assertTrue(r.placeChoices.isEmpty())
+        // 하나로 정해지면 다음 낱말을 붙이지 않는다
+        assertEquals("회의", parse("#erp 회의").title)
+    }
+
+    @Test fun `#붙여서 안 맞는 낱말은 본문이라 멈추고 후보를 보여 준다`() {
+        val r = parseCrm("#CRM 내일 3시 회의")
+        assertNull(r.place)
+        assertEquals("#CRM 회의", r.title)
+        assertEquals(day(11, 7), r.dueDate)
+        assertEquals(crm, r.placeChoices)
+        assertEquals("#CRM", r.placeAsked)
+        assertEquals(listOf("#CRM: 맞는 곳이 4곳이에요 · 아래에서 골라 주세요"), r.warnings)
+    }
+
+    @Test fun `#후보를 고르면 입력이 띄어쓰기 뺀 정확한 이름으로 바뀌어 그곳에 들어간다`() {
+        val raw = "#CRM 내일 3시 회의"
+        val picked = QuickParse.choosePlace(raw, "#CRM", crm31)
+        assertEquals("#CRM)3-1.협력사정산 내일 3시 회의", picked)
+        val r = parseCrm(picked)
+        assertEquals(crm31, r.place)
+        assertEquals("회의", r.title)
+        assertTrue(r.warnings.isEmpty())
+    }
+
+    @Test fun `#좁히다 여럿이 남으면 좁힌 낱말까지 바꾼다`() {
+        val r = parseCrm("#CRM 고객 회의")
+        assertEquals(listOf(crm52, crmPay), r.placeChoices)
+        assertEquals("#CRM 고객", r.placeAsked)
+        assertEquals("#CRM)고객정산 회의", QuickParse.choosePlace("#CRM  고객 회의", "#CRM 고객", crmPay))
+    }
+
+    @Test fun `#후보는 5곳까지, 더 많으면 더 적어 달라고 한다`() {
+        val many = (1..7).map { Place(PlaceType.PROJECT, "m$it", "팀 과제 $it") }
+        val r = QuickParse.parse("#팀 회의", friday, many, null)
+        assertEquals(many.take(5), r.placeChoices)
+        assertEquals(listOf("#팀: 맞는 곳이 7곳이에요 · 아래에서 고르거나 더 적어 주세요"), r.warnings)
     }
 
     @Test fun `#을 두 번 쓰면 처음 것만`() {

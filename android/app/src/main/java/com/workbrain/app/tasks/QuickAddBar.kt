@@ -3,6 +3,7 @@ package com.workbrain.app.tasks
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicTextField
@@ -29,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -151,6 +154,8 @@ class QuickAdd(
     val add: () -> Unit,
     /** 새 할 일 서랍에서 고친 값으로 넣기(DEC-73 '자세히'). 실패 이유는 서랍 안에 보여 준다 */
     val addEdited: (edit: TaskEdit, onSaved: () -> Unit, onFailed: (String) -> Unit) -> Unit,
+    /** '#'이 여러 곳에 걸릴 때 후보 칩을 누르면 입력의 '#…'을 그 이름으로 바꾼다(DEC-80) */
+    val pickPlace: (Place) -> Unit,
 )
 
 /**
@@ -207,7 +212,13 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
         if (!saving) insert(edit, onSaved, onFailed)
     }
 
-    return QuickAdd(text, { text = it.take(MAX_INPUT); error = null }, parsed, shownDay, saving, error, ::add, ::addEdited)
+    fun pickPlace(place: Place) {
+        val asked = parsed.placeAsked ?: return
+        text = QuickParse.choosePlace(text, asked, place).take(MAX_INPUT)
+        error = null
+    }
+
+    return QuickAdd(text, { text = it.take(MAX_INPUT); error = null }, parsed, shownDay, saving, error, ::add, ::addEdited, ::pickPlace)
 }
 
 /**
@@ -256,7 +267,7 @@ fun QuickAddBar(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            if (quick.text.isNotBlank()) QuickPreview(quick.parsed, quick.shownDay)
+            if (quick.text.isNotBlank()) QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace)
         }
         quick.error?.let { Text(it, fontSize = 12.sp, color = Wb.colors.crit, modifier = Modifier.padding(top = 6.dp)) }
         Spacer(Modifier.height(10.dp))
@@ -285,9 +296,9 @@ fun QuickHint() {
     }
 }
 
-/** 목업 .qa-prev 칩들: 제목 · 기한 · 모호 · 우선순위 · 들어갈 곳 · 팔로업 · 경고 */
+/** 목업 .qa-prev 칩들: 제목 · 기한 · 모호 · 우선순위 · 들어갈 곳 · 팔로업 · 경고 · ('#'이 여럿에 걸리면) 고를 곳 */
 @Composable
-fun QuickPreview(r: QuickTask, today: LocalDate) {
+fun QuickPreview(r: QuickTask, today: LocalDate, onPickPlace: (Place) -> Unit) {
     QuickChip(WbIcons.Pencil, r.title.ifEmpty { "제목 없음" }, italic = r.title.isEmpty())
     quickDueLabel(r, today)?.let { QuickChip(WbIcons.Calendar, it) }
     r.vague?.let { QuickChip(WbIcons.Calendar, "$it · 확인 필요", warn = true) }
@@ -295,6 +306,26 @@ fun QuickPreview(r: QuickTask, today: LocalDate) {
     QuickChip(placeIcon(r.place?.type), r.place?.name ?: UNSORTED)
     r.assignee?.let { QuickChip(WbIcons.Person, "$it · 팔로업") }
     r.warnings.forEach { QuickChip(WbIcons.Alert, it, warn = true) }
+    r.placeChoices.forEach { PlaceChoiceChip(it) { onPickPlace(it) } }
+}
+
+/** '#' 후보 칩(DEC-80): 누를 수 있게 미리보기 칩보다 크게, 파란 테두리 */
+@Composable
+private fun PlaceChoiceChip(place: Place, onClick: () -> Unit) {
+    Row(
+        Modifier.heightIn(min = 36.dp).clip(PillShape)
+            .clickable(onClickLabel = "${place.name}에 넣기", onClick = onClick)
+            .background(Wb.colors.card, PillShape)
+            .border(1.dp, Wb.colors.primary, PillShape)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(placeIcon(place.type), contentDescription = null, tint = Wb.colors.primary, modifier = Modifier.size(14.dp))
+        Text(
+            place.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Wb.colors.primary,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 5.dp),
+        )
+    }
 }
 
 /** 목업 .qc: 작은 테두리 알약(경고는 주황 글씨·테두리) */

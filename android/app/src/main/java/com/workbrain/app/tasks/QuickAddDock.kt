@@ -162,7 +162,7 @@ private fun TypingCard(quick: QuickAdd, showHelp: Boolean, onDetail: () -> Unit)
                     Modifier.fillMaxWidth().padding(end = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) { QuickPreview(quick.parsed, quick.shownDay) }
+                ) { QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace) }
             }
             if (showHelp) Box(Modifier.padding(end = 8.dp)) { QuickHint() }
             quick.error?.let { Text(it, fontSize = 12.sp, color = Wb.colors.crit, modifier = Modifier.padding(top = 6.dp, end = 8.dp)) }
