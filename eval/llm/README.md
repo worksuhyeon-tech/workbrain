@@ -11,8 +11,10 @@ gpt-6-luna와 Haiku 5.5 중 한국어 회의록에서 할 일을 더 정확하�
 | `schema.json` | 모델 출력 JSON 형식 |
 | `prompt-v1.md` · `prompt-v2.md` | 추출 지시문(시스템 프롬프트). v2는 2026-11-09까지 처리 함수에 들어 있었다(`scripts/gen-prompt.mjs`) |
 | `prompt-v3.md` | 결정·미결을 할 일로 다시 쓰지 않게 고친 v3(DEC-46). 보류 미달로 미채택(DEC-48) |
-| `prompt-v4.md` | v2 + 이름 붙은 화자 담당(DEC-76)·받는 사람 `recipients`(DEC-77). 2026-11-10부터 처리 함수에 들어 있다. 결과 `docs/03-analysis/prompt-v4-eval.md` |
-| `run-speakers.ts` | 화자 이름이 있는 실제 회의(data-private, git 제외)로 v4를 돌려 지금 후보와 비교(deno, 처리 함수의 입력·검증 코드를 그대로 씀) |
+| `prompt-v4.md` | v2 + 이름 붙은 화자 담당(DEC-76)·받는 사람 `recipients`(DEC-77). 2026-11-10 하루(v5 배포 전까지) 처리 함수에 들어 있었다. 결과 `docs/03-analysis/prompt-v4-eval.md` |
+| `prompt-v5.md` | v4 + 한 약속을 양쪽에서 두 번 뽑지 않기(DEC-84). 2026-11-10부터 처리 함수에 들어 있다. 결과 `docs/03-analysis/prompt-v5-eval.md` |
+| `mirror.json` | 개선용 가상 3건(화자 이름 있음): 상대 행동을 내 약속의 조건으로 건 말(M01·M02)과 대조군(M03). `--split mirror` |
+| `run-speakers.ts` | 화자 이름이 있는 실제 회의(data-private, git 제외)로 지금 `prompt.ts`의 지시문을 돌려 비교(deno, 처리 함수의 입력·검증 코드를 그대로 씀). 첫 인자로 같은 폴더의 다른 기록 파일을 줄 수 있다 |
 | (`data-private/eval/real-holdout.json`) | 실사용 회의 보류 케이스(R*). **git 제외**, 이 PC에 있을 때만 `--split real`로 실행·채점. 결과도 같은 폴더 `runs/`에 저장 |
 | `run.mjs` | 두 모델을 호출해 결과·토큰·비용을 `runs/`에 저장 |
 | `score.mjs` | 정답과 비교해 정밀도·재현율·필수 게이트를 계산. `--validate`는 정답 파일 점검 |

@@ -1,0 +1,57 @@
+[
+  {
+    "id": "M01",
+    "type": "meeting",
+    "tags": ["speakers", "mirror", "conditional"],
+    "recorded_at": "2026-11-10T15:00:00+09:00",
+    "segments": [
+      "(이도윤) 진행 조회 배치는 시나리오는 새로 짜야 하는데, 업무 화면이 어떻게 돌아가는지 저희가 잘 몰라서요.",
+      "(나) 그럼 혹시 화면 보시다가 막히면 저를 불러 주세요. 잠깐 7층으로 부르시면 제가 옆자리로 가서 업무 화면을 다시 설명해 드릴게요.",
+      "(이도윤) 아 그러면 좋죠. 필요하면 연락드릴게요.",
+      "(나) 남은 질문은 메일로 주고받는 걸로 하죠."
+    ],
+    "gold": {
+      "actions": [
+        { "title": "요청이 오면 업무 화면 설명하기", "owner": "me", "due": "none", "project": null, "segments": [1], "recipients": ["이도윤"] },
+        { "title": "남은 질문을 메일로 주고받기", "owner": "unknown", "due": "none", "project": null, "segments": [3] }
+      ],
+      "must_not": ["이도윤이 '나'를 불러 설명을 요청하는 할 일(같은 약속의 상대 쪽)"]
+    }
+  },
+  {
+    "id": "M02",
+    "type": "call",
+    "tags": ["speakers", "mirror", "conditional"],
+    "recorded_at": "2026-11-10T11:00:00+09:00",
+    "segments": [
+      "(나) 정산 화면 문구는 이번 주에 제가 한번 정리해 볼게요.",
+      "(박지훈) 네, 정리하시다가 시스템 쪽 궁금한 거 있으면 저한테 바로 물어보세요. 바로 답 드릴게요.",
+      "(나) 네 감사합니다."
+    ],
+    "gold": {
+      "actions": [
+        { "title": "정산 화면 문구 정리하기", "owner": "me", "due": "vague:이번 주", "project": null, "segments": [0] },
+        { "title": "질문이 오면 시스템 쪽 답해 주기", "owner": "other:박지훈", "due": "none", "project": null, "segments": [1], "recipients": ["나"] }
+      ],
+      "must_not": ["'나'가 박지훈에게 질문하는 할 일(같은 약속의 상대 쪽)"]
+    }
+  },
+  {
+    "id": "M03",
+    "type": "meeting",
+    "tags": ["speakers", "control"],
+    "recorded_at": "2026-11-10T14:00:00+09:00",
+    "segments": [
+      "(나) 협력사 정산 기준 자료는 금요일까지 보내 주세요.",
+      "(김하늘) 네, 금요일까지 메일로 보낼게요.",
+      "(나) 받으면 제가 다음 주 화요일까지 검토해서 의견 드릴게요."
+    ],
+    "gold": {
+      "actions": [
+        { "title": "협력사 정산 기준 자료 메일로 보내기", "owner": "other:김하늘", "due": "date:2026-11-13", "project": null, "segments": [0, 1], "recipients": ["나"] },
+        { "title": "정산 기준 자료 검토해서 의견 주기", "owner": "me", "due": "date:2026-11-17", "project": null, "segments": [2], "recipients": ["김하늘"] }
+      ],
+      "must_not": []
+    }
+  }
+]

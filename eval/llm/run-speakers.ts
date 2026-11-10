@@ -16,7 +16,8 @@ const env = Object.fromEntries(Deno.readTextFileSync(new URL(".env", ROOT)).spli
 if (!env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY가 .env에 없어요");
 
 const parse = (v: unknown) => (typeof v === "string" ? JSON.parse(v) : v);
-const records = JSON.parse(Deno.readTextFileSync(new URL("speaker-records.raw.json", PRIVATE))).rows;
+// 첫 인자로 다른 기록 파일(같은 폴더)을 줄 수 있다: ... run-speakers.ts speaker-records-1110.raw.json
+const records = JSON.parse(Deno.readTextFileSync(new URL(Deno.args[0] ?? "speaker-records.raw.json", PRIVATE))).rows;
 const ctx = JSON.parse(Deno.readTextFileSync(new URL("speaker-context.raw.json", PRIVATE))).rows[0];
 const myNames = new Set<string>((parse(ctx.my_names) ?? []).map(normName).filter(Boolean));
 const places = [
