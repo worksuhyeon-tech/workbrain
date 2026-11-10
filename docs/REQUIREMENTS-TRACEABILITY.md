@@ -41,6 +41,7 @@
 | FR-30 | 회의록 작성 지침 가져오기(SKILL.md) | P1 | Settings(minutesGuideline)/MeetingVersion(guidelineRev) | S09/S05 | TC-25 |
 | FR-31 | 내 용어집(업무 단어 등록) | P1 | vocab_term·wb_vocab_add | 더보기 > 내 용어집 | TC-27 |
 | FR-32 | 업무 재개 카드 | P1.5(제안) | ActivityLog·FocusSession·Checkpoint | S03 상세·S02 | P1.5 TC(미정) |
+| FR-33 | 주간·월간 업무계획(DEC-81) | P1 다음(FR-09 뒤) 1단계 / AI 다듬기 미정 | Task(done_at·due)·Record·Settings(내 이름) | 화면 미정(만들 때 결정) | TC(미정) |
 
 ## 비기능
 

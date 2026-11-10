@@ -211,8 +211,21 @@ class QuickParseTest {
         assertEquals("보고서 수정", r.title)
         assertTrue(r.warnings.isEmpty())
         assertTrue(r.placeChoices.isEmpty())
-        // 하나로 정해지면 다음 낱말을 붙이지 않는다
+        // 하나로 정해진 뒤에는 그 이름에 이어 들어 있는 낱말만 더 뺀다
         assertEquals("회의", parse("#erp 회의").title)
+    }
+
+    @Test fun `#하나로 정해진 뒤에도 이름에 이어 들어 있는 낱말은 이름으로 본다(DEC-82)`() {
+        // 'CRM 이관'에서 이미 하나지만 '12건'도 그 이름에 이어 있다
+        val r = parseCrm("#CRM 이관 12건 자료 정리")
+        assertEquals(crm12, r.place)
+        assertEquals("자료 정리", r.title)
+        // 처음부터 하나여도 같다
+        assertEquals("검토", parseCrm("#이관 12건 검토").title)
+        // 이름에 없는 낱말에서 멈춘다(이름에 있는 글자로 시작해도 순서대로 이어지지 않으면 본문)
+        assertEquals("12건 개선안", parseCrm("#CRM 이관 12건 12건 개선안").title)
+        assertEquals("개선안 정리", parseCrm("#CRM 이관 개선안 정리").title)
+        assertEquals(crm12, parseCrm("#CRM 이관 개선안 정리").place)
     }
 
     @Test fun `#붙여서 안 맞는 낱말은 본문이라 멈추고 후보를 보여 준다`() {

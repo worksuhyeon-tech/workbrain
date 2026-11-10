@@ -210,14 +210,16 @@ object QuickParse {
 
     /**
      * '#낱말'로 찾고, 여럿이면 띄어 쓴 다음 낱말을 하나씩 붙여 좁힌다(DEC-80). 붙여서 하나도 안 맞으면 그 낱말은 본문이라 멈춘다.
+     * 하나로 정해진 뒤에도 다음 낱말이 그 이름에 이어 들어 있으면 이름의 일부로 보고 함께 뺀다
+     * ('#CRM 이관 12건 보고서' → 'CRM 이관'에서 정해져도 '12건'까지 이름, DEC-82). 다른 곳으로 바뀌면 멈춘다.
      * 하나로 좁혀질 때만 고른다(엉뚱한 곳에 몰래 넣지 않게)
      */
     private fun matchPlace(word: String, next: List<String>, places: List<Place>): PlaceMatch {
         var hits = placesFor(word, places)
         var extra = 0
-        while (hits.size > 1 && extra < next.size) {
+        while (hits.isNotEmpty() && extra < next.size) {
             val narrowed = placesFor((listOf(word) + next.take(extra + 1)).joinToString(" "), places)
-            if (narrowed.isEmpty()) break
+            if (narrowed.isEmpty() || (hits.size == 1 && narrowed != hits)) break
             hits = narrowed
             extra++
         }

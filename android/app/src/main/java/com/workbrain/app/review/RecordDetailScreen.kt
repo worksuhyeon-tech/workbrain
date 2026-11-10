@@ -77,6 +77,8 @@ import com.workbrain.app.ui.PillShape
 import com.workbrain.app.ui.SEOUL
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -87,6 +89,11 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import com.workbrain.app.ui.WbChip
+
+private const val LOAD_FAILED = "불러오지 못했어요. 인터넷 연결을 확인해 주세요."
+
+/** 회의록이 다 된 뒤 화면을 다시 읽는 간격: 바로, 2초, 5초, 10초 뒤(DEC-83) */
+private val MINUTES_RELOAD_WAITS_MS = listOf(0L, 2_000L, 5_000L, 10_000L)
 
 private fun JsonObject.texts(key: String): List<String> =
     (this[key] as? JsonArray).orEmpty().mapNotNull { it.jsonObject.str("text")?.takeIf(String::isNotBlank) }
@@ -132,6 +139,8 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     var recipientsFor by remember { mutableStateOf<ProposalRow?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<Pair<String, Tone>?>(null) }
+    // 마지막으로 읽기에 실패했는지: 실패 띠에 [다시 불러오기]를 두고, 앱으로 돌아오면 다시 읽는다(DEC-83)
+    var loadFailed by remember { mutableStateOf(false) }
     var shownTitle by remember { mutableStateOf(title) }
     var renaming by remember { mutableStateOf(false) }
     // 기록 머리 정보(종류·길이·회의 시각)와 참석자 명단(null = 아직 못 읽음). 회의록 문서는 이 명단 기준으로 참석자를 쓴다(DEC-59)
@@ -168,8 +177,17 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         runCatching { LinkSuggest.pending(recordId) }.onSuccess { suggestions = it }
     }
 
-    suspend fun load() {
-        runCatching {
+    // 추가할 곳·내 이름·프로젝트 이름도 보조 정보라 못 읽어도 화면은 그린다(정리 안 됨으로 추가, 팔로업 목록에 내 이름이 섞일 뿐).
+    // 프로젝트 이름이 없으면 연결 칩·AI 제안 칩이 안 보이니, 못 읽은 뒤 다시 불러올 때 함께 다시 읽는다(DEC-83)
+    suspend fun loadExtras() {
+        runCatching { Para.places() }.onSuccess { places = it }
+        runCatching { Server.myNames() }.onSuccess { myNames = it }
+        runCatching { Para.allProjects() }.onSuccess { allProjects = it }
+    }
+
+    /** 다 읽으면 true. 못 읽으면 실패 띠를 띄우고 false, 다시 읽어 성공하면 그 띠를 내린다 */
+    suspend fun load(): Boolean {
+        val ok = runCatching {
             meeting = Server.meeting(recordId)
             approvedEarlierAt = if (meeting?.approved == true) null else Server.approvedMeetingAt(recordId)
             proposals = Server.proposals(recordId)
@@ -177,7 +195,10 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
             openTaskTitles = Server.openTasks().map { it.title.trim() }.toSet()
             currentGuidelineRev = Server.guideline().rev
             info = Server.recordInfo(recordId).also { attendees = it.attendees.orEmpty() }
-        }.onFailure { message = "불러오지 못했어요. 인터넷 연결을 확인해 주세요." to Tone.Crit }
+        }.isSuccess
+        if (!ok) message = LOAD_FAILED to Tone.Crit else if (message?.first == LOAD_FAILED) message = null
+        if (ok && loadFailed) loadExtras()
+        loadFailed = !ok
         loadLinks()
         // 결정과 겹치는 후보는 결정과 중복일 가능성이 커서 처음에는 체크하지 않는다(DEC-48).
         // 검토함에서 미룬 후보도 모르고 추가하지 않게 처음에는 체크하지 않는다(DEC-63)
@@ -185,14 +206,15 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         proposals.filter { it.status == "pending" && !it.isUpdate }
             .forEach { checked.putIfAbsent(it.id, it.overlappingDecision(decisions) == null && !Snooze.isActive(it.snoozedUntil)) }
         firstLoad = false
+        return ok
     }
     LaunchedEffect(recordId) { load() }
-    // 추가할 곳·내 이름은 보조 정보라 못 읽어도 화면은 그린다(정리 안 됨으로 추가, 팔로업 목록에 내 이름이 섞일 뿐)
-    LaunchedEffect(recordId) {
-        runCatching { Para.places() }.onSuccess { places = it }
-        runCatching { Server.myNames() }.onSuccess { myNames = it }
-        runCatching { Para.allProjects() }.onSuccess { allProjects = it }
+    // 못 읽은 채 앱을 나갔다 오면(잠금 풀기 포함) 다시 읽는다. 처음 열 때는 위에서 읽으니 실패했을 때만
+    LifecycleResumeEffect(recordId) {
+        if (loadFailed) scope.launch { load() }
+        onPauseOrDispose { }
     }
+    LaunchedEffect(recordId) { loadExtras() }
     val linkedProjects = linkedIds.mapNotNull { id -> allProjects.firstOrNull { it.id == id } }
     val shownSuggestions = visibleSuggestions(suggestions, allProjects, linkedIds)
     val recordClass = RecordClass.of(info?.classification)
@@ -285,10 +307,14 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                 else -> "일부는 추가하지 못했어요(${results.filterNot { it == "approved" }.joinToString()})" to Tone.Warn
             }
             load(); busy = false; onChanged()
-            // 체크하지 않고 남은 후보는 버릴지 묻는다(사용자 요청 11/05). 미룬 후보는 일부러 미뤄 둔 것이라 묻지 않는다
+            // 체크하지 않고 남은 후보는 버릴지 묻는다(사용자 요청 11/05). 미룬 후보는 일부러 미뤄 둔 것이라 묻지 않는다.
+            // 결정 카드 밑에 접어 둔 후보(DEC-48)도 묻지 않는다: 화면에 안 보여 무엇인지 모른 채 고르게 된다(DEC-85).
+            // 결정은 방금 다시 읽은 회의록 기준으로 센다
             if (allAdded) {
+                val decisionsNow = meeting?.fields?.decisions().orEmpty()
                 leftover = proposals.filter {
-                    it.status == "pending" && !it.isUpdate && checked[it.id] != true && !Snooze.isActive(it.snoozedUntil)
+                    it.status == "pending" && !it.isUpdate && checked[it.id] != true && !Snooze.isActive(it.snoozedUntil) &&
+                        it.overlappingDecision(decisionsNow) == null
                 }.ifEmpty { null }
             }
         }
@@ -298,7 +324,14 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
     val minutes by remember(recordId) { MinutesWorker.state(context, recordId) }.collectAsState(MinutesWorker.State.Idle)
     LaunchedEffect(minutes) {
         when (val m = minutes) {
-            MinutesWorker.State.Done -> load()
+            // 다 된 직후는 폰이 절전에서 막 깨어나 통신이 잠깐 막혀 있을 수 있다. 못 읽은 채 '아직 없어요'로 두면
+            // [회의록 만들기]를 또 눌러 비용이 다시 드니, 몇 초 간격으로 몇 번 더 읽는다(DEC-83)
+            MinutesWorker.State.Done -> {
+                for (wait in MINUTES_RELOAD_WAITS_MS) {
+                    delay(wait)
+                    if (load()) break
+                }
+            }
             is MinutesWorker.State.Failed -> if (meeting?.document == null) message = m.message to Tone.Crit
             else -> Unit
         }
@@ -578,7 +611,14 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                 }
             }
         }
-        message?.let { (text, tone) -> Banner(text, tone, Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) }
+        message?.let { (text, tone) ->
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Banner(text, tone, Modifier.weight(1f))
+                if (loadFailed) {
+                    TextButton(onClick = { scope.launch { load() } }) { Text("다시 불러오기", color = Wb.colors.link) }
+                }
+            }
+        }
         // 회의록 승인은 문서를 다 읽고 누르도록 '회의록 문서'를 볼 때 맨 아래 고정 줄에 둔다. 승인할 초안이 있을 때만(DEC-61)
         val approvable = meeting?.takeIf { it.document != null && !it.approved }
         if (!firstLoad && view == "doc" && approvable != null) {
