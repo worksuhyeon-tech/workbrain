@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.BuildConfig
 import com.workbrain.app.Supa
 import com.workbrain.app.data.GuidelineRow
+import com.workbrain.app.data.PlanKind
 import com.workbrain.app.data.Server
 import com.workbrain.app.record.AttendeesEditor
 import com.workbrain.app.record.SharedImport
@@ -58,12 +59,20 @@ import com.workbrain.app.ui.WbCard
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
 
-private enum class MorePage { VOCAB, GUIDELINE }
+private enum class MorePage { VOCAB, GUIDELINE, WORK_PLAN }
 
-/** 더보기: 계정(로그아웃·내 이름)·이번 달 AI 비용·내 용어집·회의록 지침·앱 정보(글꼴 라이선스). 펼친 화면은 왼쪽 메뉴 / 오른쪽 고른 항목(목업 S09) */
+/**
+ * 더보기: 계정(로그아웃·내 이름)·이번 달 AI 비용·내 용어집·회의록 지침·업무계획·앱 정보(글꼴 라이선스).
+ * 펼친 화면은 왼쪽 메뉴 / 오른쪽 고른 항목(목업 S09).
+ * startPlan: 오늘 탭 화요일 카드에서 넘어오면 그 종류(주간·월간)의 업무계획을 바로 연다(FR-33). 한 번 쓰면 onStartUsed로 비운다
+ */
 @Composable
-fun MoreScreen() {
+fun MoreScreen(startPlan: PlanKind? = null, onStartUsed: () -> Unit = {}) {
     var opened by rememberSaveable { mutableStateOf<MorePage?>(null) }
+    var planKind by rememberSaveable { mutableStateOf(PlanKind.WEEKLY) }
+    LaunchedEffect(startPlan) {
+        if (startPlan != null) { planKind = startPlan; opened = MorePage.WORK_PLAN; onStartUsed() }
+    }
     // '공유 → WorkBrain'으로 받은 스킬 zip은 지침 화면이 열어서 확인 시트까지 이어 간다
     val shared by SharedImport.pending.collectAsStateWithLifecycle()
     val incomingZip = (shared as? SharedImport.Item.SkillZip)?.uri
@@ -73,6 +82,7 @@ fun MoreScreen() {
         when (opened) {
             MorePage.VOCAB -> VocabScreen(onBack)
             MorePage.GUIDELINE -> GuidelineScreen(onBack, incomingZip, onIncomingHandled = { SharedImport.pending.value = null })
+            MorePage.WORK_PLAN -> WorkPlanScreen(onBack, planKind)
             null -> Unit
         }
     }
@@ -198,6 +208,12 @@ private fun MoreMenu(openedPage: MorePage?, onOpen: (MorePage) -> Unit) {
                 else -> "가져온 지침 ›"
             }
             InfoRow("회의록 지침", status) { onOpen(MorePage.GUIDELINE) }
+        }
+
+        // 매주 화요일 주간·매월 마지막 주 화요일 월간 업무계획(FR-33, DEC-87). 오늘 탭에도 화요일에만 카드가 뜬다
+        SectionLabel("업무계획")
+        WbCard(padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
+            InfoRow("주간·월간 업무계획", "회사 양식 표 ›") { onOpen(MorePage.WORK_PLAN) }
         }
 
         SectionLabel("앱 정보")

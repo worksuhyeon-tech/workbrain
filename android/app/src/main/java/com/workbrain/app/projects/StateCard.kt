@@ -73,6 +73,15 @@ import kotlinx.coroutines.launch
 private val BoxShape = RoundedCornerShape(10.dp)
 private const val MAX_SUMMARY = 600
 
+/**
+ * 사용자가 개발 진행 상태를 쓸 때 쓰는 단계 표(2026-11-10, DEC-88). 따로 칸을 두지 않고 요약에 직접 적게 안내만 한다
+ * (예: '통합 TEST 진행(~85%). 12건 중 8건 이관 끝'). 업무계획 □ 줄 AI가 이 표기를 알아보고 살린다(process-record/plan-head.ts에도 같은 표)
+ */
+private val PROGRESS_STAGES = listOf(
+    "① 컨셉정의 ~5%", "② 업무범위 검토 및 협의 ~10%", "③ 세부업무정의 20%", "④ 개발일정&협의 진행 ~40%", "⑤ 개발 착수 ~45%",
+    "⑥ 단위TEST 진행 ~60%", "⑦ 통합 TEST 진행 ~85%", "⑧ 운영계 이관 확정 및 공지문 작성 ~95%", "⑨ 이관 완료(오픈) 100%",
+)
+
 /** 상태 칩 색: 진행 중 초록 · 멈춤 노랑 · 완료 회색 */
 fun stateTone(status: String?): Tone = when (status) {
     "paused" -> Tone.Warn
@@ -303,6 +312,7 @@ private fun StateEditSheet(projectId: String, current: StateVersionRow?, onDismi
     var status by remember { mutableStateOf(current?.status ?: "active") }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var stagesOpen by remember { mutableStateOf(false) }
     EditSheet(
         if (current == null) "현재 상태 쓰기" else "현재 상태 고치기",
         "프로젝트 전체가 지금 어디쯤인지 2~3줄로 적어요. 끝난 것·남은 것·막힌 이유·다음 고비.",
@@ -327,6 +337,16 @@ private fun StateEditSheet(projectId: String, current: StateVersionRow?, onDismi
             supportingText = { Text("${summary.length}/$MAX_SUMMARY") },
             shape = ControlShape, modifier = Modifier.fillMaxWidth(),
         )
+        // 개발 진행 단계는 요약 첫머리에 직접(업무계획 □ 줄에 그대로 살아남)
+        TextButton(onClick = { stagesOpen = !stagesOpen }) {
+            Text(if (stagesOpen) "진행 단계 예시 접기" else "진행 단계 예시 ›", fontSize = 13.sp, color = Wb.colors.link)
+        }
+        if (stagesOpen) {
+            Column(Modifier.padding(start = 12.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                PROGRESS_STAGES.forEach { Note(it) }
+                Note("요약 첫머리에 '통합 TEST 진행(~85%).'처럼 적으면 업무계획 □ 줄에 그대로 들어가요.")
+            }
+        }
         Text("상태", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Wb.colors.ink, modifier = Modifier.padding(top = 6.dp))
         SegmentPills(listOf("active" to "진행 중", "paused" to "멈춤", "done" to "완료"), status) { status = it }
         Note("완료로 바꿔도 아카이브되지는 않아요. 끝난 프로젝트는 [아카이브로]에서 옮겨요.")

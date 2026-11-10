@@ -52,6 +52,7 @@ import com.workbrain.app.data.Server
 import com.workbrain.app.data.TaskEdit
 import com.workbrain.app.data.toEdit
 import com.workbrain.app.data.TaskRow
+import com.workbrain.app.data.PlanKind
 import com.workbrain.app.data.TaskSource
 import com.workbrain.app.data.usedNamesOf
 import com.workbrain.app.record.RecordingSession
@@ -102,6 +103,8 @@ class TodayNav(
     /** 프로젝트 탭에서 이 열쇠를 연다('all' = 모든 할 일, 'p:ID' = 프로젝트) */
     val openProjects: (String?) -> Unit,
     val openMore: () -> Unit,
+    /** 더보기의 업무계획을 그 종류로 바로 연다(화요일 카드, FR-33) */
+    val openWorkPlan: (PlanKind) -> Unit,
 )
 
 private val HEAD_DATE = DateTimeFormatter.ofPattern("yyyy년 M월 d일 EEEE", Locale.KOREA)
@@ -224,6 +227,8 @@ fun TodayScreen(nav: TodayNav) {
             }
             // 목업 .page-head .sub
             Text("${today.format(HEAD_DATE)} · 모든 프로젝트 · 확정 상태 기준", fontSize = 14.sp, color = Wb.colors.muted, modifier = Modifier.padding(bottom = 12.dp))
+            // 매주 화요일 업무계획 카드(FR-33, DEC-87: 날짜 줄 바로 아래 맨 위)
+            PlanDayCard(today, nav.openWorkPlan, Modifier.padding(bottom = 12.dp))
             CostWarn(budget, cost, nav.openMore)
             message?.let { (text, tone) -> Banner(text, tone, Modifier.padding(bottom = 12.dp)) }
 

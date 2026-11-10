@@ -1,7 +1,10 @@
 // 회의록 Word 받기(FR-29, DEC-60): 앱이 화면에 보이는 회의록 버전 ID를 보내면 그 버전의 문서를 .docx로 돌려준다(M14).
 // 본인 기록만(Design §4.7: 서버 키로 읽으므로 소유자 검사를 코드로 직접 한다). 외부 AI 호출이 없어 비용·동의 게이트가 없다.
+// 업무계획 Word(FR-33, Design §3.13): 앱이 미리보기로 받은 계획(plan)을 그대로 보내면 같은 글로 표를 그린다. DB를 읽지 않는다.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { type MinutesDoc, renderMinutesDocx } from "../_shared/minutes-docx.ts";
+import { renderPlanDocx } from "../_shared/plan-docx.ts";
+import { checkPlan } from "../_shared/work-plan.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -19,8 +22,23 @@ Deno.serve(async (req) => {
   const uid = who?.user?.id;
   if (!uid) return reply(401, { error: "로그인이 필요해요" });
 
-  let versionId = "";
-  try { versionId = String((await req.json()).meeting_version_id ?? ""); } catch { /* 아래에서 거부 */ }
+  let versionId = "", planRaw: unknown = undefined;
+  try {
+    const body = await req.json();
+    versionId = String(body.meeting_version_id ?? ""); planRaw = body.plan;
+  } catch { /* 아래에서 거부 */ }
+  if (planRaw !== undefined) {
+    const plan = checkPlan(planRaw);
+    if (!plan) return reply(400, { error: "업무계획 모양이 올바르지 않아요" });
+    try {
+      return new Response(await renderPlanDocx(plan), {
+        status: 200, headers: { "content-type": DOCX_MIME, "cache-control": "no-store", "x-wb-plan-kind": plan.kind },
+      });
+    } catch (e) {
+      console.error("plan docx render failed", String(e));
+      return reply(500, { error: "Word 파일을 만들지 못했어요" });
+    }
+  }
   if (!/^[0-9a-f-]{36}$/i.test(versionId)) return reply(400, { error: "회의록 ID가 올바르지 않아요" });
 
   // 다른 사람 회의록은 있는지조차 알리지 않도록 '없음'과 같은 답을 준다

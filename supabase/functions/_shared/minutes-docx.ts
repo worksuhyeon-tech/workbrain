@@ -113,7 +113,7 @@ function table(columns: string[], rows: string[][]): Table {
 }
 
 /** draft: 승인 전 문서는 머리글에 '초안 — 검토 전'을 넣는다(Design §3.8 ③) */
-export async function renderMinutesDocx(doc: MinutesDoc, opts: { draft: boolean }): Promise<Uint8Array> {
+export async function renderMinutesDocx(doc: MinutesDoc, opts: { draft: boolean }): Promise<Uint8Array<ArrayBuffer>> {
   const body: (Paragraph | Table)[] = [];
   if (doc.title) {
     body.push(new Paragraph({
@@ -149,5 +149,6 @@ export async function renderMinutesDocx(doc: MinutesDoc, opts: { draft: boolean 
       children: body,
     }],
   });
-  return new Uint8Array(await Packer.toBuffer(document));
+  // Response 본문 타입(ArrayBuffer 기반)에 맞게 복사본으로 돌려준다
+  return Uint8Array.from(await Packer.toBuffer(document));
 }

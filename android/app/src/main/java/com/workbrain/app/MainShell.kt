@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.workbrain.app.data.PlanKind
 import com.workbrain.app.data.Server
 import com.workbrain.app.more.MoreScreen
 import com.workbrain.app.projects.ProjectsScreen
@@ -114,12 +115,15 @@ fun MainShell() {
     val afterTrash: () -> Unit = { detailId = null; tab = Tab.RECORD }
     // 다른 탭에서 프로젝트 탭의 특정 항목('all' = 모든 할 일, 'p:ID')을 열 때 한 번 넘기는 열쇠
     var projectsStart by remember { mutableStateOf<String?>(null) }
+    // 오늘 탭 화요일 카드에서 더보기의 업무계획(주간·월간)을 바로 열 때 한 번 넘기는 열쇠(FR-33)
+    var planStart by remember { mutableStateOf<PlanKind?>(null) }
     val todayNav = TodayNav(
         openRecord = open,
         openReview = { tab = Tab.REVIEW },
         openRecords = { tab = Tab.RECORD },
         openProjects = { key -> projectsStart = key; tab = Tab.PROJECTS },
         openMore = { tab = Tab.MORE },
+        openWorkPlan = { kind -> planStart = kind; tab = Tab.MORE },
     )
 
     val body: @Composable () -> Unit = {
@@ -150,7 +154,7 @@ fun MainShell() {
                         }
                     },
                 )
-                Tab.MORE -> MoreScreen()
+                Tab.MORE -> MoreScreen(startPlan = planStart, onStartUsed = { planStart = null })
             }
         }
     }

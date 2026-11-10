@@ -3,6 +3,7 @@
 // 회의록 문서는 사용자가 '회의록 만들기'를 눌렀을 때만 따로 만든다(action: "document", DEC-56).
 // 프로젝트 연결 제안(FR-06, DEC-75)은 EXTRACT 직후에 만들고, 지난 기록·실패분은 앱이 켜질 때 action: "suggest_links"로 채운다.
 // 프로젝트 현재 상태 제안(FR-09, DEC-86)은 사용자가 기록을 프로젝트에 연결한 뒤 앱이 action: "project_state"로 부른다.
+// 주간·월간 업무계획(FR-33, DEC-87·88)은 action: "work_plan" — 규칙으로 표 글을 만들고 □ 줄만 AI로 다듬어 돌려준다(저장 안 함).
 // 무료 플랜의 함수 실행 시간 제한 안에 들도록 단계를 나눴고, 앱이 끝날 때까지 다시 부른다(같은 작업은 한 번만 잡힘).
 // AI 결과는 초안·제안으로만 저장한다. 할 일은 사용자가 승인해야 생긴다(§3.4).
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
@@ -11,6 +12,9 @@ import { cleanDocument, DEFAULT_GUIDELINE, DOCUMENT_SCHEMA, DOCUMENT_SYSTEM_RULE
 import { cleanLinks, LINK_DONE_VERSIONS, LINK_PROMPT, LINK_PROMPT_VERSION, LINK_SCHEMA, linkQuote } from "./link.ts";
 import { buildExtractInput, cleanRecipients, normName, resolveOwner } from "./extract.ts";
 import { basisOf, buildStateInput, cleanState, STATE_PROMPT, STATE_PROMPT_VERSION, STATE_SCHEMA, type StateNow } from "./state.ts";
+import { buildHeadInput, cleanHeads, PLAN_HEAD_PROMPT, PLAN_HEAD_SCHEMA, PLAN_HEAD_VERSION } from "./plan-head.ts";
+import { loadPlanInput } from "./plan-data.ts";
+import { applyHeads, buildWorkPlan, headInputs, type PlanKind, type WorkPlan } from "../_shared/work-plan.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -38,12 +42,25 @@ Deno.serve(async (req) => {
   const uid = who?.user?.id;
   if (!uid) return reply(401, { error: "로그인이 필요해요" });
 
-  let recordId = "", action = "", requestKey = "", projectId = "";
+  let recordId = "", action = "", requestKey = "", projectId = "", planKind = "", baseDate = "";
   try {
     const body = await req.json();
     recordId = String(body.record_id ?? ""); action = String(body.action ?? ""); requestKey = String(body.request_key ?? "");
     projectId = String(body.project_id ?? "");
+    planKind = String(body.kind ?? ""); baseDate = String(body.base_date ?? "");
   } catch { /* 아래에서 거부 */ }
+  // 업무계획(FR-33): 기록과 상관없이 내 할 일·회의로 두 칸 글을 만든다
+  if (action === "work_plan") {
+    if ((planKind !== "weekly" && planKind !== "monthly") || !/^\d{4}-\d{2}-\d{2}$/.test(baseDate)) {
+      return reply(400, { error: "업무계획 종류·기준일이 올바르지 않아요" });
+    }
+    try {
+      return reply(200, await workPlan(db, uid, planKind, baseDate));
+    } catch (e) {
+      console.error("work_plan failed", String(e));
+      return reply(500, { error: "업무계획을 만들지 못했어요" });
+    }
+  }
   // 밀린 연결 제안(FR-06): 기록 하나가 아니라 내 기록 전체에서 몇 건씩
   if (action === "suggest_links") return reply(200, await sweepLinks(db, uid));
   // 현재 상태 제안(FR-09): 처리 작업 단계와 상관없이, 연결을 확정한 기록 하나로 그 프로젝트의 제안을 만들거나 고쳐 쓴다
@@ -707,6 +724,42 @@ async function proposeState(db: SupabaseClient, uid: string, recordId: string, p
     segment_ref: { idx: clean.segments }, quote: linkQuote(segments, clean.segments),
   });
   return { state: "PROPOSED", proposal_id: proposalId };
+}
+
+/**
+ * 업무계획(FR-33, DEC-87·88): 규칙으로 두 칸 글을 만들고, 전주 칸 □ 줄만 AI 한 번으로 '이름 + 진행 상태' 한 줄로 다듬는다.
+ * AI를 못 쓰면(키 없음·예산 대기·실패) 규칙 줄(이름 : 현재 상태 첫 문장)을 그대로 두고 그 까닭을 ai로 알린다. 결과는 저장하지 않는다
+ */
+async function workPlan(db: SupabaseClient, uid: string, kind: PlanKind, baseDate: string): Promise<{ plan: WorkPlan; ai: string }> {
+  const input = await loadPlanInput(db, uid, kind, baseDate);
+  const plan = buildWorkPlan(input);
+  const heads = headInputs(plan, input.places);
+  if (!heads.length) return { plan, ai: "none" };
+  if (!OPENAI_KEY) return { plan, ai: "no-key" };
+  const cycle = new Date().toISOString().slice(0, 7);
+  if (await overBudget(db, uid, cycle)) return { plan, ai: "budget" };
+  try {
+    const r = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
+      body: JSON.stringify({
+        model: LLM_MODEL, instructions: PLAN_HEAD_PROMPT, input: buildHeadInput(plan.previous.label, heads),
+        text: { format: { type: "json_schema", name: "plan_heads", schema: PLAN_HEAD_SCHEMA, strict: true } },
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d?.error?.message ?? String(r.status));
+    const usage = { input_tokens: d.usage?.input_tokens ?? 0, output_tokens: d.usage?.output_tokens ?? 0 };
+    await addCost(db, uid, cycle, (usage.input_tokens * LLM_USD_PER_1M.input + usage.output_tokens * LLM_USD_PER_1M.output) / 1e6);
+    // 기록 단위가 아니라 analysis_run(전사 버전 필수)에 남길 수 없어, 모델·지시문 판·사용량은 함수 로그로 남긴다(NFR-09)
+    console.log(JSON.stringify({ work_plan: kind, prompt: PLAN_HEAD_VERSION, model: LLM_MODEL, usage, heads: heads.length }));
+    const raw = d.output_text ?? d.output?.flatMap((o: { content?: unknown[] }) => o.content ?? [])
+      .find((c: { type?: string }) => c.type === "output_text")?.text;
+    return { plan: applyHeads(plan, cleanHeads(JSON.parse(raw), heads)), ai: "done" };
+  } catch (e) {
+    console.error("work_plan heads failed", String(e));
+    return { plan, ai: "failed" };
+  }
 }
 
 /** 이 전사 버전의 연결 제안이 끝났는지: 만들었거나(빈 전사 포함), 실패한 지 하루가 안 됐으면 끝난 것으로 본다 */

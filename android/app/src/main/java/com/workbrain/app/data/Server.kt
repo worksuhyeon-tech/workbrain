@@ -14,6 +14,7 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import java.time.LocalDate
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -300,6 +301,8 @@ class LoginRequired : Exception("WB401")
 /** WorkBrain 서버 호출을 한곳에 모은다. 모든 데이터 접근은 로그인한 본인 것으로 서버(RLS)가 제한한다. */
 object Server {
     private val db get() = Supa.client
+    /** 업무계획 글을 주고받을 때: 서버가 칸을 더해도 앱이 깨지지 않게 모르는 칸은 넘긴다 */
+    private val planJson = Json { ignoreUnknownKeys = true }
 
     fun uid(): String = db.auth.currentUserOrNull()?.id ?: error("로그인이 필요해요")
 
@@ -453,6 +456,23 @@ object Server {
         val res = invokeFunction("minutes-word", buildJsonObject { put("meeting_version_id", meetingVersionId) })
         return MinutesWord(res.bodyAsBytes(), res.headers["x-wb-meeting-date"].orEmpty(), res.headers["x-wb-draft"] != "false")
     }
+
+    /**
+     * 업무계획(FR-33, DEC-87·88): 처리 함수가 기준일이 속한 주(달)와 다음 주(달)의 표 글을 규칙으로 만들고,
+     * 전주 칸 □ 줄만 AI가 '이름 + 진행 상태' 한 줄로 다듬는다(한 번에 약 1원). 자료를 못 읽으면 예외, AI만 못 쓰면 ai 값으로 알린다
+     */
+    suspend fun workPlan(kind: PlanKind, baseDate: LocalDate): WorkPlanResult {
+        val res = invokeFunction("process-record", buildJsonObject {
+            put("action", "work_plan"); put("kind", kind.code); put("base_date", baseDate.toString())
+        })
+        val json = Json.parseToJsonElement(res.bodyAsText()) as JsonObject
+        val plan = json["plan"] ?: error(json["error"]?.jsonPrimitive?.contentOrNull ?: "업무계획을 만들지 못했어요")
+        return WorkPlanResult(planJson.decodeFromJsonElement(WorkPlan.serializer(), plan), json["ai"]?.jsonPrimitive?.contentOrNull ?: "none")
+    }
+
+    /** 업무계획 Word: 미리보기로 받은 글을 그대로 보내 같은 표를 .docx로 받는다(AI를 다시 부르지 않음, 서버는 모양·크기만 검사) */
+    suspend fun planWord(plan: WorkPlan): ByteArray =
+        invokeFunction("minutes-word", buildJsonObject { put("plan", planJson.encodeToJsonElement(WorkPlan.serializer(), plan)) }).bodyAsBytes()
 
     /** 처리 함수를 한 번 불러 다음 단계를 진행한다 */
     suspend fun process(recordId: String): ProcessStatus {
