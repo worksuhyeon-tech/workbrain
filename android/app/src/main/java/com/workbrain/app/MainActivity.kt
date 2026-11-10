@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.auth.LoginScreen
+import com.workbrain.app.record.RecorderLaunch
 import com.workbrain.app.record.SharedImport
 import com.workbrain.app.ui.WorkBrainTheme
 import io.github.jan.supabase.auth.auth
@@ -28,6 +29,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Supa.client.handleDeeplinks(intent)
         receiveShared(intent)
+        receiveRecorder(intent)
         enableEdgeToEdge()
         setContent { WorkBrainTheme { AppRoot() } }
     }
@@ -37,6 +39,14 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         Supa.client.handleDeeplinks(intent)
         receiveShared(intent)
+        receiveRecorder(intent)
+    }
+
+    // 녹음 알림을 눌러 열었으면 녹음 화면으로(DEC-89). 표시는 한 번 쓰고 지워, 같은 Intent로 다시 그려질 때 또 열지 않는다
+    private fun receiveRecorder(intent: Intent) {
+        if (!intent.getBooleanExtra(RecorderLaunch.EXTRA_OPEN, false)) return
+        intent.removeExtra(RecorderLaunch.EXTRA_OPEN)
+        RecorderLaunch.open()
     }
 
     // 다른 앱의 '공유'로 받은 음성·글: 녹음 화면이 가져오기를 이어서 한다(파일 읽기 권한은 이 화면이 살아 있는 동안 유효).

@@ -38,8 +38,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** 알림이 떠 있는 시간(DEC-51, 10/26 사용자 요청으로 4초 → 3초). 게이지도 같은 시간 동안 줄어든다 */
-private const val TOAST_MS = 3_000L
+/** 알림이 떠 있는 시간(DEC-51, 10/26 사용자 요청으로 4초 → 3초). 게이지도 같은 시간 동안 줄어든다. 할 일 지우기는 이 시간이 지난 뒤 서버에서 지운다(DEC-90) */
+const val TOAST_MS = 3_000L
 
 /**
  * 화면 아래 잠깐 뜨는 알림 + (있으면) 되돌리기. 녹음 목록의 지움·되살림과 프로젝트 정리(DEC-24 놓은 뒤 되돌리기)가 같이 쓴다.

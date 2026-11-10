@@ -66,18 +66,19 @@ import com.workbrain.app.ui.WbIcons
 val QUICK_DOCK_SPACE = 64.dp
 
 /**
- * places: 보관 안 된 프로젝트·반복실행. noDueMeansToday: 오늘 탭(기한을 안 적으면 오늘 마감).
- * onAdded: 넣은 뒤(바로 넣기·새 할 일 서랍 둘 다) — 화면은 다시 읽고 알림을 띄운다
+ * places: 보관 안 된 프로젝트·반복실행. draftKey: 입력 줄 이름('today'·'all', 적던 글·말로 넣기 결과를 화면 밖에 두는 열쇠).
+ * noDueMeansToday: 오늘 탭(기한을 안 적으면 오늘 마감). onAdded: 넣은 뒤(바로 넣기·새 할 일 서랍 둘 다) — 화면은 다시 읽고 알림을 띄운다
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun QuickAddDock(
     places: List<Place>,
+    draftKey: String,
     modifier: Modifier = Modifier,
     noDueMeansToday: Boolean = false,
     onAdded: (QuickTask) -> Unit,
 ) {
-    val quick = rememberQuickAdd(places, fixedPlace = null, noDueMeansToday, onAdded)
+    val quick = rememberQuickAdd(places, fixedPlace = null, noDueMeansToday, draftKey, onAdded)
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -102,7 +103,11 @@ fun QuickAddDock(
         modifier.imePadding().padding(horizontal = 16.dp).padding(bottom = 12.dp).widthIn(max = 640.dp).fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (typing || quick.error != null) TypingCard(quick, showHelp = typing, onDetail = openDetail)
+        // 말로 넣을 때(듣는 중·다 들은 뒤·안내)는 키보드 없이 카드만 띄운다(DEC-89, 사용자 선택 11/11)
+        val voiceCard = quick.listening || quick.voiceMessage != null || quick.fromVoice
+        if (typing || quick.error != null || voiceCard) {
+            TypingCard(quick, showHelp = typing, showDetail = typing || quick.fromVoice, onDetail = openDetail)
+        }
         Surface(
             onClick = openInput,
             shape = PillShape,
@@ -131,6 +136,7 @@ fun QuickAddDock(
                         }
                     },
                 )
+                MicButton(quick, recordProject = null)
                 if (quick.text.isBlank()) PlusButton(openInput) else AddButton(quick.saving, quick.add)
             }
         }
@@ -144,10 +150,13 @@ fun QuickAddDock(
     }
 }
 
-/** 입력 중 키보드 위 카드: 미리보기 칩 · 단축어 설명 · 저장 실패 · '자세히 ›'. showHelp=false면 실패 띠만(키보드를 내린 뒤) */
+/**
+ * 입력 중 키보드 위 카드: 미리보기 칩 · 말로 넣기 상태 · 단축어 설명 · 저장 실패 · '자세히 ›'.
+ * showHelp: 단축어 설명(키보드로 적을 때만). showDetail: '자세히 ›'(적을 때와 말로 넣은 뒤). 둘 다 false면 실패 띠만(키보드를 내린 뒤)
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TypingCard(quick: QuickAdd, showHelp: Boolean, onDetail: () -> Unit) {
+private fun TypingCard(quick: QuickAdd, showHelp: Boolean, showDetail: Boolean, onDetail: () -> Unit) {
     Surface(
         shape = CardShape,
         color = Wb.colors.card,
@@ -164,11 +173,12 @@ private fun TypingCard(quick: QuickAdd, showHelp: Boolean, onDetail: () -> Unit)
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) { QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace) }
             }
+            VoiceStatus(quick, Modifier.padding(top = if (quick.text.isNotBlank()) 6.dp else 0.dp, end = 8.dp))
             if (showHelp) Box(Modifier.padding(end = 8.dp)) { QuickHint() }
             quick.error?.let { Text(it, fontSize = 12.sp, color = Wb.colors.crit, modifier = Modifier.padding(top = 6.dp, end = 8.dp)) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.weight(1f))
-                if (showHelp) {
+                if (showDetail) {
                     // 해석한 값으로 채운 새 할 일 서랍(담당·기한·우선순위를 직접 고를 때)
                     Box(
                         Modifier.clip(PillShape).clickable(onClickLabel = "새 할 일 서랍 열기", onClick = onDetail)

@@ -367,6 +367,7 @@ private fun TaskLines(
             onPlace = if (withPlace) { p -> onEvent(ParaEvent.Select(placeKey(p.type, p.id))) } else null,
             showUnsorted = withPlace,
             onRecipients = { onEvent(ParaEvent.EditRecipients(t)) },
+            onDelete = { onEvent(ParaEvent.DeleteTask(t)) },
             // 길게 눌러 다른 프로젝트·반복실행으로 끈다(펼친 화면은 왼쪽 트리, 접은 화면은 아래 '옮길 곳' 띠, DEC-72). 보관된 곳은 읽기 전용
             modifier = Modifier.dragSource(drag, if (readOnly) null else DragItem.Task(t.id, t.title)),
         )
@@ -701,7 +702,7 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
                 )
             }
         }
-        QuickAddDock(d.places, Modifier.align(Alignment.BottomCenter)) { r ->
+        QuickAddDock(d.places, draftKey = "all", Modifier.align(Alignment.BottomCenter)) { r ->
             val ownerHere = ownerIn(r.assignee != null, owner)
             val where = when {
                 ownerHere && dayInRange(r.dueDate, range, today) -> ""

@@ -33,6 +33,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.data.Para
 import com.workbrain.app.data.ParaData
 import com.workbrain.app.data.PlaceType
@@ -42,7 +43,9 @@ import com.workbrain.app.data.TaskEdit
 import com.workbrain.app.data.TaskRow
 import com.workbrain.app.data.toEdit
 import com.workbrain.app.tasks.QUICK_DOCK_SPACE
+import com.workbrain.app.tasks.QuickAddMemory
 import com.workbrain.app.tasks.RecipientsSheet
+import com.workbrain.app.tasks.TaskDeletes
 import com.workbrain.app.tasks.TaskEditSheet
 import com.workbrain.app.tasks.UNSAVED_TEXT
 import com.workbrain.app.tasks.movedText
@@ -76,6 +79,8 @@ sealed interface ParaEvent {
     data class OpenRecord(val recordId: String, val title: String) : ParaEvent
     /** 한 줄 빠른 입력으로 넣었음(저장은 입력 줄이 이미 함): 다시 읽고 알림만(DEC-70) */
     data class QuickAdded(val message: String) : ParaEvent
+    /** 할 일 줄을 왼쪽으로 밀어 지움(DEC-90) */
+    data class DeleteTask(val task: TaskRow) : ParaEvent
 }
 
 /** 아카이브 전에 묻기: 안 끝난 할 일이 '오늘'·'모든 할 일'에서 빠진다는 것을 알린다(DEC-65) */
@@ -134,6 +139,16 @@ fun ProjectsScreen(
             .onFailure { loadFailed = true }
     }
     LaunchedEffect(Unit) { load() }
+    // 지우지 못한 할 일은 목록에 다시 보이고 이유를 알린다(DEC-90)
+    val deleteFailed by TaskDeletes.failed.collectAsStateWithLifecycle()
+    LaunchedEffect(deleteFailed) {
+        val text = deleteFailed ?: return@LaunchedEffect
+        TaskDeletes.consumeFailure()
+        load()
+        announcer.show(text)
+    }
+    // 지우는 중·지운 할 일은 화면에서 뺀다(서버에서 지우기 전이라도)
+    val hidden by TaskDeletes.hidden.collectAsStateWithLifecycle()
     // 오늘 화면의 '다음 7일 · 전체 →'·프로젝트 이름에서 왔으면 그 항목을 연다(한 번만)
     LaunchedEffect(startKey) {
         if (startKey != null) { select(startKey); onStartUsed() }
@@ -203,9 +218,12 @@ fun ProjectsScreen(
                     editingTask = null
                     load()
                     val moved = e.projectId != t.projectId || e.areaId != t.areaId
+                    val to = d.places.firstOrNull { it.id == (e.projectId ?: e.areaId) }
+                    // 옮긴 곳을 다음 빠른 입력의 넣을 곳으로 기억한다(DEC-91)
+                    if (row != null && moved) QuickAddMemory.save(context, to)
                     when {
                         row == null -> announcer.show(CONFLICT_TEXT)
-                        moved -> announcer.show(movedText(d.places.firstOrNull { it.id == (e.projectId ?: e.areaId) })) {
+                        moved -> announcer.show(movedText(to)) {
                             act("되돌렸어요", work = moveBack(t))
                         }
                         else -> announcer.show("수정했어요 · 변경 이력에 남아요")
@@ -260,6 +278,11 @@ fun ProjectsScreen(
             }
             is ParaEvent.EditLinks -> linkFor = e.resourceId
             is ParaEvent.QuickAdded -> scope.launch { load(); announcer.show(e.message) }
+            // 줄은 바로 빠지고, 3초 '되돌리기'가 지나면 서버에서 지운다(기록 탭 밀어 지우기와 같음)
+            is ParaEvent.DeleteTask -> {
+                TaskDeletes.delete(e.task)
+                announcer.show("${e.task.title} 삭제되었어요") { TaskDeletes.undo(e.task.id) }
+            }
             is ParaEvent.Later -> announcer.show(
                 if (e.which == "cal") "캘린더 보기는 P4예요 · 날짜·시각 기한을 그대로 달력에 놓아요(모호한 기한은 옆 칸에 따로)"
                 else "매트릭스는 P4예요 · 지금의 우선순위(중요)와 기한(급함)으로 4칸을 계산해 데이터 추가가 없어요",
@@ -282,7 +305,9 @@ fun ProjectsScreen(
                     projectId = to.id.takeIf { to.type == PlaceType.PROJECT },
                     areaId = to.id.takeIf { to.type == PlaceType.AREA },
                 )
-                act(movedText(to), undo = moveBack(a.task)) { Server.updateTask(a.task, edit) }
+                act(movedText(to), undo = moveBack(a.task)) {
+                    Server.updateTask(a.task, edit)?.also { QuickAddMemory.save(context, to) }
+                }
             }
             is DropAction.MoveRecord -> {
                 // 받은 프로젝트를 펼쳐 옮겨 간 기록이 보이게 한다(목업)
@@ -337,7 +362,7 @@ fun ProjectsScreen(
     }
 
     Box(Modifier.fillMaxSize().background(Wb.colors.surface).onGloballyPositioned { boxOrigin.value = it.positionInRoot() }) {
-        val d = data
+        val d = data?.let { all -> if (hidden.isEmpty()) all else all.copy(tasks = all.tasks.filter { it.id !in hidden }) }
         if (d == null) {
             Column(Modifier.padding(horizontal = 16.dp)) {
                 PageHeader("프로젝트", "하고 있는 일 한눈에")

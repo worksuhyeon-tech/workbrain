@@ -799,4 +799,17 @@ object Server {
                 eq("version", t.version)
             }
         }.decodeList<IdRow>().isNotEmpty()
+
+    /**
+     * 할 일 지우기(DEC-90: 밀어 지우기). 버전이 같을 때만 지운다(다른 기기에서 먼저 고쳤으면 0건 → false, M18).
+     * RLS가 본인 행만 지우고, 변경 이력(task_revision)은 함께 지워진다(ON DELETE CASCADE)
+     */
+    suspend fun deleteTask(t: TaskRow): Boolean =
+        db.from("task").delete {
+            select()
+            filter {
+                eq("id", t.id)
+                eq("version", t.version)
+            }
+        }.decodeList<IdRow>().isNotEmpty()
 }

@@ -62,7 +62,9 @@ import com.workbrain.app.record.UploadProgress
 import com.workbrain.app.review.Snooze
 import com.workbrain.app.tasks.QUICK_DOCK_SPACE
 import com.workbrain.app.tasks.QuickAddDock
+import com.workbrain.app.tasks.QuickAddMemory
 import com.workbrain.app.tasks.RecipientsSheet
+import com.workbrain.app.tasks.TaskDeletes
 import com.workbrain.app.tasks.TaskEditSheet
 import com.workbrain.app.tasks.quickAddedText
 import com.workbrain.app.tasks.quickDueLabel
@@ -72,6 +74,7 @@ import com.workbrain.app.tasks.doneInstant
 import com.workbrain.app.tasks.dueDay
 import com.workbrain.app.tasks.isLate
 import com.workbrain.app.tasks.movedText
+import com.workbrain.app.ui.AnnounceHost
 import com.workbrain.app.ui.Banner
 import com.workbrain.app.ui.CONFLICT_TEXT
 import com.workbrain.app.ui.HandAccent
@@ -85,6 +88,7 @@ import com.workbrain.app.ui.Wb
 import com.workbrain.app.ui.WbChip
 import com.workbrain.app.ui.WbIcons
 import com.workbrain.app.ui.isWideWindow
+import com.workbrain.app.ui.rememberAnnouncer
 import com.workbrain.app.ui.saveFailText
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -138,6 +142,8 @@ fun TodayScreen(nav: TodayNav) {
     var recipientsEditing by remember { mutableStateOf<TaskRow?>(null) }
     var editError by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
+    // 지운 뒤 '되돌리기'(기록 탭과 같은 알림, DEC-90). 그 밖의 결과는 위 띠(message)로 알린다
+    val announcer = rememberAnnouncer()
 
     // 할 일이 핵심이라 그것만 실패를 알리고, 나머지(출처·검토 대기·비용·옮길 곳)는 못 읽으면 비워 둔다
     suspend fun load() = coroutineScope {
@@ -177,9 +183,12 @@ fun TodayScreen(nav: TodayNav) {
         result.onSuccess { row ->
             editing = null
             recipientsEditing = null
+            val to = places.firstOrNull { it.id == (e.projectId ?: e.areaId) }
+            // 옮긴 곳을 다음 빠른 입력의 넣을 곳으로 기억한다(DEC-91)
+            if (row != null && moved) QuickAddMemory.save(context, to)
             message = when {
                 row == null -> CONFLICT_TEXT to Tone.Warn
-                moved -> movedText(places.firstOrNull { it.id == (e.projectId ?: e.areaId) }) to Tone.Good
+                moved -> movedText(to) to Tone.Good
                 else -> "수정했어요 · 변경 이력에 남아요" to Tone.Good
             }
             load()
@@ -188,8 +197,22 @@ fun TodayScreen(nav: TodayNav) {
         }
     }
 
+    /** 밀어 지우기(DEC-90): 줄은 바로 빠지고, 3초 '되돌리기'가 지나면 서버에서 지운다 */
+    fun delete(t: TaskRow) {
+        TaskDeletes.delete(t)
+        announcer.show("${t.title} 삭제되었어요") { TaskDeletes.undo(t.id) }
+    }
+    val deleteFailed by TaskDeletes.failed.collectAsStateWithLifecycle()
+    LaunchedEffect(deleteFailed) {
+        val text = deleteFailed ?: return@LaunchedEffect
+        TaskDeletes.consumeFailure()
+        message = text to Tone.Warn
+        load()
+    }
+
     val today = LocalDate.now(SEOUL)
-    val all = tasks.orEmpty()
+    val hidden by TaskDeletes.hidden.collectAsStateWithLifecycle()
+    val all = tasks.orEmpty().filter { it.id !in hidden }
     // 오늘 할 일 = 오늘 마감 + 지연(목업 dueToday). 기한 없는·모호한·다음 날 이후 할 일은 '모든 할 일'에서
     val due = all.filter { !it.done && dueDay(it)?.let { d -> !d.isAfter(today) } == true }
     val mine = due.filter { it.ownerKind != "other" }
@@ -207,7 +230,8 @@ fun TodayScreen(nav: TodayNav) {
             onToggle = { t -> setDone(t, !t.done) },
             onOpen = { t -> editError = null; editing = t },
             onRecipients = { t -> editError = null; recipientsEditing = t },
-            onPlace = { p -> nav.openProjects(if (p.type == PlaceType.PROJECT) "p:${p.id}" else "a:${p.id}") },
+            onDelete = { t -> delete(t) },
+            onPlace ={ p -> nav.openProjects(if (p.type == PlaceType.PROJECT) "p:${p.id}" else "a:${p.id}") },
             onAll = { nav.openProjects("all") },
         )
     }
@@ -254,12 +278,14 @@ fun TodayScreen(nav: TodayNav) {
         }
         // 한 줄 빠른 입력은 '오늘 할 일' 카드 머리 대신 화면 아래 떠 있는 띠(DEC-73). 기한을 안 적으면 오늘 마감(목업 S02).
         // 오늘 화면에 안 보이는 것(내일 이후·모호)은 알림에 기한을 함께 쓴다
-        QuickAddDock(places, Modifier.align(Alignment.BottomCenter), noDueMeansToday = true) { r ->
+        QuickAddDock(places, draftKey = "today", Modifier.align(Alignment.BottomCenter), noDueMeansToday = true) { r ->
             val shownHere = r.dueDate?.let { !it.isAfter(today) } == true
             val due = quickDueLabel(r, today) ?: "${r.vague} · 확인 필요"
             message = (quickAddedText(r) + if (shownHere) "" else " · $due · ‘모든 할 일’에서 보여요") to Tone.Good
             scope.launch { load() }
         }
+        // 입력 띠에 가리지 않게 띠 위에 띄운다
+        AnnounceHost(announcer, Modifier.align(Alignment.BottomCenter).padding(bottom = QUICK_DOCK_SPACE))
     }
 
     editing?.let { t ->
@@ -318,6 +344,7 @@ private fun TodayCard(
     onToggle: (TaskRow) -> Unit,
     onOpen: (TaskRow) -> Unit,
     onRecipients: (TaskRow) -> Unit,
+    onDelete: (TaskRow) -> Unit,
     onPlace: (Place) -> Unit,
     onAll: () -> Unit,
 ) {
@@ -330,7 +357,7 @@ private fun TodayCard(
                 val rows: @Composable ColumnScope.(List<TaskRow>) -> Unit = { list ->
                     list.forEachIndexed { i, t ->
                         if (i > 0) HorizontalDivider(color = Wb.colors.border)
-                        TaskLine(t, sources[t.id]?.label, showPriority, readOnly = false, onToggle = { onToggle(t) }, onOpen = { onOpen(t) }, place = placeOf(t), onPlace = onPlace, onRecipients = { onRecipients(t) })
+                        TaskLine(t, sources[t.id]?.label, showPriority, readOnly = false, onToggle = { onToggle(t) }, onOpen = { onOpen(t) }, place = placeOf(t), onPlace = onPlace, onRecipients = { onRecipients(t) }, onDelete = { onDelete(t) })
                     }
                 }
                 if (late.isNotEmpty()) { SubHead("지연 ${late.size}", Wb.colors.crit); rows(late) }
@@ -460,7 +487,7 @@ private fun ProcessingCard(
                 }
                 when {
                     failed -> WbChip("처리 실패", Tone.Crit)
-                    // 이 화면에서 돌고 있지 않으면(앱을 다시 연 뒤) 바로 다시 돌릴 수 있게 둔다 — 녹음 탭 '이어서 처리'와 같음
+                    // 이 화면에서 돌고 있지 않으면(앱을 다시 연 뒤) 바로 다시 돌릴 수 있게 둔다 — 기록 탭 '이어서 처리'와 같음
                     live == null -> SmallButton("이어서 처리") { onResume(s) }
                     else -> WbChip("진행 중", Tone.Info)
                 }

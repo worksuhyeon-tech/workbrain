@@ -142,7 +142,7 @@ object FileImporter {
 }
 
 /**
- * 다른 앱에서 '공유 → WorkBrain'으로 받은 파일·글을 화면에 넘기는 통로(MainActivity → HomeScreen / MoreScreen).
+ * 다른 앱에서 '공유 → WorkBrain'으로 받은 파일·글을 화면에 넘기는 통로(MainActivity → RecordsScreen / MoreScreen).
  * 음성·글은 녹음 화면이, 회의록 지침 zip은 더보기의 지침 화면이 받는다
  */
 object SharedImport {

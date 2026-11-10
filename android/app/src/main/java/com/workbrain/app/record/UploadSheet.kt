@@ -26,6 +26,7 @@ import com.workbrain.app.ui.MAX_TITLE
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,6 +48,8 @@ import com.workbrain.app.ui.SegmentPills
 import com.workbrain.app.ui.PrimaryButton
 import com.workbrain.app.ui.SecondaryButton
 import com.workbrain.app.ui.Wb
+import com.workbrain.app.data.Server
+import kotlinx.coroutines.withTimeoutOrNull
 
 private val KINDS = listOf("meeting" to "회의", "call" to "통화", "memo" to "혼자 메모")
 
@@ -158,6 +162,38 @@ fun UploadSheet(
             }
         }
     }
+}
+
+/** 녹음 종류 처음 값: 통화 녹음 공유나 '통화'가 들어간 파일 이름이면 '통화', 나머지는 '회의' */
+private fun defaultKind(s: RecordingSession) = if (s.channel == "call-share" || "통화" in s.title) "call" else "meeting"
+
+/**
+ * 올리기 창 앞뒤 처리: 동의 여부 확인 → 창 → 제목 저장 → 백그라운드 올리기 시작.
+ * 기록 탭(가져온 파일·[올리기])과 녹음 화면(정지 뒤)이 같이 쓴다(DEC-89).
+ * initialKind: 종류 처음 값(마이크 길게로 시작한 녹음은 '혼자 메모'), null이면 defaultKind. onStarted: 올리기를 맡긴 뒤
+ */
+@Composable
+fun UploadSheetHost(target: RecordingSession, initialKind: String?, onDismiss: () -> Unit, onStarted: () -> Unit) {
+    val context = LocalContext.current
+    // 창은 바로 열고 동의 여부는 창 안에서 기다린다. 서버 요청 한도(150초)를 그대로 기다리면 창이 안 뜬 것처럼 보이므로
+    // 5초 안에 답이 없거나 실패하면 '동의 필요'로 보고 동의 칸을 보여 준다
+    var needConsent by remember(target.id) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(target.id) {
+        needConsent = runCatching { withTimeoutOrNull(5_000) { !Server.hasConsent() } }.getOrNull() ?: true
+    }
+    UploadSheet(
+        title = target.title,
+        needConsent = needConsent,
+        initialAttendees = target.attendees,
+        initialKind = initialKind ?: defaultKind(target),
+        onDismiss = onDismiss,
+        onConfirm = { title, kind, permission, consentGiven, attendees ->
+            // 올리는 작업이 기기 메타에서 제목을 읽어 서버 기록을 만들므로, 시작 전에 먼저 적어 둔다
+            if (title != target.title) RecordingStore.setTitle(RecordingStore.dir(context, target.id), title)
+            UploadManager.start(context, target, kind, permission, consentGiven, attendees)
+            onStarted()
+        },
+    )
 }
 
 /** 목업 .sheet .opt: 아이콘 + 굵은 제목 + 설명. 고르면 파란 테두리, '허용 안 됨'은 붉은 테두리 */

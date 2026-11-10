@@ -17,6 +17,7 @@ import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,6 +34,7 @@ import com.workbrain.app.data.TaskRow
 import com.workbrain.app.ui.ParaGlyph
 import com.workbrain.app.ui.PillShape
 import com.workbrain.app.ui.SEOUL
+import com.workbrain.app.ui.SwipeToDelete
 import com.workbrain.app.ui.Tone
 import com.workbrain.app.ui.Wb
 import com.workbrain.app.ui.WbChip
@@ -79,14 +81,14 @@ private fun rowDue(t: TaskRow, today: LocalDate): String {
 
 /**
  * 할 일 한 줄: 체크 · 제목(+팔로업/담당 확인) · (속한 곳) 출처 · 우선순위 · 기한.
- * 체크는 완료 ↔ 다시 열기. 줄을 누르면 수정 서랍. readOnly(아카이브)면 둘 다 막는다.
+ * 체크는 완료 ↔ 다시 열기. 줄을 누르면 수정 서랍. readOnly(아카이브)면 둘 다(밀어 지우기도) 막는다.
  * place: 여러 곳이 섞인 목록(오늘)에서만 넘긴다. onPlace가 있으면 눌러서 그 프로젝트로 간다(목업 .place).
  * showUnsorted: place가 없을 때 '정리 안 됨'이라고 적는다(모든 할 일의 기한 없음 목록, DEC-78). '오늘'은 지금처럼 비워 둔다
  * onRecipients: 제목 옆 '→ 받는 사람' 칩을 눌렀을 때(DEC-77). 없으면 줄을 누른 것처럼 수정 서랍을 연다
  * showPriority: 좁은 칸에서는 목업처럼 우선순위 칸을 숨긴다(목업 max-width 700)
+ * onDelete: 왼쪽으로 밀어 지우기(DEC-90, 기록 탭과 같은 손짓). 없거나 readOnly면 밀리지 않는다
  * modifier: 프로젝트 화면에서 길게 눌러 끌기를 붙일 때(DEC-72)
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TaskLine(
     t: TaskRow,
@@ -99,7 +101,37 @@ fun TaskLine(
     onPlace: ((Place) -> Unit)? = null,
     showUnsorted: Boolean = false,
     onRecipients: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+) {
+    val delete = onDelete.takeIf { !readOnly }
+    if (delete == null) {
+        TaskLineRow(t, source, showPriority, readOnly, onToggle, onOpen, place, onPlace, showUnsorted, onRecipients, modifier)
+        return
+    }
+    // 밀린 상태를 그 할 일에 묶는다. 지운 줄이 빠지고 아래 줄이 그 자리로 올라와도 '밀린 상태'를 물려받지 않게 한다
+    key(t.id) {
+        SwipeToDelete(onSwiped = { delete(); true }) {
+            // 바탕을 칠해야 밀 때 빨간 바탕이 글자 뒤로 비치지 않는다
+            TaskLineRow(t, source, showPriority, readOnly, onToggle, onOpen, place, onPlace, showUnsorted, onRecipients, modifier.background(Wb.colors.card))
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TaskLineRow(
+    t: TaskRow,
+    source: String?,
+    showPriority: Boolean,
+    readOnly: Boolean,
+    onToggle: () -> Unit,
+    onOpen: () -> Unit,
+    place: Place?,
+    onPlace: ((Place) -> Unit)?,
+    showUnsorted: Boolean,
+    onRecipients: (() -> Unit)?,
+    modifier: Modifier,
 ) {
     val today = LocalDate.now(SEOUL)
     val late = isLate(t, today)

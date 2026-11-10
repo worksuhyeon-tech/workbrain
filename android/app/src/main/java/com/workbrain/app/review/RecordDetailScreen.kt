@@ -117,7 +117,7 @@ private fun ProposalRow.overlappingDecision(decisions: List<Decision>): Int? =
  * S05 기록 상세: 회의 정리(결정 후보·미결정)와 할 일 후보.
  * 회의록을 본 자리에서 할 일을 골라 바로 추가한다. 승인 기록은 검토함과 같다(DEC-23). AI가 직접 할 일을 만들지 않는다.
  * onBack이 null이면 펼친 화면의 오른쪽 칸에 들어간 것이라 뒤로 가기가 없다. onChanged: 추가·버리기 뒤 옆 칸 목록을 다시 읽게 알린다.
- * onTrashed: ⋮에서 이 녹음을 휴지통으로 보낸 뒤 화면을 닫고 녹음 목록으로 가게 한다
+ * onTrashed: ⋮에서 이 녹음을 휴지통으로 보낸 뒤 화면을 닫고 기록 탭 목록으로 가게 한다
  */
 @Composable
 fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, onChanged: () -> Unit = {}, onTrashed: () -> Unit = {}) {

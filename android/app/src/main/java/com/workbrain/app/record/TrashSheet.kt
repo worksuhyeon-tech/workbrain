@@ -30,7 +30,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 휴지통(DEC-51): 목록에서 민 '정리 완료' 녹음. 되살리면 녹음 목록으로 돌아오고 회의록을 다시 열 수 있다.
+ * 휴지통(DEC-51): 목록에서 민 '정리 완료' 녹음. 되살리면 기록 탭 목록으로 돌아오고 회의록을 다시 열 수 있다.
  * 영구 삭제·30일 자동 비움은 기기 목록 줄만 없앤다. 서버의 회의록·할 일 후보는 그대로다.
  */
 @OptIn(ExperimentalMaterial3Api::class)

@@ -173,8 +173,10 @@ class RecordingService : Service() {
         if (nm.getNotificationChannel(CHANNEL_ID) == null) {
             nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "녹음", NotificationManager.IMPORTANCE_LOW))
         }
+        // 알림을 누르면 녹음 화면으로(녹음은 탭이 아니어서 표시를 붙여 MainActivity가 RecorderLaunch로 연다, DEC-89)
         val open = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            this, 0,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(RecorderLaunch.EXTRA_OPEN, true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val stop = PendingIntent.getService(

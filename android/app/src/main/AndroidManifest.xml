@@ -7,6 +7,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- 빠른 입력 말로 넣기(DEC-89): Android 11부터는 음성 인식 서비스를 여기 적어야 앱이 찾을 수 있다 -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
     <!-- 녹음·회의 내용이 Google 백업으로 나가지 않게 앱 백업을 끈다 -->
     <application
         android:name=".WorkBrainApp"

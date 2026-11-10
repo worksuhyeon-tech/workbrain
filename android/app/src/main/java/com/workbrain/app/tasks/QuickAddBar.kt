@@ -26,9 +26,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.workbrain.app.record.ChosenProject
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,23 +78,49 @@ import java.time.ZonedDateTime
 const val QUICK_PLACEHOLDER = "+ 빠르게 추가 · 예: 내일3시 업체 미팅"
 private const val MAX_INPUT = 300
 
-/** 설명 줄: 단축어 → 뜻 */
-private val HINTS = listOf("#프로젝트" to "넣을 곳", "!높음·!낮음" to "우선순위", "@이름" to "팔로업", "내일3시·금요일·10/24" to "기한")
+/** 설명 줄: 단축어 → 뜻. 마이크는 짧게 누르면 말로 넣기, 길게 누르면 녹음 메모(DEC-89) */
+private val HINTS = listOf(
+    "#프로젝트" to "넣을 곳", "!높음·!낮음" to "우선순위", "@이름" to "팔로업", "내일3시·금요일·10/24" to "기한", "마이크 길게" to "녹음 메모",
+)
 
-/** 이 기기에서 빠른 입력으로 마지막에 넣은 곳(DEC-70). 'project:ID'·'area:ID', 정리 안 됨이면 빈 값 */
-private object QuickAddMemory {
+/**
+ * 빠른 입력 줄마다(today·all·place:…) 적던 글을 화면 밖에 둔다(DEC-89).
+ * 접기·펼치기로 입력 줄 화면이 다시 그려져도 적던 글·받아쓴 글이 지워지지 않게 한다(NFR-05). 앱을 닫으면 비워진다
+ */
+private object QuickDrafts {
+    private val texts = mutableStateMapOf<String, String>()
+    fun get(key: String): String = texts[key].orEmpty()
+    fun set(key: String, value: String) { if (value.isEmpty()) texts.remove(key) else texts[key] = value }
+}
+
+/**
+ * 이 기기에서 마지막에 할 일을 넣거나 옮긴 곳(DEC-70, DEC-91). 'project:ID'·'area:ID', 정리 안 됨이면 빈 값.
+ * 빠른 입력으로 넣을 때뿐 아니라 고치기 서랍 '어디에'·끌어 놓기로 옮길 때도 기억한다.
+ * 넣고 나서 옮겨도 다음 입력이 옛 곳으로 들어가던 문제(11/11 사용자 제보: 다른 프로젝트로 옮긴 뒤에도 늘 처음 곳)를 막는다.
+ * 화면마다 따로 읽어 두면 다른 화면에서 바꾼 것을 모르므로, 바꾼 값을 한곳(changed)에 두고 모든 입력 줄이 같이 본다
+ */
+object QuickAddMemory {
     private const val PREFS = "quick_add"
     private const val KEY = "last_place"
 
+    // 이 실행에서 바꾼 값. 없으면 기기에 저장된 값을 읽는다. 읽는 화면이 다시 그려지도록 Compose 상태로 둔다
+    private var changed by mutableStateOf<String?>(null)
+
     /** 기억한 곳이 지금도 보관 안 된 곳이면 그곳, 아니면 '정리 안 됨'(null) */
     fun last(context: Context, places: List<Place>): Place? {
-        val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null) ?: return null
+        val saved = changed ?: prefs(context).getString(KEY, null)
+        if (saved.isNullOrEmpty()) return null
         return places.firstOrNull { key(it) == saved }
     }
 
+    /** place가 null이면 '정리 안 됨'으로 넣거나 옮긴 것 */
     fun save(context: Context, place: Place?) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, place?.let(::key).orEmpty()).apply()
+        val value = place?.let(::key).orEmpty()
+        changed = value
+        prefs(context).edit().putString(KEY, value).apply()
     }
+
+    private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     private fun key(p: Place) = "${p.type.table}:${p.id}"
 }
@@ -156,23 +185,43 @@ class QuickAdd(
     val addEdited: (edit: TaskEdit, onSaved: () -> Unit, onFailed: (String) -> Unit) -> Unit,
     /** '#'이 여러 곳에 걸릴 때 후보 칩을 누르면 입력의 '#…'을 그 이름으로 바꾼다(DEC-80) */
     val pickPlace: (Place) -> Unit,
+    /** 이 입력 줄의 이름(today·all·place:…). 말로 넣기 결과가 이 줄로 온다(DEC-89) */
+    val draftKey: String,
+    /** 말로 넣기: 듣는 중 · 중간 글 · 안내(권한 거부·못 들음·기본 인식 안내) */
+    val listening: Boolean,
+    val partial: String,
+    val voiceMessage: VoiceInput.Message?,
+    /** 지금 글이 말로 넣은 것이라 키보드 없이 미리보기 카드를 띄워 둘 때(사용자 선택 11/11) */
+    val fromVoice: Boolean,
 )
 
 /**
  * places: 보관 안 된 프로젝트·반복실행(# 찾기·마지막에 넣은 곳 확인).
- * fixedPlace: 상세 화면이면 그곳('#'이 없을 때). null이면 이 기기에서 마지막에 넣은 곳(DEC-70).
- * noDueMeansToday: 오늘 탭(기한을 안 적으면 오늘). onAdded: 넣은 뒤 — 화면은 다시 읽고 알림을 띄운다.
- * 저장이 안 되면 입력을 그대로 둔다(목업 '미저장 표시')
+ * fixedPlace: 상세 화면이면 그곳('#'이 없을 때). null이면 이 기기에서 마지막에 넣거나 옮긴 곳(DEC-70·91).
+ * noDueMeansToday: 오늘 탭(기한을 안 적으면 오늘). draftKey: 입력 줄 이름(적던 글·말로 넣기 결과를 화면 밖에 두는 열쇠).
+ * onAdded: 넣은 뒤 — 화면은 다시 읽고 알림을 띄운다. 저장이 안 되면 입력을 그대로 둔다(목업 '미저장 표시')
  */
 @Composable
-fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: Boolean, onAdded: (QuickTask) -> Unit): QuickAdd {
+fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: Boolean, draftKey: String, onAdded: (QuickTask) -> Unit): QuickAdd {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var text by rememberSaveable { mutableStateOf("") }
+    val text = QuickDrafts.get(draftKey)
+    fun setText(value: String) = QuickDrafts.set(draftKey, value.take(MAX_INPUT))
+    var fromVoice by remember { mutableStateOf(false) }
+    val voice by VoiceInput.state.collectAsStateWithLifecycle()
+    val mine = voice.key == draftKey
+    // 다 들은 글을 이 입력 줄 뒤에 이어 붙인다. 다른 화면에 가 있는 동안 나온 글은 돌아왔을 때 붙는다
+    val heard by VoiceInput.heard.collectAsStateWithLifecycle()
+    LaunchedEffect(heard) {
+        val h = heard?.takeIf { it.key == draftKey } ?: return@LaunchedEffect
+        VoiceInput.consume(h)
+        setText(VoiceText.append(QuickDrafts.get(draftKey), h.text))
+        fromVoice = true
+    }
     var shownDay by remember { mutableStateOf(LocalDate.now(SEOUL)) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var remembered by remember(places) { mutableStateOf(QuickAddMemory.last(context, places)) }
+    val remembered = QuickAddMemory.last(context, places)
     val parsed = remember(text, places, fixedPlace, remembered, shownDay, noDueMeansToday) {
         QuickParse.parse(text, shownDay, places, fixedPlace ?: remembered, noDueMeansToday)
     }
@@ -185,8 +234,8 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
                 .onSuccess {
                     val r = edit.toQuickTask(places)
                     QuickAddMemory.save(context, r.place)
-                    remembered = r.place
-                    text = ""
+                    setText("")
+                    fromVoice = false
                     onSaved()
                     onAdded(r)
                 }
@@ -214,11 +263,25 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
 
     fun pickPlace(place: Place) {
         val asked = parsed.placeAsked ?: return
-        text = QuickParse.choosePlace(text, asked, place).take(MAX_INPUT)
+        setText(QuickParse.choosePlace(text, asked, place))
         error = null
     }
 
-    return QuickAdd(text, { text = it.take(MAX_INPUT); error = null }, parsed, shownDay, saving, error, ::add, ::addEdited, ::pickPlace)
+    fun onText(value: String) {
+        setText(value)
+        error = null
+        VoiceInput.clearMessage(draftKey)
+        if (value.isEmpty()) fromVoice = false
+    }
+
+    return QuickAdd(
+        text, ::onText, parsed, shownDay, saving, error, ::add, ::addEdited, ::pickPlace,
+        draftKey = draftKey,
+        listening = mine && voice.listening,
+        partial = if (mine) voice.partial else "",
+        voiceMessage = voice.message.takeIf { mine },
+        fromVoice = fromVoice && text.isNotBlank(),
+    )
 }
 
 /**
@@ -233,9 +296,11 @@ fun QuickAddBar(
     fixedPlace: Place? = null,
     onAdded: (QuickTask) -> Unit,
 ) {
-    val quick = rememberQuickAdd(places, fixedPlace, noDueMeansToday = false, onAdded)
+    val quick = rememberQuickAdd(places, fixedPlace, noDueMeansToday = false, draftKey = "place:${fixedPlace?.type?.table}:${fixedPlace?.id}", onAdded)
+    // 마이크를 길게 눌러 녹음하면 이 프로젝트를 녹음 프로젝트로 미리 고른다. 반복실행은 녹음 화면에서 고를 수 없어 '나중에'(11/11 사용자 선택)
+    val recordProject = fixedPlace?.takeIf { it.type == PlaceType.PROJECT }?.let { ChosenProject(it.id, it.name) }
     Column(modifier) {
-        // 목업 .qa: 입력 칸이 남은 폭을 다 쓰고 오른쪽에 [추가]
+        // 목업 .qa: 입력 칸이 남은 폭을 다 쓰고 오른쪽에 마이크·[추가]
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             BasicTextField(
                 value = quick.text,
@@ -258,8 +323,10 @@ fun QuickAddBar(
                     }
                 },
             )
+            MicButton(quick, recordProject)
             PrimaryButton(if (quick.saving) "추가 중…" else "추가", onClick = quick.add, enabled = !quick.saving)
         }
+        VoiceStatus(quick, Modifier.padding(top = 6.dp))
         QuickHint()
         // 목업 .qa-prev: 적는 동안 해석 결과를 칩으로(화면 읽기 프로그램도 바뀔 때마다 읽는다)
         FlowRow(
