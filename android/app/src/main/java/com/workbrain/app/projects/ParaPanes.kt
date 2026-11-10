@@ -33,6 +33,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,7 +89,10 @@ import com.workbrain.app.ui.DarkSeg
 import com.workbrain.app.ui.SmallButton
 import com.workbrain.app.tasks.QuickAddBar
 import com.workbrain.app.tasks.QuickAddDock
+import com.workbrain.app.tasks.SelectionHeader
 import com.workbrain.app.tasks.TaskLine
+import com.workbrain.app.tasks.TaskSelection
+import com.workbrain.app.tasks.rememberTaskComparator
 import com.workbrain.app.tasks.doneInstant
 import com.workbrain.app.tasks.dueDay
 import com.workbrain.app.tasks.isEarlierDone
@@ -130,11 +135,36 @@ private fun BackLink(onBack: () -> Unit) {
     TextButton(onClick = onBack, modifier = Modifier.padding(start = 4.dp)) { Text("← 프로젝트", color = Wb.colors.link) }
 }
 
-/** 상세 공통 틀: 뒤로 가기(접힌 화면) + 세로 목록 */
+/**
+ * 할 일 고르기(DEC-92)와 오른쪽 위 ⋮. ProjectsScreen이 넣고 상세 칸·할 일 줄이 읽는다(칸마다 인자로 내려보내지 않으려고).
+ * menu(canSelect): 접은 화면 상세의 '← 프로젝트' 줄 오른쪽에 그린다. 펼친 화면은 ProjectsScreen 머리에 있다
+ */
+class TaskPaneTools(val selection: TaskSelection, val menu: @Composable (canSelect: Boolean) -> Unit)
+
+val LocalTaskPaneTools = compositionLocalOf<TaskPaneTools?> { null }
+
+/**
+ * 상세 공통 틀: 뒤로 가기 줄(접힌 화면, 오른쪽에 ⋮) + 세로 목록.
+ * canSelect: 이 칸에 고를 수 있는 할 일 목록이 있는지(보관된 곳·자료는 없음). 고르는 중이면 뒤로 가기 줄 자리에 '전체 · N개 선택 · 취소'
+ */
 @Composable
-private fun PaneFrame(onBack: (() -> Unit)?, content: LazyListScope.() -> Unit) {
+private fun PaneFrame(onBack: (() -> Unit)?, canSelect: Boolean, content: LazyListScope.() -> Unit) {
+    val tools = LocalTaskPaneTools.current
+    val selecting = tools?.selection?.active == true
+    // 고르는 중에 뒤로 가기를 누르면 고르기만 끝낸다(상세의 뒤로 가기보다 나중에 등록해 먼저 받는다)
+    BackHandler(enabled = selecting) { tools?.selection?.stop() }
     Column(Modifier.fillMaxSize()) {
-        onBack?.let { BackLink(it) }
+        if (onBack != null) {
+            if (selecting && tools != null) {
+                SelectionHeader(tools.selection, Modifier.padding(horizontal = 8.dp))
+            } else {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    BackLink(onBack)
+                    Spacer(Modifier.weight(1f))
+                    tools?.menu?.invoke(canSelect)
+                }
+            }
+        }
         LazyColumn(
             Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -274,10 +304,8 @@ private fun RecordsCard(records: List<LinkedRecord>?, onEvent: (ParaEvent) -> Un
     }
 }
 
-/** 목업 정렬: 안 끝난 것 먼저, 그다음 우선순위(높음 먼저), 기한 이른 순 */
-private fun sorted(tasks: List<TaskRow>) = tasks.sortedWith(
-    compareBy<TaskRow>({ it.done }, { it.priority ?: 2 }, { dueDay(it) ?: LocalDate.MAX }, { it.title }),
-)
+/** 안 끝난 것 먼저, 그다음 ⋮ › 정렬 방식(우선순위순 = 목업 기본, 기한순, DEC-92) */
+private fun sorted(tasks: List<TaskRow>, order: Comparator<TaskRow>) = tasks.sortedWith(compareBy<TaskRow> { it.done }.then(order))
 
 /**
  * 할 일 카드(목업 tasksCard): 머리 '할 일 N'(안 끝난 수) + 한 줄 빠른 입력(이곳에 넣음, 보관된 곳은 없음) + 줄 목록.
@@ -290,11 +318,18 @@ private fun TasksCard(title: String, d: ParaData, drag: ParaDragState, place: Pl
     val (earlierDone, current) = tasks.partition { isEarlierDone(it, today) }
     // 다른 항목으로 갔다 오면 다시 접힌다(항목마다 카드가 새로 그려짐)
     var showEarlier by rememberSaveable(place.id) { mutableStateOf(false) }
+    val order = rememberTaskComparator()
+    val selection = LocalTaskPaneTools.current?.selection
+    if (!readOnly && selection != null) {
+        val visible = current + if (showEarlier) earlierDone else emptyList()
+        SideEffect { selection.visible = visible.map { it.id } }
+    }
     MockCard {
         Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)) {
             SecH(title) { Text("${tasks.count { !it.done }}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Wb.colors.ink) }
         }
-        if (!readOnly) {
+        // 고르는 중에는 넣지 않는다(아래 [이동][삭제] 막대와 헷갈리지 않게)
+        if (!readOnly && selection?.active != true) {
             QuickAddBar(d.places, Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp), fixedPlace = place) { r ->
                 onEvent(ParaEvent.QuickAdded(quickAddedText(r)))
             }
@@ -306,7 +341,7 @@ private fun TasksCard(title: String, d: ParaData, drag: ParaDragState, place: Pl
                 else "위에 한 줄로 적거나, 회의를 올리면 기록 화면에서 할 일 후보를 골라 추가할 수 있어요.",
             )
         } else {
-            TaskLines(sorted(current), d, drag, readOnly, layout, onEvent)
+            TaskLines(sorted(current, order), d, drag, readOnly, layout, onEvent)
             if (earlierDone.isNotEmpty()) {
                 if (current.isNotEmpty()) HorizontalDivider(color = Wb.colors.border)
                 FoldToggle("이전 완료", earlierDone.size, showEarlier) { showEarlier = !showEarlier }
@@ -357,6 +392,8 @@ private fun TaskLines(
     tasks: List<TaskRow>, d: ParaData, drag: ParaDragState, readOnly: Boolean, layout: PaneLayout, onEvent: (ParaEvent) -> Unit,
     withPlace: Boolean = false,
 ) {
+    // 보관된 곳(읽기 전용)은 고를 수 없다
+    val selection = LocalTaskPaneTools.current?.selection?.takeIf { it.active && !readOnly }
     tasks.forEachIndexed { i, t ->
         if (i > 0) HorizontalDivider(color = Wb.colors.border)
         TaskLine(
@@ -367,9 +404,10 @@ private fun TaskLines(
             onPlace = if (withPlace) { p -> onEvent(ParaEvent.Select(placeKey(p.type, p.id))) } else null,
             showUnsorted = withPlace,
             onRecipients = { onEvent(ParaEvent.EditRecipients(t)) },
-            onDelete = { onEvent(ParaEvent.DeleteTask(t)) },
-            // 길게 눌러 다른 프로젝트·반복실행으로 끈다(펼친 화면은 왼쪽 트리, 접은 화면은 아래 '옮길 곳' 띠, DEC-72). 보관된 곳은 읽기 전용
-            modifier = Modifier.dragSource(drag, if (readOnly) null else DragItem.Task(t.id, t.title)),
+            selected = selection?.let { t.id in it.ids },
+            onSelect = { selection?.toggle(t.id) },
+            // 길게 눌러 다른 프로젝트·반복실행으로 끈다(펼친 화면은 왼쪽 트리, 접은 화면은 아래 '옮길 곳' 띠, DEC-72). 보관된 곳·고르는 중에는 끌지 않는다
+            modifier = Modifier.dragSource(drag, if (readOnly || selection != null) null else DragItem.Task(t.id, t.title)),
         )
     }
 }
@@ -389,7 +427,7 @@ private fun crumbOf(d: ParaData, archived: Boolean, section: ParaSection) =
 private fun ProjectPane(d: ParaData, drag: ParaDragState, p: ProjectRow, layout: PaneLayout, onBack: (() -> Unit)?, onEvent: (ParaEvent) -> Unit) {
     val area = d.area(p.areaId)
     val tasks = d.tasksOf(PlaceType.PROJECT, p.id)
-    PaneFrame(onBack) {
+    PaneFrame(onBack, canSelect = !p.archived) {
         item(key = "head") {
             Head(
                 crumbOf(d, p.archived, ParaSection.PROJECTS),
@@ -428,7 +466,7 @@ private fun ProjectPane(d: ParaData, drag: ParaDragState, p: ProjectRow, layout:
 private fun AreaPane(d: ParaData, drag: ParaDragState, a: AreaRow, layout: PaneLayout, onBack: (() -> Unit)?, onEvent: (ParaEvent) -> Unit) {
     val projects = d.projects.filter { it.areaId == a.id }
     val resources = d.resourcesOf(PlaceType.AREA, a.id)
-    PaneFrame(onBack) {
+    PaneFrame(onBack, canSelect = !a.archived) {
         item(key = "head") {
             Head(
                 crumbOf(d, a.archived, ParaSection.AREAS),
@@ -470,7 +508,7 @@ private fun AreaPane(d: ParaData, drag: ParaDragState, a: AreaRow, layout: PaneL
 private fun ResourcePane(d: ParaData, r: ResourceRow, layout: PaneLayout, onBack: (() -> Unit)?, onEvent: (ParaEvent) -> Unit) {
     val uri = LocalUriHandler.current
     val places = d.placesOf(r.id)
-    PaneFrame(onBack) {
+    PaneFrame(onBack, canSelect = false) {
         item(key = "head") {
             Head(
                 crumbOf(d, r.archived, ParaSection.RESOURCES),
@@ -605,11 +643,17 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
     // '다음 7일'에서는 날짜가 없는 할 일(기한 없음·날짜 없는 모호 기한)이 안 보여 맨 아래 접힌 줄로 둔다(DEC-78).
     // '전체'는 이미 묶음 안에 있고, '지연'은 날짜가 있어야 하므로 이 줄이 없다
     val noDue = if (range == "next7") d.liveTasks.filter { dueDay(it) == null && inOwner(it, owner) && (showDone || !it.done) } else emptyList()
+    val order = rememberTaskComparator()
+    val selection = LocalTaskPaneTools.current?.selection
+    if (selection != null) {
+        val visible = groups.flatMap { it.rows } + if (showNoDue) noDue else emptyList()
+        SideEffect { selection.visible = visible.map { it.id } }
+    }
 
     // 한 줄 빠른 입력은 목록 위 카드 대신 화면 아래 떠 있는 띠(DEC-73): 스크롤해도 보이고, 캘린더·매트릭스(P4)도 같은 띠를 쓴다.
     // '#'이 없으면 이 기기에서 마지막에 넣은 곳(DEC-70)
     Box(Modifier.fillMaxSize()) {
-        PaneFrame(onBack) {
+        PaneFrame(onBack, canSelect = true) {
             item(key = "head") {
                 // 보기 전환은 좁은 칸에서도 제목과 같은 줄, 완료 포함은 그 아래 줄 오른쪽에 고정한다
                 // (11/06 사용자: 기간·담당 버튼 줄 끝에 두면 숫자 자릿수에 따라 같은 줄·다음 줄을 오갔음)
@@ -673,7 +717,7 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
                         GroupHead(g) { g.key?.let { onEvent(ParaEvent.Select(it)) } }
                         if (g.type == null) Note("할 일을 눌러 ‘어디에’를 고르면 그 프로젝트·반복실행으로 옮겨져요.", Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
                         HorizontalDivider(color = Wb.colors.border)
-                        TaskLines(sorted(g.rows), d, drag, readOnly = false, layout, onEvent)
+                        TaskLines(sorted(g.rows, order), d, drag, readOnly = false, layout, onEvent)
                     }
                 }
             }
@@ -683,7 +727,7 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
                     FoldToggle("기한 없음", noDue.size, showNoDue) { showNoDue = !showNoDue }
                     if (showNoDue) {
                         HorizontalDivider(color = Wb.colors.border)
-                        TaskLines(groupTasks(d, noDue).flatMap { sorted(it.rows) }, d, drag, readOnly = false, layout, onEvent, withPlace = true)
+                        TaskLines(groupTasks(d, noDue).flatMap { sorted(it.rows, order) }, d, drag, readOnly = false, layout, onEvent, withPlace = true)
                     }
                 }
             }
@@ -702,7 +746,8 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
                 )
             }
         }
-        QuickAddDock(d.places, draftKey = "all", Modifier.align(Alignment.BottomCenter)) { r ->
+        // 고르는 중에는 같은 자리에 ProjectsScreen이 [이동][삭제] 막대를 그린다
+        if (selection?.active != true) QuickAddDock(d.places, draftKey = "all", Modifier.align(Alignment.BottomCenter)) { r ->
             val ownerHere = ownerIn(r.assignee != null, owner)
             val where = when {
                 ownerHere && dayInRange(r.dueDate, range, today) -> ""

@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
 
 /**
  * 왼쪽으로 살짝 밀면 빨간 휴지통이 보이고, 절반 넘게 밀면 지운다. onSwiped가 false면 제자리로 돌아온다.
- * 기록 탭 목록(DEC-51)과 할 일 줄(DEC-90)이 같은 손짓을 쓴다. 내용은 바탕이 칠해져 있어야 밀 때 빨간 바탕이 비치지 않는다
+ * 기록 탭 목록(DEC-51)이 쓴다. 할 일 줄은 밀어 지우기 대신 ⋮ › 선택에서 지운다(DEC-92). 내용은 바탕이 칠해져 있어야 밀 때 빨간 바탕이 비치지 않는다
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

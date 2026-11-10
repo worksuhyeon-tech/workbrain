@@ -1,5 +1,6 @@
 package com.workbrain.app.today
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,9 +24,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,7 +65,18 @@ import com.workbrain.app.tasks.QUICK_DOCK_SPACE
 import com.workbrain.app.tasks.QuickAddDock
 import com.workbrain.app.tasks.QuickAddMemory
 import com.workbrain.app.tasks.RecipientsSheet
+import com.workbrain.app.tasks.MoveTargetSheet
+import com.workbrain.app.tasks.SelectionBar
+import com.workbrain.app.tasks.SelectionHeader
 import com.workbrain.app.tasks.TaskDeletes
+import com.workbrain.app.tasks.TaskListMenu
+import com.workbrain.app.tasks.TaskSelection
+import com.workbrain.app.tasks.deletedText
+import com.workbrain.app.tasks.moveTasks
+import com.workbrain.app.tasks.moveTasksBack
+import com.workbrain.app.tasks.movedManyText
+import com.workbrain.app.tasks.rememberTaskComparator
+import com.workbrain.app.tasks.rememberTaskSelection
 import com.workbrain.app.tasks.TaskEditSheet
 import com.workbrain.app.tasks.quickAddedText
 import com.workbrain.app.tasks.quickDueLabel
@@ -142,8 +154,11 @@ fun TodayScreen(nav: TodayNav) {
     var recipientsEditing by remember { mutableStateOf<TaskRow?>(null) }
     var editError by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
-    // 지운 뒤 '되돌리기'(기록 탭과 같은 알림, DEC-90). 그 밖의 결과는 위 띠(message)로 알린다
+    // 선택해서 옮기기·지우기 뒤 '되돌리기'(기록 탭과 같은 알림, DEC-92). 그 밖의 결과는 위 띠(message)로 알린다
     val announcer = rememberAnnouncer()
+    // ⋮ › 선택(DEC-92): 고른 할 일을 한꺼번에 옮기거나 지운다
+    val selection = rememberTaskSelection()
+    var moving by remember { mutableStateOf(false) }
 
     // 할 일이 핵심이라 그것만 실패를 알리고, 나머지(출처·검토 대기·비용·옮길 곳)는 못 읽으면 비워 둔다
     suspend fun load() = coroutineScope {
@@ -197,11 +212,6 @@ fun TodayScreen(nav: TodayNav) {
         }
     }
 
-    /** 밀어 지우기(DEC-90): 줄은 바로 빠지고, 3초 '되돌리기'가 지나면 서버에서 지운다 */
-    fun delete(t: TaskRow) {
-        TaskDeletes.delete(t)
-        announcer.show("${t.title} 삭제되었어요") { TaskDeletes.undo(t.id) }
-    }
     val deleteFailed by TaskDeletes.failed.collectAsStateWithLifecycle()
     LaunchedEffect(deleteFailed) {
         val text = deleteFailed ?: return@LaunchedEffect
@@ -216,10 +226,40 @@ fun TodayScreen(nav: TodayNav) {
     // 오늘 할 일 = 오늘 마감 + 지연(목업 dueToday). 기한 없는·모호한·다음 날 이후 할 일은 '모든 할 일'에서
     val due = all.filter { !it.done && dueDay(it)?.let { d -> !d.isAfter(today) } == true }
     val mine = due.filter { it.ownerKind != "other" }
-    val late = sortTasks(mine.filter { isLate(it, today) })
-    val todays = sortTasks(mine.filter { !isLate(it, today) })
-    val follow = sortTasks(due.filter { it.ownerKind == "other" })
+    // 정렬은 ⋮ › 정렬 방식(우선순위순·기한순, DEC-92)
+    val order = rememberTaskComparator()
+    val late = mine.filter { isLate(it, today) }.sortedWith(order)
+    val todays = mine.filter { !isLate(it, today) }.sortedWith(order)
+    val follow = due.filter { it.ownerKind == "other" }.sortedWith(order)
     val doneToday = all.filter { it.done }.sortedByDescending { doneInstant(it)?.toInstant() }
+    // 전체 선택 대상 = 이 화면에 보이는 할 일
+    val shownTasks = late + todays + follow + doneToday
+    SideEffect { selection.visible = shownTasks.map { it.id } }
+    BackHandler(enabled = selection.active) { selection.stop() }
+
+    /** 고른 할 일을 한 곳으로 옮긴다. 되돌리기는 원래 곳으로 */
+    fun moveSelected(to: Place?) {
+        val picked = shownTasks.filter { it.id in selection.ids }
+        moving = false
+        selection.stop()
+        scope.launch {
+            val r = moveTasks(context, picked, to)
+            load()
+            val undo: (() -> Unit)? = if (r.moved.isEmpty()) null else {
+                { scope.launch { moveTasksBack(r.moved); load(); announcer.show("되돌렸어요") } }
+            }
+            announcer.show(movedManyText(r, to), undo)
+        }
+    }
+
+    /** 고른 할 일을 지운다: 줄은 바로 빠지고, 3초 '되돌리기'가 지나면 서버에서 지운다(DEC-90) */
+    fun deleteSelected() {
+        val picked = shownTasks.filter { it.id in selection.ids }
+        if (picked.isEmpty()) return
+        selection.stop()
+        picked.forEach(TaskDeletes::delete)
+        announcer.show(deletedText(picked)) { picked.forEach { TaskDeletes.undo(it.id) } }
+    }
 
     val pendingGroups = groupPending(pending.filter { !Snooze.isActive(it.snoozedUntil) })
     val processing = sessions.filter { it.recordId != null && it.serverState != "ready" }
@@ -230,7 +270,7 @@ fun TodayScreen(nav: TodayNav) {
             onToggle = { t -> setDone(t, !t.done) },
             onOpen = { t -> editError = null; editing = t },
             onRecipients = { t -> editError = null; recipientsEditing = t },
-            onDelete = { t -> delete(t) },
+            selection = selection,
             onPlace ={ p -> nav.openProjects(if (p.type == PlaceType.PROJECT) "p:${p.id}" else "a:${p.id}") },
             onAll = { nav.openProjects("all") },
         )
@@ -246,8 +286,19 @@ fun TodayScreen(nav: TodayNav) {
             Modifier.fillMaxSize().background(Wb.colors.surface).verticalScroll(rememberScrollState())
                 .padding(horizontal = if (wide) 24.dp else 16.dp).padding(bottom = 24.dp + QUICK_DOCK_SPACE),
         ) {
-            PageHeader("오늘", "오늘 챙길 것만 모았어요") {
-                TextButton(onClick = { scope.launch { message = null; load() } }) { Text("새로고침", color = Wb.colors.link) }
+            // 오른쪽 위 ⋮(갤럭시 '내 파일'처럼, DEC-92). 선택 중에는 제목 줄 자리에 '전체 · N개 선택 · 취소'
+            if (selection.active) {
+                SelectionHeader(selection)
+            } else {
+                PageHeader("오늘", "오늘 챙길 것만 모았어요") {
+                    TaskListMenu(
+                        onSelect = selection::start,
+                        more = listOf(
+                            "업무계획" to { nav.openWorkPlan(PlanKind.WEEKLY) },
+                            "새로고침" to { scope.launch { message = null; load() } },
+                        ),
+                    )
+                }
             }
             // 목업 .page-head .sub
             Text("${today.format(HEAD_DATE)} · 모든 프로젝트 · 확정 상태 기준", fontSize = 14.sp, color = Wb.colors.muted, modifier = Modifier.padding(bottom = 12.dp))
@@ -278,11 +329,16 @@ fun TodayScreen(nav: TodayNav) {
         }
         // 한 줄 빠른 입력은 '오늘 할 일' 카드 머리 대신 화면 아래 떠 있는 띠(DEC-73). 기한을 안 적으면 오늘 마감(목업 S02).
         // 오늘 화면에 안 보이는 것(내일 이후·모호)은 알림에 기한을 함께 쓴다
-        QuickAddDock(places, draftKey = "today", Modifier.align(Alignment.BottomCenter), noDueMeansToday = true) { r ->
-            val shownHere = r.dueDate?.let { !it.isAfter(today) } == true
-            val due = quickDueLabel(r, today) ?: "${r.vague} · 확인 필요"
-            message = (quickAddedText(r) + if (shownHere) "" else " · $due · ‘모든 할 일’에서 보여요") to Tone.Good
-            scope.launch { load() }
+        // 선택 중에는 같은 자리에 [이동][삭제]
+        if (selection.active) {
+            SelectionBar(selection.ids.size, onMove = { moving = true }, onDelete = ::deleteSelected, modifier = Modifier.align(Alignment.BottomCenter))
+        } else {
+            QuickAddDock(places, draftKey = "today", Modifier.align(Alignment.BottomCenter), noDueMeansToday = true) { r ->
+                val shownHere = r.dueDate?.let { !it.isAfter(today) } == true
+                val due = quickDueLabel(r, today) ?: "${r.vague} · 확인 필요"
+                message = (quickAddedText(r) + if (shownHere) "" else " · $due · ‘모든 할 일’에서 보여요") to Tone.Good
+                scope.launch { load() }
+            }
         }
         // 입력 띠에 가리지 않게 띠 위에 띄운다
         AnnounceHost(announcer, Modifier.align(Alignment.BottomCenter).padding(bottom = QUICK_DOCK_SPACE))
@@ -299,10 +355,8 @@ fun TodayScreen(nav: TodayNav) {
             save(t, t.toEdit().copy(recipients = names))
         }
     }
+    if (moving) MoveTargetSheet(selection.ids.size, places, onDismiss = { moving = false }, onPick = ::moveSelected)
 }
-
-/** 목업 정렬: 우선순위(높음 먼저), 그다음 기한 */
-private fun sortTasks(list: List<TaskRow>) = list.sortedWith(compareBy<TaskRow>({ it.priority ?: 2 }, { dueDay(it) ?: LocalDate.MAX }, { it.title }))
 
 private fun placeOf(t: TaskRow): Place? = when {
     t.projectId != null && t.project != null -> Place(PlaceType.PROJECT, t.projectId, t.project.name)
@@ -344,7 +398,7 @@ private fun TodayCard(
     onToggle: (TaskRow) -> Unit,
     onOpen: (TaskRow) -> Unit,
     onRecipients: (TaskRow) -> Unit,
-    onDelete: (TaskRow) -> Unit,
+    selection: TaskSelection,
     onPlace: (Place) -> Unit,
     onAll: () -> Unit,
 ) {
@@ -357,7 +411,9 @@ private fun TodayCard(
                 val rows: @Composable ColumnScope.(List<TaskRow>) -> Unit = { list ->
                     list.forEachIndexed { i, t ->
                         if (i > 0) HorizontalDivider(color = Wb.colors.border)
-                        TaskLine(t, sources[t.id]?.label, showPriority, readOnly = false, onToggle = { onToggle(t) }, onOpen = { onOpen(t) }, place = placeOf(t), onPlace = onPlace, onRecipients = { onRecipients(t) }, onDelete = { onDelete(t) })
+                        TaskLine(t, sources[t.id]?.label, showPriority, readOnly = false, onToggle = { onToggle(t) }, onOpen = { onOpen(t) }, place = placeOf(t), onPlace = onPlace, onRecipients = { onRecipients(t) },
+                            selected = if (selection.active) t.id in selection.ids else null, onSelect = { selection.toggle(t.id) },
+                        )
                     }
                 }
                 if (late.isNotEmpty()) { SubHead("지연 ${late.size}", Wb.colors.crit); rows(late) }

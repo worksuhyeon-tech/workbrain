@@ -16,6 +16,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.data.Para
 import com.workbrain.app.data.ParaData
+import com.workbrain.app.data.Place
 import com.workbrain.app.data.PlaceType
 import com.workbrain.app.data.ProjectRow
 import com.workbrain.app.data.Server
@@ -45,7 +47,16 @@ import com.workbrain.app.data.toEdit
 import com.workbrain.app.tasks.QUICK_DOCK_SPACE
 import com.workbrain.app.tasks.QuickAddMemory
 import com.workbrain.app.tasks.RecipientsSheet
+import com.workbrain.app.tasks.MoveTargetSheet
+import com.workbrain.app.tasks.SelectionBar
+import com.workbrain.app.tasks.SelectionHeader
 import com.workbrain.app.tasks.TaskDeletes
+import com.workbrain.app.tasks.TaskListMenu
+import com.workbrain.app.tasks.deletedText
+import com.workbrain.app.tasks.moveTasks
+import com.workbrain.app.tasks.moveTasksBack
+import com.workbrain.app.tasks.movedManyText
+import com.workbrain.app.tasks.rememberTaskSelection
 import com.workbrain.app.tasks.TaskEditSheet
 import com.workbrain.app.tasks.UNSAVED_TEXT
 import com.workbrain.app.tasks.movedText
@@ -79,8 +90,6 @@ sealed interface ParaEvent {
     data class OpenRecord(val recordId: String, val title: String) : ParaEvent
     /** 한 줄 빠른 입력으로 넣었음(저장은 입력 줄이 이미 함): 다시 읽고 알림만(DEC-70) */
     data class QuickAdded(val message: String) : ParaEvent
-    /** 할 일 줄을 왼쪽으로 밀어 지움(DEC-90) */
-    data class DeleteTask(val task: TaskRow) : ParaEvent
 }
 
 /** 아카이브 전에 묻기: 안 끝난 할 일이 '오늘'·'모든 할 일'에서 빠진다는 것을 알린다(DEC-65) */
@@ -111,6 +120,9 @@ fun ProjectsScreen(
     var openSections by rememberSaveable { mutableStateOf("123") }
     // 하위 기록을 펼친 프로젝트(쉼표로 이은 ID). 프로젝트를 고르면 함께 펼친다(목업: 고른 프로젝트 아래 기록이 보임)
     var openProjectIds by rememberSaveable { mutableStateOf("") }
+    // ⋮ › 선택(DEC-92): 보고 있는 할 일 목록에서 골라 한꺼번에 옮기거나 지운다. 다른 항목으로 가면 끝난다
+    val selection = rememberTaskSelection()
+    var moving by remember { mutableStateOf(false) }
     // 펼침을 바꾸는 함수는 그릴 때 계산한 값이 아니라 누른 순간의 상태를 읽어야 한다.
     // 트리에 넘긴 함수 참조(::toggleProject)는 처음 그릴 때 것이 계속 쓰여, 그때 값을 보면 다시 눌러도 안 접혔다(11/08 사용자 제보)
     fun openSet(): Set<String> = openProjectIds.split(',').filter { it.isNotEmpty() }.toSet()
@@ -120,6 +132,7 @@ fun ProjectsScreen(
     }
     fun openProject(id: String) { openProjectIds = (openSet() + id).joinToString(",") }
     fun select(key: String) {
+        selection.stop()
         selected = key
         if (key.startsWith("p:")) openProject(key.substringAfter(':'))
     }
@@ -235,6 +248,33 @@ fun ProjectsScreen(
         }
     }
 
+    /** 고른 할 일(지금 목록에 있는 것만) */
+    fun pickedTasks(): List<TaskRow> = data?.tasks.orEmpty().filter { it.id in selection.ids && it.id !in TaskDeletes.hidden.value }
+
+    /** 고른 할 일을 한 곳으로 옮긴다. 되돌리기는 원래 곳으로(끌어 놓기와 같은 알림) */
+    fun moveSelected(to: Place?) {
+        val picked = pickedTasks()
+        moving = false
+        selection.stop()
+        scope.launch {
+            val r = moveTasks(context, picked, to)
+            load()
+            val undo: (() -> Unit)? = if (r.moved.isEmpty()) null else {
+                { act("되돌렸어요") { moveTasksBack(r.moved) } }
+            }
+            announcer.show(movedManyText(r, to), undo)
+        }
+    }
+
+    /** 고른 할 일을 지운다: 줄은 바로 빠지고, 3초 '되돌리기'가 지나면 서버에서 지운다(DEC-90) */
+    fun deleteSelected() {
+        val picked = pickedTasks()
+        if (picked.isEmpty()) return
+        selection.stop()
+        picked.forEach(TaskDeletes::delete)
+        announcer.show(deletedText(picked)) { picked.forEach { TaskDeletes.undo(it.id) } }
+    }
+
     /** 받는 사람만 저장(다른 칸은 지금 값 그대로). 실패하면 서랍을 닫지 않고 띠를 보여 준다 */
     fun saveRecipients(t: TaskRow, names: List<String>) {
         taskSaving = true
@@ -278,11 +318,6 @@ fun ProjectsScreen(
             }
             is ParaEvent.EditLinks -> linkFor = e.resourceId
             is ParaEvent.QuickAdded -> scope.launch { load(); announcer.show(e.message) }
-            // 줄은 바로 빠지고, 3초 '되돌리기'가 지나면 서버에서 지운다(기록 탭 밀어 지우기와 같음)
-            is ParaEvent.DeleteTask -> {
-                TaskDeletes.delete(e.task)
-                announcer.show("${e.task.title} 삭제되었어요") { TaskDeletes.undo(e.task.id) }
-            }
             is ParaEvent.Later -> announcer.show(
                 if (e.which == "cal") "캘린더 보기는 P4예요 · 날짜·시각 기한을 그대로 달력에 놓아요(모호한 기한은 옆 칸에 따로)"
                 else "매트릭스는 P4예요 · 지금의 우선순위(중요)와 기한(급함)으로 4칸을 계산해 데이터 추가가 없어요",
@@ -355,12 +390,31 @@ fun ProjectsScreen(
         adding = ParaSection.PROJECTS
         if (!wide) selected = null
     }
+    // 지금 오른쪽(접은 화면은 전체)에 할 일 목록이 보이고 고칠 수 있는 곳인지. 트리만 보이거나 자료·보관된 곳이면 '선택'을 뺀다
+    val shownKey = selected ?: if (wide) ALL_TASKS else null
+    val canSelect = data?.let { d ->
+        val id = shownKey?.substringAfter(':')
+        when {
+            shownKey == ALL_TASKS -> true
+            shownKey?.startsWith("p:") == true -> d.project(id)?.archived == false
+            shownKey?.startsWith("a:") == true -> d.area(id)?.archived == false
+            else -> false
+        }
+    } == true
+    // 오른쪽 위 ⋮(DEC-92): 선택 · 정렬 방식
+    val menu: @Composable (Boolean) -> Unit = { can -> TaskListMenu(onSelect = if (can) selection::start else null) }
     val header: @Composable (Modifier) -> Unit = { m ->
-        PageHeader("프로젝트", "하고 있는 일 한눈에", m) {
-            PrimaryButton("+ 새로 만들기", onClick = newProject)
+        if (selection.active) {
+            SelectionHeader(selection, m)
+        } else {
+            PageHeader("프로젝트", "하고 있는 일 한눈에", m) {
+                menu(canSelect)
+                PrimaryButton("+ 새로 만들기", onClick = newProject)
+            }
         }
     }
 
+    CompositionLocalProvider(LocalTaskPaneTools provides TaskPaneTools(selection, menu)) {
     Box(Modifier.fillMaxSize().background(Wb.colors.surface).onGloballyPositioned { boxOrigin.value = it.positionInRoot() }) {
         val d = data?.let { all -> if (hidden.isEmpty()) all else all.copy(tasks = all.tasks.filter { it.id !in hidden }) }
         if (d == null) {
@@ -418,10 +472,15 @@ fun ProjectsScreen(
             // 접은 화면에서 할 일을 끌 때만 아래 '옮길 곳' 띠(DEC-72 ①). 펼친 화면은 왼쪽 트리에 놓는다
             if (!wide) MoveTargetsPanel(drag, Modifier.align(Alignment.BottomCenter))
         }
-        // '모든 할 일'을 볼 때는 아래 떠 있는 입력 띠(DEC-73) 위로 알림을 올린다
-        val dockShown = (selected ?: if (wide) ALL_TASKS else null) == ALL_TASKS
-        AnnounceHost(announcer, Modifier.align(Alignment.BottomCenter).padding(bottom = if (dockShown) QUICK_DOCK_SPACE else 0.dp))
+        // 고르는 중에는 화면 아래 [이동][삭제](모든 할 일에서는 입력 띠 자리)
+        if (selection.active) {
+            SelectionBar(selection.ids.size, onMove = { moving = true }, onDelete = ::deleteSelected, modifier = Modifier.align(Alignment.BottomCenter))
+        }
+        // '모든 할 일'을 볼 때는 아래 떠 있는 입력 띠(DEC-73), 고르는 중에는 [이동][삭제] 막대 위로 알림을 올린다
+        val barShown = shownKey == ALL_TASKS || selection.active
+        AnnounceHost(announcer, Modifier.align(Alignment.BottomCenter).padding(bottom = if (barShown) QUICK_DOCK_SPACE else 0.dp))
         DragGhost(drag) { boxOrigin.value }
+    }
     }
 
     val d = data ?: return
@@ -486,4 +545,5 @@ fun ProjectsScreen(
             onDismiss = { recipientsTask = null },
         ) { names -> saveRecipients(t, names) }
     }
+    if (moving) MoveTargetSheet(selection.ids.size, d.places, onDismiss = { moving = false }, onPick = ::moveSelected)
 }
