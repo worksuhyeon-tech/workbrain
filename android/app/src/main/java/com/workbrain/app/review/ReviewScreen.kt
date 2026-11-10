@@ -38,6 +38,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.workbrain.app.data.InboxRow
@@ -46,6 +47,10 @@ import com.workbrain.app.data.LinkSuggestion
 import com.workbrain.app.data.Para
 import com.workbrain.app.data.Place
 import com.workbrain.app.data.ProcessedRow
+import com.workbrain.app.projects.StateProposalBox
+import com.workbrain.app.data.StateProposalRow
+import com.workbrain.app.data.ProjectState
+import com.workbrain.app.projects.StateWorker
 import com.workbrain.app.data.ProjectRow
 import com.workbrain.app.data.Server
 import com.workbrain.app.tasks.UNSORTED
@@ -86,6 +91,7 @@ fun ReviewScreen(
     onChanged: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var tab by rememberSaveable { mutableStateOf(TAB_TODAY) }
     var items by remember { mutableStateOf<List<InboxRow>?>(null) }
     var processed by remember { mutableStateOf<List<ProcessedRow>?>(null) }
@@ -111,15 +117,19 @@ fun ReviewScreen(
     var suggestFor by remember { mutableStateOf<Pair<String, String>?>(null) }
     var linkBusy by remember { mutableStateOf(false) }
 
-    val list = items.orEmpty()
+    // 프로젝트 현재 상태 제안(FR-09)은 할 일 후보와 따로: 묶음 고르기·추가할 곳·미루기에 섞지 않고 위에 따로 보여 준다
+    val list = items.orEmpty().filterNot { it.isState }
     val (snoozedRows, todayRows) = list.partition { Snooze.isActive(it.snoozedUntil) }
+    var stateItems by remember { mutableStateOf<List<StateProposalRow>>(emptyList()) }
 
     suspend fun load() {
+        // 현재 상태 제안은 근거 문장·기준 버전까지 따로 읽는다. 못 읽어도 할 일 후보는 보여 준다
+        runCatching { ProjectState.pendingAll() }.onSuccess { stateItems = it }
         runCatching { Server.pendingProposals() }
             .onSuccess { rows ->
                 items = rows
                 val today = rows.filterNot { Snooze.isActive(it.snoozedUntil) }
-                today.forEach { checked.putIfAbsent(it.id, true) }
+                today.filterNot { it.isState }.forEach { checked.putIfAbsent(it.id, true) }
                 onCountChanged(today.size)
             }
             .onFailure { message = "불러오지 못했어요. 인터넷 연결을 확인해 주세요." to Tone.Crit }
@@ -189,13 +199,33 @@ fun ReviewScreen(
         linkBusy = true
         scope.launch {
             message = runCatching { Para.linkRecord(recordId, p.id, linked) }.fold(
-                { (if (linked) "‘${p.name}’에 연결했어요" else "‘${p.name}’ 연결 제안을 넘겼어요 · 다시 제안하지 않아요") to Tone.Good },
+                { result ->
+                    // 새로 연결했으면 그 회의로 프로젝트 현재 상태 제안을 만든다(FR-09, DEC-86 ②)
+                    if (result == "linked") StateWorker.start(context, p.id, listOf(recordId))
+                    (if (linked) "‘${p.name}’에 연결했어요" else "‘${p.name}’ 연결 제안을 넘겼어요 · 다시 제안하지 않아요") to Tone.Good
+                },
                 { e -> (if (e.message.orEmpty().contains("WB409")) "아카이브된 프로젝트에는 연결할 수 없어요" else "바꾸지 못했어요. 인터넷 연결을 확인해 주세요") to Tone.Crit },
             )
             loadLinks()
             if (suggestionsOf(recordId).isEmpty()) suggestFor = null
             linkBusy = false
             onChanged()
+        }
+    }
+    // 프로젝트 현재 상태 제안 [반영]·[아니요](FR-09): 하나씩(상태 전환이라 묶어 승인하지 않음, 목업)
+    fun decideState(p: StateProposalRow, approve: Boolean) {
+        busy = true
+        scope.launch {
+            val result = runCatching { if (approve) ProjectState.approve(p) else ProjectState.reject(p) }.getOrNull()
+            message = when (result) {
+                null -> "바꾸지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit
+                "approved", "already-approved" -> "프로젝트 현재 상태에 반영했어요" to Tone.Good
+                "rejected", "already-rejected" -> "현재 상태 제안을 넘겼어요" to Tone.Mute
+                "conflict" -> "그사이 현재 상태가 바뀌어 반영하지 않았어요 · 이 제안은 닫혔어요" to Tone.Warn
+                "stale-revision" -> "제안이 방금 새 회의로 바뀌었어요 · 다시 보고 골라 주세요" to Tone.Warn
+                else -> "바꾸지 못했어요($result)" to Tone.Crit
+            }
+            load(); busy = false; onChanged()
         }
     }
     // until = null이면 지금 검토(미룸 해제). 옮긴 후보는 체크를 지워, 다시 '오늘'로 오면 기본값(체크됨)으로 보이게 한다
@@ -288,7 +318,7 @@ fun ReviewScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 SegmentPills(
-                    listOf(TAB_TODAY to "오늘 ${todayRows.size}", TAB_SNOOZED to "미룬 항목 ${snoozedRows.size}", TAB_DONE to "처리됨"),
+                    listOf(TAB_TODAY to "오늘 ${todayRows.size + stateItems.size}", TAB_SNOOZED to "미룬 항목 ${snoozedRows.size}", TAB_DONE to "처리됨"),
                     value = tab,
                     compact = true,
                     modifier = Modifier.align(Alignment.CenterVertically),
@@ -314,7 +344,23 @@ fun ReviewScreen(
             ) {
                 when (tab) {
                     TAB_TODAY -> {
-                        if (items != null && todayRows.isEmpty()) item {
+                        if (stateItems.isNotEmpty()) {
+                            item(key = "state-head") {
+                                Text(
+                                    "프로젝트 현재 상태 제안 · ${stateItems.size}",
+                                    fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, color = Wb.colors.muted,
+                                    modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                                )
+                            }
+                            items(stateItems, key = { "state-${it.id}" }) { p ->
+                                StateProposalBox(
+                                    p, currentVersion = null, busy = busy,
+                                    title = allProjects.firstOrNull { it.id == p.projectId }?.name ?: "프로젝트",
+                                    onApprove = { decideState(p, true) }, onReject = { decideState(p, false) },
+                                )
+                            }
+                        }
+                        if (items != null && todayRows.isEmpty() && stateItems.isEmpty()) item {
                             EmptyState(
                                 "검토 끝! 깔끔해요",
                                 if (snoozedRows.isEmpty()) "녹음을 올리면 할 일 후보가 여기에 모여요."
@@ -342,6 +388,14 @@ fun ReviewScreen(
                             Text("최근에 처리한 후보예요(최대 100개).", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
                         }
                         items(done.orEmpty(), key = { "done-${it.row.id}" }) { p ->
+                            if (p.row.isState) {
+                                StateProposalBox(
+                                    p.row.asStateProposal(), currentVersion = null, busy = true,
+                                    title = "${allProjects.firstOrNull { it.id == p.row.targetId }?.name ?: "프로젝트"} · ${doneLabel(p.row.status)}",
+                                    onApprove = null, onReject = null,
+                                )
+                                return@items
+                            }
                             CandidateCard(
                                 after = p.row.after,
                                 rationale = p.row.rationale,
@@ -442,6 +496,16 @@ private fun retentionNote(row: InboxRow): String? {
         }
     }
     return listOfNotNull(evidence, audio).joinToString(" · ").ifEmpty { null }
+}
+
+/** 처리됨 탭의 현재 상태 제안을 같은 모양으로 그리려고 바꾼다(근거 문장·기준 버전은 없음) */
+private fun InboxRow.asStateProposal() = StateProposalRow(id, status, revision, targetId.orEmpty(), null, before, after, rationale)
+
+private fun doneLabel(status: String) = when (status) {
+    "approved" -> "반영함"
+    "rejected" -> "넘김"
+    "conflict" -> "충돌로 닫힘"
+    else -> status
 }
 
 @Composable

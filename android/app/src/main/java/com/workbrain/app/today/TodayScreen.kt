@@ -146,7 +146,8 @@ fun TodayScreen(nav: TodayNav) {
         val pl = async { runCatching { Para.places() }.getOrNull() }
         t.await().onSuccess { tasks = it }.onFailure { message = "불러오지 못했어요. 인터넷 연결을 확인해 주세요." to Tone.Crit }
         src.await()?.let { sources = it }
-        pend.await()?.let { pending = it }
+        // 기록별 검토 대기는 할 일 후보만 센다. 프로젝트 현재 상태 제안(FR-09)은 프로젝트 상세·검토함에서 본다
+        pend.await()?.let { pending = it.filterNot { r -> r.isState } }
         budget = b.await()
         cost = c.await()
         pl.await()?.let { places = it }

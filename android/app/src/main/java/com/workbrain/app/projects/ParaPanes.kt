@@ -251,17 +251,6 @@ private fun PurposeBox(onSave: (String) -> Unit) {
 /** 카드 안 여백 */
 private val CardPad = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)
 
-/** '현재 상태 · 확정' 카드. 상태 요약은 기록 연결·제안 승인(FR-09)이 생기면 쌓인다 — 지금은 목업의 빈 상태 */
-@Composable
-private fun StateCard() {
-    MockCard {
-        Column(CardPad) {
-            SecH("현재 상태") { WbChip("확정", Tone.Mute) }
-            EmptyNote("아직 확정된 상태가 없어요", "기록을 연결하고 제안을 승인하면 여기에 쌓여요.")
-        }
-    }
-}
-
 /**
  * '관련 기록' 카드(목업 S03): 이 프로젝트에 연결된 기록, 최근 회의부터. 줄을 누르면 기록 상세(DEC-69).
  * records가 null이면 반복실행이라 연결하지 않는다(사용자 선택: 프로젝트만)
@@ -425,7 +414,7 @@ private fun ProjectPane(d: ParaData, drag: ParaDragState, p: ProjectRow, layout:
                     if (open > 0) " 안 끝난 할 일 ${open}개도 복원하면 ‘오늘’·‘모든 할 일’에 다시 보여요." else "",
             )
         }
-        item(key = "state") { StateCard() }
+        item(key = "state") { StateCard(p, d.recordsOf(p.id)) }
         item(key = "records") { RecordsCard(d.recordsOf(p.id), onEvent) }
         item(key = "tasks") { TasksCard("할 일", d, drag, Place(PlaceType.PROJECT, p.id, p.name), tasks, p.archived, layout, onEvent) }
     }

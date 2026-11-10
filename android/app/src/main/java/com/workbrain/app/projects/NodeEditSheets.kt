@@ -73,10 +73,19 @@ fun normalizeUrl(raw: String): String? {
     return withScheme.takeIf { HTTP.matches(it) && it.length <= MAX_URL }
 }
 
-/** 수정 서랍 공통 틀: 제목 · 설명 · 칸들 · [취소][저장] */
+/** 수정 서랍 공통 틀: 제목 · 설명 · 칸들 · (실패 문구) · [취소][저장]. 서버에 저장하는 서랍은 saving·error를 넘긴다(현재 상태 쓰기) */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EditSheet(title: String, note: String, canSave: Boolean, onDismiss: () -> Unit, onSave: () -> Unit, fields: @Composable ColumnScope.() -> Unit) {
+internal fun EditSheet(
+    title: String,
+    note: String,
+    canSave: Boolean,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+    saving: Boolean = false,
+    error: String? = null,
+    fields: @Composable ColumnScope.() -> Unit,
+) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -90,9 +99,10 @@ private fun EditSheet(title: String, note: String, canSave: Boolean, onDismiss: 
             Text(title, style = MaterialTheme.typography.titleLarge, color = Wb.colors.ink)
             Note(note, Modifier.padding(bottom = 4.dp))
             fields()
+            error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Wb.colors.crit, modifier = Modifier.padding(top = 8.dp)) }
             Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SecondaryButton("취소", onClick = onDismiss, modifier = Modifier.height(44.dp))
-                PrimaryButton("저장", enabled = canSave, modifier = Modifier.weight(1f), onClick = onSave)
+                PrimaryButton(if (saving) "저장 중…" else "저장", enabled = canSave && !saving, modifier = Modifier.weight(1f), onClick = onSave)
             }
         }
     }

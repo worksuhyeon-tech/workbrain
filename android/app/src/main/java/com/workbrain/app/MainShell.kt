@@ -47,6 +47,7 @@ import com.workbrain.app.more.MoreScreen
 import com.workbrain.app.projects.ProjectsScreen
 import com.workbrain.app.record.HomeScreen
 import com.workbrain.app.review.RecordDetailScreen
+import com.workbrain.app.review.ReviewBadge
 import com.workbrain.app.review.ReviewScreen
 import com.workbrain.app.review.Snooze
 import com.workbrain.app.today.TodayNav
@@ -78,8 +79,10 @@ fun MainShell() {
     var detailTitle by rememberSaveable { mutableStateOf("") }
     var reviewCount by rememberSaveable { mutableIntStateOf(0) }
 
-    // 검토함 배지: 메뉴를 바꾸거나 상세를 닫을 때 다시 센다. 미룬 후보는 그날까지 재촉하지 않도록 빼고 센다(DEC-63)
-    LaunchedEffect(tab, detailId) {
+    // 검토함 배지: 메뉴를 바꾸거나 상세를 닫을 때, 다른 화면이 제안을 바꿨다고 알릴 때(ReviewBadge) 다시 센다.
+    // 미룬 후보는 그날까지 재촉하지 않도록 빼고 센다(DEC-63)
+    val badgeVersion by ReviewBadge.version.collectAsStateWithLifecycle()
+    LaunchedEffect(tab, detailId, badgeVersion) {
         runCatching { Server.pendingProposals().count { !Snooze.isActive(it.snoozedUntil) } }.onSuccess { reviewCount = it }
     }
     val open: (String, String) -> Unit = { id, title -> detailTitle = title; detailId = id }

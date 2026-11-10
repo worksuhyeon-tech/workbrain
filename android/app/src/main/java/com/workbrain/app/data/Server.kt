@@ -64,6 +64,8 @@ import kotlinx.serialization.json.put
     @SerialName("evidence_link") val evidence: List<EvidenceRef> = emptyList(),
     /** 검토 미루기(FR-28): 이 시각이 되면 검토함 '오늘'에 다시 나온다. 미루지 않았으면 null */
     @SerialName("snoozed_until") val snoozedUntil: String? = null,
+    /** task(할 일 후보·변경) · project_state(프로젝트 현재 상태 제안, FR-09) */
+    @SerialName("target_type") val targetType: String = "task",
 ) {
     val isUpdate get() = targetId != null
     val segments: Set<Int> get() = evidence.flatMap { it.segments }.toSet()
@@ -84,8 +86,11 @@ import kotlinx.serialization.json.put
     @SerialName("analysis_run") val run: InboxRun? = null,
     @SerialName("snoozed_until") val snoozedUntil: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("target_type") val targetType: String = "task",
 ) {
-    fun proposal() = ProposalRow(id, status, revision, after, rationale, targetId, before, snoozedUntil = snoozedUntil)
+    /** 프로젝트 현재 상태 제안(FR-09): 할 일 후보 목록·묶음 고르기에 섞지 않고 따로 보여 준다 */
+    val isState: Boolean get() = targetType == "project_state"
+    fun proposal() = ProposalRow(id, status, revision, after, rationale, targetId, before, snoozedUntil = snoozedUntil, targetType = targetType)
     val recordId: String? get() = run?.transcript?.record?.id
     val recordTitle: String get() = run?.transcript?.record?.title ?: "제목 없는 기록"
     val recordAt: String? get() = run?.transcript?.record?.let { it.occurredAt ?: it.ingestedAt }
@@ -115,7 +120,7 @@ import kotlinx.serialization.json.put
 data class InboxAudio(val expiresAt: String?, val purgedAt: String?)
 
 // 검토함 후보 + 나온 기록 + 근거 전사·음성 보관 기한(후보 → 분석 → 전사 → 기록 → 음성을 한 번에 따라간다)
-private const val INBOX_COLUMNS = "id,status,revision,after_json,rationale,target_id,before_json,snoozed_until,created_at," +
+private const val INBOX_COLUMNS = "id,status,revision,after_json,rationale,target_id,before_json,snoozed_until,created_at,target_type," +
     "analysis_run(transcript_version(retention_expires_at,source_record(id,title,occurred_at,ingested_at,audio_asset(retention_expires_at,purged_at))))"
 
 /** 처리됨 탭(FR-28): 이미 추가·버림·충돌로 끝난 후보와 처리한 시각(승인 기록이 없으면 후보가 만들어진 시각) */
@@ -476,6 +481,18 @@ object Server {
         return made
     }
 
+    /**
+     * 프로젝트 현재 상태 제안(FR-09, DEC-86): 연결을 확정한 기록 하나로 그 프로젝트의 제안을 만들거나 고쳐 쓴다.
+     * 결과: PROPOSED · NO_CHANGE · ALREADY(이미 반영) · NOT_LINKED · NO_TRANSCRIPT(아직 정리 전) · BUDGET_WAIT · FAILED 등
+     */
+    suspend fun projectState(recordId: String, projectId: String): String {
+        val res = invokeFunction("process-record", buildJsonObject {
+            put("action", "project_state"); put("record_id", recordId); put("project_id", projectId)
+        })
+        val json = Json.parseToJsonElement(res.bodyAsText()) as JsonObject
+        return json["state"]?.jsonPrimitive?.content ?: "FAILED"
+    }
+
     private suspend fun transcriptIds(recordId: String): List<String> =
         db.from("transcript_version").select {
             filter { eq("source_record_id", recordId) }
@@ -530,8 +547,9 @@ object Server {
         val tv = transcriptIds(recordId).ifEmpty { return emptyList() }
         val runs = db.from("analysis_run").select { filter { isIn("input_transcript_version_id", tv) } }
             .decodeList<IdRow>().map { it.id }.ifEmpty { return emptyList() }
+        // 기록 상세는 할 일 후보·변경만 다룬다. 이 기록으로 만든 현재 상태 제안(FR-09)은 프로젝트 상세·검토함에서 본다
         return db.from("change_proposal").select(Columns.raw("*,evidence_link(segment_ref)")) {
-            filter { isIn("analysis_run_id", runs) }
+            filter { isIn("analysis_run_id", runs); eq("target_type", "task") }
             order("created_at", Order.ASCENDING)
         }.decodeList<ProposalRow>()
     }

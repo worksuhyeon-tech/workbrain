@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
@@ -95,6 +96,7 @@ fun ProjectsScreen(
     onOpenRecord: (recordId: String, title: String, returnKey: String?) -> Unit = { _, _, _ -> },
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val announcer = rememberAnnouncer()
     val wide = isWideWindow()
     var data by remember { mutableStateOf<ParaData?>(null) }
@@ -288,7 +290,10 @@ fun ProjectsScreen(
                 act(
                     "기록 ‘${a.title}’을(를) ‘${a.to.name}’에 연결했어요 · 그 기록에서 나온 할 일은 그대로",
                     undo = { Para.moveRecord(a.recordId, a.to.id, a.fromProjectId) },
-                ) { Para.moveRecord(a.recordId, a.fromProjectId, a.to.id) }
+                ) {
+                    // 옮겨 간 프로젝트의 현재 상태 제안을 만든다(FR-09). 되돌리면 원래 곳은 이미 반영한 회의라 서버가 건너뛴다
+                    Para.moveRecord(a.recordId, a.fromProjectId, a.to.id).also { if (it == "moved") StateWorker.start(context, a.to.id, listOf(a.recordId)) }
+                }
             }
             is DropAction.LinkResource -> act(
                 "‘${a.resource.title}’을(를) ‘${a.to.name}’에 연결했어요",

@@ -2,6 +2,7 @@
 // 호출 한 번에 한 단계만 진행한다: STT(gpt-transcribe) → CORRECT(용어 교정, 용어집 있을 때) → EXTRACT(gpt-6-luna) → REVIEWABLE.
 // 회의록 문서는 사용자가 '회의록 만들기'를 눌렀을 때만 따로 만든다(action: "document", DEC-56).
 // 프로젝트 연결 제안(FR-06, DEC-75)은 EXTRACT 직후에 만들고, 지난 기록·실패분은 앱이 켜질 때 action: "suggest_links"로 채운다.
+// 프로젝트 현재 상태 제안(FR-09, DEC-86)은 사용자가 기록을 프로젝트에 연결한 뒤 앱이 action: "project_state"로 부른다.
 // 무료 플랜의 함수 실행 시간 제한 안에 들도록 단계를 나눴고, 앱이 끝날 때까지 다시 부른다(같은 작업은 한 번만 잡힘).
 // AI 결과는 초안·제안으로만 저장한다. 할 일은 사용자가 승인해야 생긴다(§3.4).
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
@@ -9,6 +10,7 @@ import { OUTPUT_SCHEMA, PROMPT_VERSION, SYSTEM_PROMPT } from "./prompt.ts";
 import { cleanDocument, DEFAULT_GUIDELINE, DOCUMENT_SCHEMA, DOCUMENT_SYSTEM_RULES, sha256Hex } from "./document.ts";
 import { cleanLinks, LINK_DONE_VERSIONS, LINK_PROMPT, LINK_PROMPT_VERSION, LINK_SCHEMA, linkQuote } from "./link.ts";
 import { buildExtractInput, cleanRecipients, normName, resolveOwner } from "./extract.ts";
+import { basisOf, buildStateInput, cleanState, STATE_PROMPT, STATE_PROMPT_VERSION, STATE_SCHEMA, type StateNow } from "./state.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -36,13 +38,27 @@ Deno.serve(async (req) => {
   const uid = who?.user?.id;
   if (!uid) return reply(401, { error: "로그인이 필요해요" });
 
-  let recordId = "", action = "", requestKey = "";
+  let recordId = "", action = "", requestKey = "", projectId = "";
   try {
     const body = await req.json();
     recordId = String(body.record_id ?? ""); action = String(body.action ?? ""); requestKey = String(body.request_key ?? "");
+    projectId = String(body.project_id ?? "");
   } catch { /* 아래에서 거부 */ }
   // 밀린 연결 제안(FR-06): 기록 하나가 아니라 내 기록 전체에서 몇 건씩
   if (action === "suggest_links") return reply(200, await sweepLinks(db, uid));
+  // 현재 상태 제안(FR-09): 처리 작업 단계와 상관없이, 연결을 확정한 기록 하나로 그 프로젝트의 제안을 만들거나 고쳐 쓴다
+  if (action === "project_state") {
+    if (!/^[0-9a-f-]{36}$/i.test(recordId) || !/^[0-9a-f-]{36}$/i.test(projectId)) return reply(400, { error: "기록·프로젝트 ID가 올바르지 않아요" });
+    if (!OPENAI_KEY) return reply(200, { state: "WAITING_KEY", error: "AI 키가 아직 설정되지 않았어요" });
+    const cycle = new Date().toISOString().slice(0, 7);
+    if (await overBudget(db, uid, cycle)) return reply(200, { state: "BUDGET_WAIT", error: "이번 달 AI 예산 대기선을 넘어 지금은 만들 수 없어요" });
+    try {
+      return reply(200, await proposeState(db, uid, recordId, projectId, cycle));
+    } catch (e) {
+      console.error("project_state failed", String(e));
+      return reply(200, { state: "FAILED", error: "현재 상태 제안을 만들지 못했어요" });
+    }
+  }
   if (!/^[0-9a-f-]{36}$/i.test(recordId)) return reply(400, { error: "기록 ID가 올바르지 않아요" });
 
   const { data: job } = await db.from("processing_job").select("id,stage,stage_state,retry_count")
@@ -584,6 +600,113 @@ async function suggestLinks(db: SupabaseClient, uid: string, recordId: string, c
     }
   }
   return made;
+}
+
+/**
+ * 프로젝트 현재 상태 제안(FR-09, DEC-86 ②⑤⑥⑦): 연결을 확정한 기록 하나와 그 프로젝트의 지금 상태(+ 승인 안 한 제안)를 비교해
+ * 바뀔 것이 있을 때만 제안을 만들거나, 대기 제안이 있으면 그 내용까지 넣어 고쳐 쓴다(revision을 올려 보던 화면이 다시 읽게 함).
+ * 이미 반영했거나 반영 중인 기록은 다시 보지 않는다(비용 0). 지금 상태의 근거보다 예전 회의는 '과거 회의'로 표시하고 상태를 바꾸지 않는다
+ */
+async function proposeState(db: SupabaseClient, uid: string, recordId: string, projectId: string, cycle: string): Promise<{ state: string; proposal_id?: string }> {
+  const { data: project } = await db.from("project").select("id,name,purpose,archived_at,current_state_version")
+    .eq("id", projectId).eq("owner_id", uid).maybeSingle();
+  if (!project || project.archived_at) return { state: "NO_PROJECT" };
+  // 사용자가 [연결]로 확정한 기록만(AI 연결 제안 단계는 아님)
+  const { data: links } = await db.from("source_project_link").select("id")
+    .eq("owner_id", uid).eq("source_record_id", recordId).eq("project_id", projectId).eq("status", "confirmed").limit(1);
+  if (!links?.length) return { state: "NOT_LINKED" };
+  const { data: rec } = await db.from("source_record").select("title,record_kind,occurred_at,ingested_at,archived_at")
+    .eq("id", recordId).eq("owner_id", uid).maybeSingle();
+  if (!rec || rec.archived_at) return { state: "NO_RECORD" };
+  const { data: tv } = await db.from("transcript_version").select("id,segments,content")
+    .eq("source_record_id", recordId).eq("owner_id", uid).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const segments: { idx: number; text: string; speaker?: string | null }[] = tv?.segments ?? [];
+  if (!tv || !tv.content || !segments.length) return { state: "NO_TRANSCRIPT" };
+
+  const curVersion: number = project.current_state_version ?? 0;
+  const { data: cur } = curVersion > 0
+    ? await db.from("project_state_version").select("summary,status,basis_at,source_record_ids")
+      .eq("owner_id", uid).eq("project_id", projectId).eq("version", curVersion).maybeSingle()
+    : { data: null };
+  const { data: pending } = await db.from("change_proposal").select("id,revision,after_json")
+    .eq("owner_id", uid).eq("target_type", "project_state").eq("target_id", projectId).eq("status", "pending").maybeSingle();
+  const draftAfter = (pending?.after_json ?? null) as Record<string, unknown> | null;
+  const reflected = new Set<string>([...((cur?.source_record_ids ?? []) as string[]), ...((draftAfter?.records ?? []) as string[])]);
+  if (reflected.has(recordId)) return { state: "ALREADY" };
+
+  const now: StateNow | null = cur?.summary ? { summary: cur.summary, status: cur.status } : null;
+  const draft: StateNow | null = typeof draftAfter?.summary === "string"
+    ? { summary: draftAfter.summary as string, status: (draftAfter.status as StateNow["status"]) ?? "active" } : null;
+  const recordAt: string = rec.occurred_at ?? rec.ingested_at;
+  // 근거 시각은 대기 제안이 있으면 그것(지금 상태보다 늦거나 같음), 없으면 지금 상태
+  const { past, basis } = basisOf(recordAt, (draftAfter?.basis_at as string | undefined) ?? cur?.basis_at ?? null);
+  const input = buildStateInput({
+    project: { name: project.name, purpose: project.purpose }, current: now, pending: draft,
+    record: { title: rec.title, at: recordAt, kind: rec.record_kind }, past, segments,
+  });
+
+  let parsed: unknown = null, usage = { input_tokens: 0, output_tokens: 0 }, requestId: string | null = null, runStatus = "failed";
+  let callError: unknown = null;
+  try {
+    const r = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
+      body: JSON.stringify({
+        model: LLM_MODEL, instructions: STATE_PROMPT, input,
+        text: { format: { type: "json_schema", name: "project_state", schema: STATE_SCHEMA, strict: true } },
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error("현재 상태 제안 실패: " + (d?.error?.message ?? r.status));
+    usage = { input_tokens: d.usage?.input_tokens ?? 0, output_tokens: d.usage?.output_tokens ?? 0 };
+    requestId = d.id ?? null;
+    await addCost(db, uid, cycle, (usage.input_tokens * LLM_USD_PER_1M.input + usage.output_tokens * LLM_USD_PER_1M.output) / 1e6);
+    const raw = d.output_text ?? d.output?.flatMap((o: { content?: unknown[] }) => o.content ?? [])
+      .find((c: { type?: string }) => c.type === "output_text")?.text;
+    parsed = JSON.parse(raw);
+    runStatus = "done";
+  } catch (e) {
+    callError = e;
+  }
+  // 실패해도 실행은 남긴다(비용·원인 추적). 다음 연결이나 [정리하기]에서 다시 부른다
+  const { data: saved } = await db.from("analysis_run").insert({
+    owner_id: uid, input_transcript_version_id: tv.id, model_id: LLM_MODEL, prompt_version: STATE_PROMPT_VERSION,
+    config_hash: `${LLM_MODEL}:${STATE_PROMPT_VERSION}`, status: runStatus, provider_request_id: requestId, usage,
+  }).select("id").single();
+  if (callError) throw callError;
+  if (!saved) throw new Error("현재 상태 실행 저장 실패");
+
+  const clean = cleanState(parsed, segments.length, draft ?? now, past);
+  if (!clean) return { state: "NO_CHANGE" };
+  const before = now ? { summary: now.summary, status: now.status } : null;
+  const after = {
+    summary: clean.summary, status: clean.status, basis_at: basis, records: [...reflected, recordId],
+    past, record_title: rec.title, record_at: recordAt,
+  };
+  let proposalId: string;
+  if (pending) {
+    // 보던 화면이 낡은 내용을 승인하지 않게 revision을 올린다. 그사이 승인·거절됐으면 고치지 않는다
+    const { data: up } = await db.from("change_proposal").update({
+      analysis_run_id: saved.id, base_version: curVersion, before_json: before, after_json: after,
+      rationale: clean.reason, revision: (pending.revision ?? 0) + 1,
+    }).eq("id", pending.id).eq("status", "pending").select("id").maybeSingle();
+    if (!up) return { state: "RACED" };
+    proposalId = up.id;
+  } else {
+    const { data: ins, error } = await db.from("change_proposal").insert({
+      owner_id: uid, analysis_run_id: saved.id, target_type: "project_state", target_id: projectId,
+      base_version: curVersion, before_json: before, after_json: after, rationale: clean.reason,
+    }).select("id").single();
+    // 23505 = 다른 호출이 같은 프로젝트의 대기 제안을 막 만든 경우(프로젝트당 하나, 0037). 다음 연결 때 합쳐진다
+    if (error?.code === "23505") return { state: "RACED" };
+    if (error || !ins) throw new Error("현재 상태 제안 저장 실패: " + (error?.message ?? ""));
+    proposalId = ins.id;
+  }
+  await db.from("evidence_link").insert({
+    owner_id: uid, proposal_id: proposalId, transcript_version_id: tv.id,
+    segment_ref: { idx: clean.segments }, quote: linkQuote(segments, clean.segments),
+  });
+  return { state: "PROPOSED", proposal_id: proposalId };
 }
 
 /** 이 전사 버전의 연결 제안이 끝났는지: 만들었거나(빈 전사 포함), 실패한 지 하루가 안 됐으면 끝난 것으로 본다 */

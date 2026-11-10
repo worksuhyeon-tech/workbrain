@@ -9,6 +9,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.workbrain.app.projects.StateWorker
 import com.workbrain.app.data.LoginRequired
 import com.workbrain.app.data.Para
 import com.workbrain.app.data.Server
@@ -128,16 +129,18 @@ object UploadManager {
             RecordingStore.setServer(dir, recordId, "uploaded")
             merged.delete()
         }
-        return processLoop(sessionId, dir, recordId ?: error("기록 ID가 없어요"))
+        return processLoop(app, sessionId, dir, recordId ?: error("기록 ID가 없어요"))
     }
 
     // 한 번의 작업 안에서는 4분까지 기다린다(WorkManager 한 번 실행 제한 10분). 그 뒤는 작업을 다시 예약해 이어 간다
-    private suspend fun processLoop(id: String, dir: File, recordId: String): RunOutcome {
+    private suspend fun processLoop(app: Context, id: String, dir: File, recordId: String): RunOutcome {
         repeat(80) {
             val s = Server.process(recordId)
             when {
                 s.stage == "REVIEWABLE" -> {
                     RecordingStore.setServer(dir, recordId, "ready")
+                    // 녹음 화면에서 고른 프로젝트(올릴 때 연결함): 정리가 끝나 전사가 생겼으니 그 프로젝트의 현재 상태 제안을 만든다(FR-09)
+                    RecordingStore.readProject(dir)?.let { StateWorker.start(app, it.id, listOf(recordId)) }
                     set(id, UploadProgress("회의록·할 일 후보가 나왔어요", busy = false))
                     return RunOutcome.DONE
                 }

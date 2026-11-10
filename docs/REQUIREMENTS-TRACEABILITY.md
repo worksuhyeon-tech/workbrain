@@ -16,7 +16,7 @@
 | FR-06 | 업무/개인/불확실·기존 프로젝트 연결·항목 단위·확신 등급 | P1 | SourceProjectLink(item_ref, confidence) | S05/S06 | TC-06 |
 | FR-07 | 회의록 모든 항목·편집·재생성·버전 승인 | P1 | MeetingVersion/ApprovalEvent | S05/S06 | TC-07/TC-08/TC-09 |
 | FR-08 | 기본 할 일·기한·우선순위·빠른 입력·담당 구분 | P1 / P1.5 Quick Capture | Task(project_id 또는 area_id, owner_kind), InboxItem(P1.5) | S07(S03 트리 '모든 할 일')/S05(후보 바로 추가)/S02 | TC-07/TC-17/TC-26 |
-| FR-09 | 기존 프로젝트 상태·할 일 변경 | P1 | ProjectStateVersion/ChangeProposal | S03/S06 | TC-08 |
+| FR-09 | 기존 프로젝트 상태·할 일 변경(현재 상태 카드·제안 DEC-86, Design §3.12) | P1 | ProjectStateVersion(basis_at·source_record_ids)/ChangeProposal(project_state) · 0037 | S03/S06 | TC-08 |
 | FR-10 | 중요 변경 승인·거절·일괄 확인 | P1 / P1.5 보관함 | ApprovalEvent, InboxItem(P1.5) | S06(P1.5 보관함) | TC-08 |
 | FR-11 | 출처·변경 이력·덮어쓰기 방지 | P1 | EvidenceLink/ActivityLog | S05/S06 | TC-09 |
 | FR-12 | 오늘/지연/팔로업·기록별 승인 대기·처리 중 기록, P1.5 하나 고르기·끼어들기 | P1 / P1.5 | Task/ChangeProposal/ProcessingJob, TodayPick·Task.doneAt(P1.5) | S02 | TC-17 |

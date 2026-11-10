@@ -70,6 +70,7 @@ import com.workbrain.app.data.Place
 import com.workbrain.app.data.ProjectRow
 import com.workbrain.app.data.RecordClass
 import com.workbrain.app.data.RecordInfoRow
+import com.workbrain.app.projects.StateWorker
 import com.workbrain.app.tasks.PlaceField
 import com.workbrain.app.tasks.RecipientsSheet
 import com.workbrain.app.tasks.UNSORTED
@@ -232,7 +233,9 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
         linkBusy = true
         scope.launch {
             message = runCatching { Para.linkRecord(recordId, p.id, linked) }.fold(
-                {
+                { result ->
+                    // 새로 연결했으면 그 회의로 프로젝트 현재 상태 제안을 만든다(FR-09, DEC-86 ②)
+                    if (result == "linked") StateWorker.start(context, p.id, listOf(recordId))
                     when {
                         linked -> "‘${p.name}’에 연결했어요"
                         wasLinked -> "‘${p.name}’ 연결을 풀었어요"
