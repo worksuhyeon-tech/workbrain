@@ -1,7 +1,9 @@
 package com.workbrain.app
 
 import android.app.Application
+import com.workbrain.app.data.LoginWaitPlugin
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.annotations.SupabaseInternal
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.FlowType
 import io.github.jan.supabase.createSupabaseClient
@@ -25,6 +27,10 @@ object Supa {
             // OkHttp 기본 읽기 제한(10초)이 먼저 끊으면 서버는 끝냈는데 앱만 실패로 보므로 같은 값으로 늘린다
             requestTimeout = 150.seconds
             httpEngine = OkHttp.create { config { readTimeout(150, TimeUnit.SECONDS) } }
+            // 앱이 다시 앞으로 올 때 로그인 열쇠를 다시 읽는 사이에 요청이 열쇠 없이 나가 401이 나지 않게 한다(DEC-96).
+            // httpConfig는 라이브러리가 '내부용'으로 표시한 함수라 판을 올리면 바뀔 수 있다 → supabase 판 올릴 때 LoginWaitTest와 함께 확인
+            @OptIn(SupabaseInternal::class)
+            httpConfig { install(LoginWaitPlugin) }
             install(Auth) {
                 // 브라우저에서 Google 로그인 후 workbrain://login-callback 으로 돌아온다(PKCE)
                 flowType = FlowType.PKCE
