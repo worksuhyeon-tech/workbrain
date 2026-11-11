@@ -8,14 +8,14 @@
 
 | ID | 원본 요구사항 묶음 | 배치 | 주요 데이터 | 화면 | 시험 |
 |---|---|---|---|---|---|
-| FR-01 | 사용자 인증·세션 | P1 | User | S01 | TC-01 |
+| FR-01 | 사용자 인증·세션(Android 앱 복귀 때 로그인 기다리기, DEC-96) | P1 | User | S01 | TC-01, 앱 LoginWaitTest |
 | FR-02 | 프로젝트·Areas·Resources·Archives·업무 공간·트리 정리 | P1 (부업 공간 추가 P4, AI 정리 제안 P2) | Workspace/Project/Area/Resource/TaskRevision | S03(PARA 트리, (+)·끌어서 옮기기) | TC-02 |
 | FR-03 | 회의·음성메모 녹음, 중단 복구 | P1 | AudioAsset | S04(탭 아님: 마이크 길게·기록 탭 [녹음]·녹음 중 띠, DEC-89) | TC-03 |
 | FR-04 | 기존 파일·삼성 통화 파일·재시도 | P1 | SourceRecord/ProcessingJob | S05(Android 기록 탭 파일 가져오기·공유 받기 / 웹 기록 목록 업로드, DEC-89) | TC-04 |
 | FR-05 | STT·원문 수정 | P1 | TranscriptVersion | S05 | TC-05 |
 | FR-06 | 업무/개인/불확실·기존 프로젝트 연결·항목 단위·확신 등급 | P1 | SourceProjectLink(item_ref, confidence) | S05/S06 | TC-06 |
 | FR-07 | 회의록 모든 항목·편집·재생성·버전 승인 | P1 | MeetingVersion/ApprovalEvent | S05/S06 | TC-07/TC-08/TC-09 |
-| FR-08 | 기본 할 일·기한·우선순위·빠른 입력(Android 말로 넣기, DEC-89)·담당 구분 | P1 / P1.5 Quick Capture | Task(project_id 또는 area_id, owner_kind), InboxItem(P1.5) | S07(S03 트리 '모든 할 일')/S05(후보 바로 추가)/S02 | TC-07/TC-17/TC-26 |
+| FR-08 | 기본 할 일·기한·우선순위·빠른 입력(Android 말로 넣기 DEC-89, 시간대 낱말·@ 안내 DEC-97)·담당 구분 | P1 / P1.5 Quick Capture | Task(project_id 또는 area_id, owner_kind), InboxItem(P1.5) | S07(S03 트리 '모든 할 일')/S05(후보 바로 추가)/S02 | TC-07/TC-17/TC-26 |
 | FR-09 | 기존 프로젝트 상태·할 일 변경(현재 상태 카드·제안 DEC-86, Design §3.12) | P1 | ProjectStateVersion(basis_at·source_record_ids)/ChangeProposal(project_state) · 0037 | S03/S06 | TC-08 |
 | FR-10 | 중요 변경 승인·거절·일괄 확인 | P1 / P1.5 보관함 | ApprovalEvent, InboxItem(P1.5) | S06(P1.5 보관함) | TC-08 |
 | FR-11 | 출처·변경 이력·덮어쓰기 방지 | P1 | EvidenceLink/ActivityLog | S05/S06 | TC-09 |
@@ -41,7 +41,7 @@
 | FR-30 | 회의록 작성 지침 가져오기(SKILL.md) | P1 | Settings(minutesGuideline)/MeetingVersion(guidelineRev) | S09/S05 | TC-25 |
 | FR-31 | 내 용어집(업무 단어 등록) | P1 | vocab_term·wb_vocab_add | 더보기 > 내 용어집 | TC-27 |
 | FR-32 | 업무 재개 카드 | P1.5(제안) | ActivityLog·FocusSession·Checkpoint | S03 상세·S02 | P1.5 TC(미정) |
-| FR-33 | 주간·월간 업무계획(DEC-81·87·88, Design §3.13) | P1 1단계(규칙 + □ 줄 AI) | Task(done_at·due)·Record·SourceProjectLink·ProjectStateVersion·Settings(my_names) — 저장 없음 | S02 화요일 카드·S09 더보기 '업무계획' 미리보기 | deno work_plan·plan_head, 앱 PlanDatesTest, 평가 plan-head.json |
+| FR-33 | 주간·월간 업무계획(DEC-81·87·88·95, Design §3.13) | P1 1단계(규칙 + □ 줄 AI) | Task(done_at·due)·Record·SourceProjectLink·ProjectStateVersion·Settings(my_names) → WorkPlan(0038, 기간마다 저장본 하나) | S02 화요일 카드·S09 더보기 '업무계획' 미리보기 | deno work_plan·plan_head, 앱 PlanDatesTest, DB dec95_work_plan.sql, 평가 plan-head.json |
 
 ## 비기능
 
