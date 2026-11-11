@@ -81,6 +81,7 @@ import com.workbrain.app.tasks.MoveTargetSheet
 import com.workbrain.app.tasks.SelectionBar
 import com.workbrain.app.tasks.SelectionHeader
 import com.workbrain.app.tasks.TaskDeletes
+import com.workbrain.app.search.SearchButton
 import com.workbrain.app.tasks.TaskListMenu
 import com.workbrain.app.tasks.TaskSelection
 import com.workbrain.app.tasks.deletedText
@@ -133,6 +134,8 @@ class TodayNav(
     val openMore: () -> Unit,
     /** 더보기의 업무계획을 그 종류로 바로 연다(화요일 카드, FR-33) */
     val openWorkPlan: (PlanKind) -> Unit,
+    /** 검색 화면(FR-13, 오른쪽 위 🔍) */
+    val openSearch: () -> Unit,
 )
 
 private val HEAD_DATE = DateTimeFormatter.ofPattern("yyyy년 M월 d일 EEEE", Locale.KOREA)
@@ -316,6 +319,7 @@ fun TodayScreen(nav: TodayNav) {
                 SelectionHeader(selection)
             } else {
                 PageHeader("오늘", "오늘 챙길 것만 모았어요") {
+                    SearchButton(nav.openSearch)
                     TaskListMenu(
                         onSelect = selection::start,
                         more = listOf(

@@ -177,6 +177,30 @@ class GuidelineRejected(reason: String) : Exception(reason)
 
 @Serializable data class ApprovedAtRow(@SerialName("approved_at") val approvedAt: String? = null)
 
+/**
+ * 검색 결과 한 줄(FR-13, 서버 0039 wb_search). kind: task · record · resource · proposal(검토 대기 할 일 후보).
+ * snippet은 제목이 아닌 곳에서 맞았을 때 그 앞뒤 조각, at은 기록·후보 = 회의 시각, 할 일·자료 = 만든 시각
+ */
+@Serializable data class SearchRow(
+    val kind: String,
+    val id: String,
+    val title: String? = null,
+    val snippet: String? = null,
+    @SerialName("record_id") val recordId: String? = null,
+    /** 그 기록 제목(후보 줄의 출처·기록 상세 머리). 제목 없는 기록이면 null */
+    @SerialName("record_title") val recordTitle: String? = null,
+    @SerialName("project_id") val projectId: String? = null,
+    @SerialName("area_id") val areaId: String? = null,
+    @SerialName("place_name") val placeName: String? = null,
+    val at: String? = null,
+    /** 검토 전 초안: 승인 전 회의록 글에서만 맞은 기록 · 검토 대기 할 일 후보 */
+    val draft: Boolean = false,
+    val done: Boolean = false,
+    /** 보관한 곳의 할 일 · 보관한 자료 */
+    val archived: Boolean = false,
+    @SerialName("audio_expired") val audioExpired: Boolean = false,
+)
+
 /** 회의록 문서: 섹션마다 글줄과 (있으면) 표. 서버 document.ts의 MinutesDocument와 같은 모양 */
 @Serializable data class MinutesDocument(val title: String = "", val sections: List<MinutesSection> = emptyList())
 @Serializable data class MinutesSection(val heading: String, val lines: List<String> = emptyList(), val table: MinutesTable? = null)
@@ -571,6 +595,19 @@ object Server {
         db.postgrest.rpc("approve_meeting", buildJsonObject {
             put("p_meeting_version_id", meetingVersionId)
         }).decodeAs<JsonObject>()["result"]?.jsonPrimitive?.content ?: ""
+
+    /**
+     * 검색(FR-13, DEC-98): 서버가 내 것(RLS)에서 글자로 찾아 종류마다 최신 30건씩 준다. AI를 쓰지 않아 비용 0원.
+     * q는 두 글자 이상(미만이면 서버가 빈 결과), 곳은 프로젝트·반복실행 중 하나만, kinds가 null이면 모든 종류
+     */
+    suspend fun search(q: String, place: Place?, since: java.time.Instant?, kinds: List<String>?): List<SearchRow> =
+        db.postgrest.rpc("wb_search", buildJsonObject {
+            put("p_q", q)
+            put("p_project", place?.takeIf { it.type == PlaceType.PROJECT }?.let { JsonPrimitive(it.id) } ?: JsonNull)
+            put("p_area", place?.takeIf { it.type == PlaceType.AREA }?.let { JsonPrimitive(it.id) } ?: JsonNull)
+            put("p_since", since?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+            put("p_kinds", kinds?.let { JsonArray(it.map(::JsonPrimitive)) } ?: JsonNull)
+        }).decodeList<SearchRow>()
 
     suspend fun proposals(recordId: String): List<ProposalRow> {
         val tv = transcriptIds(recordId).ifEmpty { return emptyList() }

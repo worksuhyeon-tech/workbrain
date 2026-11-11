@@ -55,6 +55,9 @@ object WbIcons {
     val Pencil = line("pencil", "M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z", "M13.5 6.5l4 4")
     val Check = line("check", "M5 12.5l4.5 4.5L19 7.5")
     val Trash = line("trash", "M4 7h16", "M9 7V4h6v3", "M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12", "M10 11v6", "M14 11v6")
+    // 🔍 검색(FR-13, 목업 S08 돋보기)
+    val Search = line("search", "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z", "M20 20l-4.3-4.3")
+    val Close = line("close", "M6 6l12 12", "M18 6L6 18")
 
     // PARA 트리(FR-02): 칸 펼침, (+) 추가, 반복실행·링크 자료·아카이브 표시
     val Plus = line("plus", "M12 5v14", "M5 12h14")

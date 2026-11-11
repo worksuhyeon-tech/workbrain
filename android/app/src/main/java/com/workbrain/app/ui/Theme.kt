@@ -32,6 +32,12 @@ data class WbColors(
     val primary: Color, val onPrimary: Color, val link: Color,
     val darkAction: Color, val pillActive: Color, val onPillActive: Color,
     val good: Color, val warn: Color, val crit: Color, val info: Color,
+    /** 보라 칩 글자(검색 결과 '회의록', 11/12 사용자). 목업 --g-purple 계열을 칩 바탕(12%) 위에서 글자 대비 4.5:1 넘게 진하게 */
+    val purple: Color,
+    /** 줄 강조: 검색으로 찾아간 할 일 줄 깜빡임. 분홍 #FFAFD7의 20%(2026-11-12 사용자 지정) */
+    val highlight: Color,
+    /** 글자 강조(형광펜): 검색에서 맞은 글자 바탕. 같은 분홍을 진하게(20%는 글자 몇 개에선 너무 옅었음, 11/12 사용자). 다크는 밝은 글자가 묻히지 않게 옅게 */
+    val highlightText: Color,
     val isDark: Boolean,
 )
 
@@ -42,6 +48,9 @@ private val LightWb = WbColors(
     primary = Color(0xFF0078D4), onPrimary = Color(0xFFFFFFFF), link = Color(0xFF0067B8),
     darkAction = Color(0xFF091F2C), pillActive = Color(0xFF06161F), onPillActive = Color(0xFFFFFFFF),
     good = Color(0xFF0F7A43), warn = Color(0xFF935600), crit = Color(0xFFB02A1F), info = Color(0xFF0067B8),
+    purple = Color(0xFF5E46C8),
+    highlight = Color(0x33FFAFD7),
+    highlightText = Color(0xB3FFAFD7),
     isDark = false,
 )
 
@@ -52,6 +61,9 @@ private val DarkWb = WbColors(
     primary = Color(0xFF3AA0F0), onPrimary = Color(0xFF06131D), link = Color(0xFF6BB8F6),
     darkAction = Color(0xFF0A1A24), pillActive = Color(0xFFEAF2F9), onPillActive = Color(0xFF06131D),
     good = Color(0xFF55D393), warn = Color(0xFFE6A84A), crit = Color(0xFFF08478), info = Color(0xFF6BB8F6),
+    purple = Color(0xFFB9A7FF),
+    highlight = Color(0x33FFAFD7),
+    highlightText = Color(0x66FFAFD7),
     isDark = true,
 )
 

@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.workbrain.app.data.Place
 import com.workbrain.app.data.PlanKind
 import com.workbrain.app.data.Server
 import com.workbrain.app.more.MoreScreen
@@ -59,6 +60,11 @@ import com.workbrain.app.review.RecordDetailScreen
 import com.workbrain.app.review.ReviewBadge
 import com.workbrain.app.review.ReviewScreen
 import com.workbrain.app.review.Snooze
+import com.workbrain.app.search.SearchPanePlaceholder
+import com.workbrain.app.search.SearchScreen
+import com.workbrain.app.search.SearchState
+import com.workbrain.app.search.SearchTarget
+import com.workbrain.app.tasks.TaskFocus
 import com.workbrain.app.today.TodayNav
 import com.workbrain.app.today.TodayScreen
 import com.workbrain.app.ui.GlassIcon
@@ -80,7 +86,7 @@ private enum class Tab(val label: String, val glyph: ImageVector, val tint: Glas
 }
 
 /**
- * 로그인 뒤 화면 틀: 메뉴 5개(접힘 = 아래, 펼침 = 왼쪽 세로)와, 그 위에 여는 기록 상세·녹음 화면. 둘 다 뒤로 가기로 닫는다.
+ * 로그인 뒤 화면 틀: 메뉴 5개(접힘 = 아래, 펼침 = 왼쪽 세로)와, 그 위에 여는 기록 상세·녹음 화면·검색 화면. 모두 뒤로 가기로 닫는다.
  * 녹음 중이고 녹음 화면이 닫혀 있으면 화면 맨 위에 빨간 띠를 띄워 돌아갈 길을 둔다(DEC-89)
  */
 @Composable
@@ -97,6 +103,9 @@ fun MainShell() {
     var recorderAutoStart by rememberSaveable { mutableStateOf(false) }
     var recorderKind by rememberSaveable { mutableStateOf<String?>(null) }
     val rec by RecordingService.state.collectAsStateWithLifecycle()
+    // 검색 화면(FR-13, DEC-98): 녹음 화면처럼 탭 위에 연다. 닫으면 열었던 탭(tab은 그대로). 검색어·필터는 기록 상세를 열었다 와도 남는다
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    val search = rememberSaveable(saver = SearchState.Saver) { SearchState.empty() }
 
     // 검토함 배지: 메뉴를 바꾸거나 상세를 닫을 때, 다른 화면이 제안을 바꿨다고 알릴 때(ReviewBadge) 다시 센다.
     // 미룬 후보는 그날까지 재촉하지 않도록 빼고 센다(DEC-63)
@@ -120,6 +129,7 @@ fun MainShell() {
         tab = if (item is SharedImport.Item.SkillZip) Tab.MORE else Tab.RECORDS
         detailId = null
         recorderOpen = false
+        searchOpen = false
     }
     // 녹음 화면 열기 요청(빠른 입력 마이크 길게·기록 탭 [녹음]·녹음 알림, DEC-89).
     // 녹음 전일 때만 새 녹음 설정(바로 시작·종류·프로젝트)을 받고, 녹음 중이면 그 녹음 화면만 연다
@@ -139,17 +149,29 @@ fun MainShell() {
     // 펼친 화면(두 칸, DEC-47): 메뉴는 왼쪽 세로, 검토함에서 연 기록은 전체 화면 대신 오른쪽 칸에 연다.
     // 열린 기록은 detailId 하나로 들고 있어서, 접으면 같은 기록이 한 칸 전체 화면으로 이어진다
     val wide = isWideWindow()
-    val detailInPane = wide && tab == Tab.REVIEW
+    val detailInPane = wide && (tab == Tab.REVIEW || searchOpen)
     // 두 칸에서 한쪽이 추가·버리기를 하면 다른 쪽을 다시 읽게 하는 번호
     var inboxVersion by remember { mutableIntStateOf(0) }
     var detailVersion by remember { mutableIntStateOf(0) }
 
     // 기록 상세 ⋮에서 녹음을 지우면 기록 탭으로 가서 '삭제되었어요 · 되돌리기'를 보여 준다(검토함에서 열었어도 같음)
-    val afterTrash: () -> Unit = { detailId = null; tab = Tab.RECORDS }
+    val afterTrash: () -> Unit = { detailId = null; searchOpen = false; tab = Tab.RECORDS }
     // 다른 탭에서 프로젝트 탭의 특정 항목('all' = 모든 할 일, 'p:ID')을 열 때 한 번 넘기는 열쇠
     var projectsStart by remember { mutableStateOf<String?>(null) }
     // 오늘 탭(화요일 카드·⋮ 업무계획)에서 더보기의 업무계획(주간·월간)을 바로 열 때 한 번 넘기는 열쇠(FR-33). 뒤로 가면 오늘 탭(DEC-94)
     var planStart by remember { mutableStateOf<PlanKind?>(null) }
+    // 🔍(오늘·프로젝트·기록 탭): 새로 연다. 프로젝트·반복실행 상세에서 열면 그곳으로 미리 거른다
+    val openSearch: (Place?) -> Unit = { scope -> search.reset(scope); detailId = null; searchOpen = true }
+    // 검색 결과를 누르면: 회의록·기록·후보는 기록 상세(검색 위에, 뒤로 가면 결과 그대로), 할 일·자료는 프로젝트 탭의 그 항목(검색은 닫음, 할 일은 그 줄을 칠함)
+    val openFromSearch: (SearchTarget) -> Unit = { t ->
+        when (t) {
+            is SearchTarget.Record -> open(t.recordId, t.title)
+            is SearchTarget.Projects -> {
+                t.focusTaskId?.let(TaskFocus::request)
+                searchOpen = false; detailId = null; projectsStart = t.key; tab = Tab.PROJECTS
+            }
+        }
+    }
     val todayNav = TodayNav(
         openRecord = open,
         openReview = { tab = Tab.REVIEW },
@@ -157,6 +179,7 @@ fun MainShell() {
         openProjects = { key -> projectsStart = key; tab = Tab.PROJECTS },
         openMore = { tab = Tab.MORE },
         openWorkPlan = { kind -> planStart = kind; tab = Tab.MORE },
+        openSearch = { openSearch(null) },
     )
 
     val body: @Composable () -> Unit = {
@@ -171,6 +194,20 @@ fun MainShell() {
                 onUploaded = { recorderOpen = false; recorderKind = null; tab = Tab.RECORDS },
             )
             openId != null && !detailInPane -> RecordDetailScreen(openId, detailTitle, onBack = { detailId = null }, onTrashed = afterTrash)
+            searchOpen -> SearchScreen(
+                state = search,
+                backLabel = tab.label,
+                onClose = { searchOpen = false; detailId = null },
+                onOpen = openFromSearch,
+                selectedRecordId = openId,
+                // 펼친 화면 두 칸(검토함 DEC-47과 같은 틀): 오른쪽에 누른 기록 상세
+                detailPane = if (!wide) null else {
+                    {
+                        if (openId == null) SearchPanePlaceholder()
+                        else key(openId) { RecordDetailScreen(openId, detailTitle, onBack = null, onTrashed = afterTrash) }
+                    }
+                },
+            )
             else -> when (tab) {
                 Tab.TODAY -> TodayScreen(todayNav)
                 Tab.PROJECTS -> ProjectsScreen(
@@ -178,8 +215,9 @@ fun MainShell() {
                     onStartUsed = { projectsStart = null },
                     // 프로젝트에서 연 기록을 닫으면 보던 항목으로 돌아오게 그 열쇠를 맡겨 둔다
                     onOpenRecord = { id, title, returnKey -> projectsStart = returnKey; open(id, title) },
+                    onSearch = openSearch,
                 )
-                Tab.RECORDS -> RecordsScreen(onOpenRecord = open)
+                Tab.RECORDS -> RecordsScreen(onOpenRecord = open, onSearch = { openSearch(null) })
                 Tab.REVIEW -> ReviewScreen(
                     onOpenRecord = open,
                     onCountChanged = { reviewCount = it },
@@ -199,10 +237,10 @@ fun MainShell() {
             }
         }
     }
-    // 메뉴를 누르면 녹음 화면도 닫는다. 녹음은 서비스가 계속하고 맨 위 띠로 돌아갈 수 있다
-    val select: (Tab) -> Unit = { tab = it; detailId = null; recorderOpen = false }
+    // 메뉴를 누르면 녹음·검색 화면도 닫는다. 녹음은 서비스가 계속하고 맨 위 띠로 돌아갈 수 있다
+    val select: (Tab) -> Unit = { tab = it; detailId = null; recorderOpen = false; searchOpen = false }
     // 오른쪽 칸에 기록이 열려 있어도 검토함 메뉴는 고른 상태로 보인다
-    val isOn: (Tab) -> Boolean = { t -> tab == t && !recorderOpen && (detailId == null || detailInPane) }
+    val isOn: (Tab) -> Boolean = { t -> tab == t && !recorderOpen && !searchOpen && (detailId == null || detailInPane) }
     // 녹음 중 빨간 띠: 몸통 위에 둔다. 띠가 생기고 없어져도 몸통 화면 상태는 그대로다(같은 Column 안 뒤쪽 자리)
     val content: @Composable () -> Unit = {
         Column(Modifier.fillMaxSize()) {

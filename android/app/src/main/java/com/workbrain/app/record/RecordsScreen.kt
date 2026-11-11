@@ -49,6 +49,7 @@ import com.workbrain.app.ui.Banner
 import com.workbrain.app.ui.ControlShape
 import com.workbrain.app.ui.GlassIcon
 import com.workbrain.app.ui.GlassTint
+import com.workbrain.app.search.SearchButton
 import com.workbrain.app.ui.PageHeader
 import com.workbrain.app.ui.SecondaryButton
 import com.workbrain.app.ui.SectionLabel
@@ -69,10 +70,10 @@ import java.util.Locale
 /**
  * 기록 탭(DEC-89, 옛 녹음 탭의 목록 부분): 이 휴대폰에서 녹음·가져온 기록 목록 · [녹음] · [파일 가져오기] · 🗑 휴지통.
  * 다른 앱의 '공유 → WorkBrain'도 여기로 와서 가져오기를 이어 간다. 올리기 → 정리 끝난 카드를 눌러 회의록·할 일 보기.
- * 검색(FR-13)은 만들 때 이 화면 맨 위에 둔다
+ * onSearch: 머리 줄 🔍(FR-13, 휴지통 옆) — MainShell이 검색 화면을 연다
  */
 @Composable
-fun RecordsScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
+fun RecordsScreen(onOpenRecord: (recordId: String, title: String) -> Unit, onSearch: () -> Unit) {
     val context = LocalContext.current
     val rec by RecordingService.state.collectAsStateWithLifecycle()
     val uploads by UploadManager.progress.collectAsStateWithLifecycle()
@@ -142,6 +143,7 @@ fun RecordsScreen(onOpenRecord: (recordId: String, title: String) -> Unit) {
     fun LazyListScope.headerItems() {
         item {
             PageHeader("기록", "말한 건 다 기억해 둘게요") {
+                SearchButton(onSearch)
                 IconButton(onClick = { trashItems = RecordingStore.listTrash(context) }) {
                     Icon(WbIcons.Trash, contentDescription = "휴지통", tint = Wb.colors.ink)
                 }

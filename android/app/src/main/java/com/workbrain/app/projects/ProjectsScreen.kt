@@ -49,6 +49,8 @@ import com.workbrain.app.tasks.MoveTargetSheet
 import com.workbrain.app.tasks.SelectionBar
 import com.workbrain.app.tasks.SelectionHeader
 import com.workbrain.app.tasks.TaskDeletes
+import com.workbrain.app.search.SearchButton
+import com.workbrain.app.tasks.TaskFocus
 import com.workbrain.app.tasks.TaskListMenu
 import com.workbrain.app.tasks.deletedText
 import com.workbrain.app.tasks.moveTasks
@@ -68,6 +70,7 @@ import com.workbrain.app.ui.Wb
 import com.workbrain.app.ui.isWideWindow
 import com.workbrain.app.ui.rememberAnnouncer
 import com.workbrain.app.ui.saveFailText
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** 트리·상세에서 일어나는 일. 서랍·창과 서버 호출은 ProjectsScreen 한곳에서 처리한다 */
@@ -99,13 +102,15 @@ private data class ArchiveAsk(val key: String, val name: String, val openTasks: 
  * 접힌 화면: 머리 + 트리 패널 → 항목을 누르면 상세 전체 화면(뒤로 가기로 트리, Design §6.3).
  * 결과는 화면 아래 알림으로 알리고, 되돌릴 수 있으면 '되돌리기'(DEC-24). 길게 눌러 끌어서 옮기기(DEC-72)는 같은 동작의 버튼과 함께 둔다.
  * startKey: 다른 탭에서 열 항목('all'·'p:ID'·'a:ID', 오늘 화면 링크). 쓰고 나면 onStartUsed로 비운다.
- * onOpenRecord(기록 ID, 제목, 돌아올 항목): 기록 상세를 연다. 상세를 닫으면 돌아올 항목이 startKey로 다시 온다
+ * onOpenRecord(기록 ID, 제목, 돌아올 항목): 기록 상세를 연다. 상세를 닫으면 돌아올 항목이 startKey로 다시 온다.
+ * onSearch(곳): 오른쪽 위 🔍(FR-13). 프로젝트·반복실행 상세를 보고 있으면 그곳을 넘겨 미리 거른다
  */
 @Composable
 fun ProjectsScreen(
     startKey: String? = null,
     onStartUsed: () -> Unit = {},
     onOpenRecord: (recordId: String, title: String, returnKey: String?) -> Unit = { _, _, _ -> },
+    onSearch: (Place?) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -160,6 +165,13 @@ fun ProjectsScreen(
     }
     // 지우는 중·지운 할 일은 화면에서 뺀다(서버에서 지우기 전이라도)
     val hidden by TaskDeletes.hidden.collectAsStateWithLifecycle()
+    // 검색에서 고른 할 일(TaskFocus)은 상세가 그 줄을 칠하면 비운다. 끝내 못 그리면(지운 할 일 등) 몇 초 뒤 비워 나중에 엉뚱하게 칠하지 않게
+    val taskFocus by TaskFocus.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(taskFocus) {
+        val id = taskFocus ?: return@LaunchedEffect
+        delay(TaskFocus.TIMEOUT_MS)
+        TaskFocus.consume(id)
+    }
     // 오늘 화면의 '다음 7일 · 전체 →'·프로젝트 이름에서 왔으면 그 항목을 연다(한 번만)
     LaunchedEffect(startKey) {
         if (startKey != null) { select(startKey); onStartUsed() }
@@ -388,8 +400,22 @@ fun ProjectsScreen(
             else -> false
         }
     } == true
-    // 오른쪽 위 ⋮(DEC-92): 선택 · 정렬 방식
-    val menu: @Composable (Boolean) -> Unit = { can -> TaskListMenu(onSelect = if (can) selection::start else null) }
+    // 🔍로 열 검색의 처음 거르기: 지금 보고 있는 프로젝트·반복실행(누른 순간의 상태를 읽는다). 트리·모든 할 일·자료면 전체
+    fun searchScope(): Place? {
+        val d = data ?: return null
+        val key = selected ?: return null
+        val id = key.substringAfter(':')
+        return when {
+            key.startsWith("p:") -> d.project(id)?.let { Place(PlaceType.PROJECT, it.id, it.name) }
+            key.startsWith("a:") -> d.area(id)?.let { Place(PlaceType.AREA, it.id, it.name) }
+            else -> null
+        }
+    }
+    // 오른쪽 위 🔍 + ⋮(DEC-92): 선택 · 정렬 방식. 접은 화면 상세는 '← 프로젝트' 줄 오른쪽에 같은 것
+    val menu: @Composable (Boolean) -> Unit = { can ->
+        SearchButton { onSearch(searchScope()) }
+        TaskListMenu(onSelect = if (can) selection::start else null)
+    }
     val header: @Composable (Modifier) -> Unit = { m ->
         if (selection.active) {
             SelectionHeader(selection, m)

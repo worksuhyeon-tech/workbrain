@@ -84,7 +84,7 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-enum class Tone { Good, Warn, Crit, Info, Mute }
+enum class Tone { Good, Warn, Crit, Info, Purple, Mute }
 
 @Composable
 private fun toneColor(tone: Tone): Color = when (tone) {
@@ -92,6 +92,7 @@ private fun toneColor(tone: Tone): Color = when (tone) {
     Tone.Warn -> Wb.colors.warn
     Tone.Crit -> Wb.colors.crit
     Tone.Info -> Wb.colors.info
+    Tone.Purple -> Wb.colors.purple
     Tone.Mute -> Wb.colors.muted
 }
 

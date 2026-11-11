@@ -20,8 +20,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -33,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -77,6 +80,7 @@ import com.workbrain.app.ui.Wb
 import com.workbrain.app.ui.WbChip
 import com.workbrain.app.ui.WbIcons
 import java.time.LocalDate
+import kotlinx.coroutines.delay
 import com.workbrain.app.ui.ParaGlyph
 import com.workbrain.app.ui.MockCard
 import com.workbrain.app.ui.Crumb
@@ -90,7 +94,10 @@ import com.workbrain.app.ui.SmallButton
 import com.workbrain.app.tasks.QuickAddBar
 import com.workbrain.app.tasks.QuickAddDock
 import com.workbrain.app.tasks.SelectionHeader
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.workbrain.app.tasks.TaskFocus
 import com.workbrain.app.tasks.TaskLine
+import com.workbrain.app.tasks.focusFlash
 import com.workbrain.app.tasks.TaskSelection
 import com.workbrain.app.tasks.rememberTaskComparator
 import com.workbrain.app.tasks.doneInstant
@@ -136,7 +143,7 @@ private fun BackLink(onBack: () -> Unit) {
 }
 
 /**
- * 할 일 고르기(DEC-92)와 오른쪽 위 ⋮. ProjectsScreen이 넣고 상세 칸·할 일 줄이 읽는다(칸마다 인자로 내려보내지 않으려고).
+ * 할 일 고르기(DEC-92)와 오른쪽 위 🔍·⋮. ProjectsScreen이 넣고 상세 칸·할 일 줄이 읽는다(칸마다 인자로 내려보내지 않으려고).
  * menu(canSelect): 접은 화면 상세의 '← 프로젝트' 줄 오른쪽에 그린다. 펼친 화면은 ProjectsScreen 머리에 있다
  */
 class TaskPaneTools(val selection: TaskSelection, val menu: @Composable (canSelect: Boolean) -> Unit)
@@ -145,14 +152,33 @@ val LocalTaskPaneTools = compositionLocalOf<TaskPaneTools?> { null }
 
 /**
  * 상세 공통 틀: 뒤로 가기 줄(접힌 화면, 오른쪽에 ⋮) + 세로 목록.
- * canSelect: 이 칸에 고를 수 있는 할 일 목록이 있는지(보관된 곳·자료는 없음). 고르는 중이면 뒤로 가기 줄 자리에 '전체 · N개 선택 · 취소'
+ * canSelect: 이 칸에 고를 수 있는 할 일 목록이 있는지(보관된 곳·자료는 없음). 고르는 중이면 뒤로 가기 줄 자리에 '전체 · N개 선택 · 취소'.
+ * scrollToKey: 검색에서 고른 할 일(TaskFocus)이 든 칸의 열쇠. 그 칸 머리가 화면 위쪽에 올 때까지 목록을 내린다(줄 맞추기·칠하기는 focusFlash)
  */
 @Composable
-private fun PaneFrame(onBack: (() -> Unit)?, canSelect: Boolean, content: LazyListScope.() -> Unit) {
+private fun PaneFrame(onBack: (() -> Unit)?, canSelect: Boolean, scrollToKey: Any? = null, content: LazyListScope.() -> Unit) {
     val tools = LocalTaskPaneTools.current
     val selecting = tools?.selection?.active == true
     // 고르는 중에 뒤로 가기를 누르면 고르기만 끝낸다(상세의 뒤로 가기보다 나중에 등록해 먼저 받는다)
     BackHandler(enabled = selecting) { tools?.selection?.stop() }
+    val listState = rememberLazyListState()
+    LaunchedEffect(scrollToKey) {
+        val key = scrollToKey ?: return@LaunchedEffect
+        // 칸 순서(번호)를 몰라도 되게 지금 보이는 칸들로 판단한다. 위 카드(현재 상태 등)가 늦게 불러와져 그 칸이 다시 밀려나도 따라가도록,
+        // 할 일을 칠해 열쇠가 비워질 때까지(그러면 이 작업이 취소된다) 최대 약 10초 지켜본다.
+        // 칸이 안 보이거나 화면 아래 3분의 1 아래에 걸쳐만 있으면, 그 칸에 든 줄이 그려지지 않거나 화면 밖에서 칠해진다(11/12 Fold8)
+        repeat(40) {
+            val info = listState.layoutInfo
+            val viewport = (info.viewportEndOffset - info.viewportStartOffset).toFloat()
+            val item = info.visibleItemsInfo.firstOrNull { it.key == key }
+            val gap = when {
+                item == null -> viewport * 0.8f
+                item.offset > info.viewportStartOffset + viewport * 0.66f -> item.offset - info.viewportStartOffset - viewport * 0.2f
+                else -> 0f
+            }
+            if (gap > 0f && listState.canScrollForward) listState.animateScrollBy(gap) else delay(250)
+        }
+    }
     Column(Modifier.fillMaxSize()) {
         if (onBack != null) {
             if (selecting && tools != null) {
@@ -167,6 +193,7 @@ private fun PaneFrame(onBack: (() -> Unit)?, canSelect: Boolean, content: LazyLi
         }
         LazyColumn(
             Modifier.fillMaxSize(),
+            state = listState,
             verticalArrangement = Arrangement.spacedBy(14.dp),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = if (onBack == null) 4.dp else 0.dp, bottom = 96.dp),
             content = content,
@@ -318,6 +345,9 @@ private fun TasksCard(title: String, d: ParaData, drag: ParaDragState, place: Pl
     val (earlierDone, current) = tasks.partition { isEarlierDone(it, today) }
     // 다른 항목으로 갔다 오면 다시 접힌다(항목마다 카드가 새로 그려짐)
     var showEarlier by rememberSaveable(place.id) { mutableStateOf(false) }
+    // 검색에서 고른 할 일이 접힌 '이전 완료' 안에 있으면 펼쳐서 보이게 한다
+    val focusId by TaskFocus.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(focusId) { if (earlierDone.any { it.id == focusId }) showEarlier = true }
     val order = rememberTaskComparator()
     val selection = LocalTaskPaneTools.current?.selection
     if (!readOnly && selection != null) {
@@ -394,6 +424,8 @@ private fun TaskLines(
 ) {
     // 보관된 곳(읽기 전용)은 고를 수 없다
     val selection = LocalTaskPaneTools.current?.selection?.takeIf { it.active && !readOnly }
+    val focusId by TaskFocus.pending.collectAsStateWithLifecycle()
+    val flash = Wb.colors.highlight
     tasks.forEachIndexed { i, t ->
         if (i > 0) HorizontalDivider(color = Wb.colors.border)
         TaskLine(
@@ -407,7 +439,8 @@ private fun TaskLines(
             selected = selection?.let { t.id in it.ids },
             onSelect = { selection?.toggle(t.id) },
             // 길게 눌러 다른 프로젝트·반복실행으로 끈다(펼친 화면은 왼쪽 트리, 접은 화면은 아래 '옮길 곳' 띠, DEC-72). 보관된 곳·고르는 중에는 끌지 않는다
-            modifier = Modifier.dragSource(drag, if (readOnly || selection != null) null else DragItem.Task(t.id, t.title)),
+            modifier = Modifier.focusFlash(t.id, t.id == focusId, flash)
+                .dragSource(drag, if (readOnly || selection != null) null else DragItem.Task(t.id, t.title)),
         )
     }
 }
@@ -427,7 +460,8 @@ private fun crumbOf(d: ParaData, archived: Boolean, section: ParaSection) =
 private fun ProjectPane(d: ParaData, drag: ParaDragState, p: ProjectRow, layout: PaneLayout, onBack: (() -> Unit)?, onEvent: (ParaEvent) -> Unit) {
     val area = d.area(p.areaId)
     val tasks = d.tasksOf(PlaceType.PROJECT, p.id)
-    PaneFrame(onBack, canSelect = !p.archived) {
+    val focusId by TaskFocus.pending.collectAsStateWithLifecycle()
+    PaneFrame(onBack, canSelect = !p.archived, scrollToKey = "tasks".takeIf { tasks.any { it.id == focusId } }) {
         item(key = "head") {
             Head(
                 crumbOf(d, p.archived, ParaSection.PROJECTS),
@@ -466,7 +500,9 @@ private fun ProjectPane(d: ParaData, drag: ParaDragState, p: ProjectRow, layout:
 private fun AreaPane(d: ParaData, drag: ParaDragState, a: AreaRow, layout: PaneLayout, onBack: (() -> Unit)?, onEvent: (ParaEvent) -> Unit) {
     val projects = d.projects.filter { it.areaId == a.id }
     val resources = d.resourcesOf(PlaceType.AREA, a.id)
-    PaneFrame(onBack, canSelect = !a.archived) {
+    val tasks = d.tasksOf(PlaceType.AREA, a.id)
+    val focusId by TaskFocus.pending.collectAsStateWithLifecycle()
+    PaneFrame(onBack, canSelect = !a.archived, scrollToKey = "tasks".takeIf { tasks.any { it.id == focusId } }) {
         item(key = "head") {
             Head(
                 crumbOf(d, a.archived, ParaSection.AREAS),
@@ -497,7 +533,7 @@ private fun AreaPane(d: ParaData, drag: ParaDragState, a: AreaRow, layout: PaneL
             }
         }
         item(key = "records") { RecordsCard(null, onEvent) }
-        item(key = "tasks") { TasksCard("반복 할 일", d, drag, Place(PlaceType.AREA, a.id, a.name), d.tasksOf(PlaceType.AREA, a.id), a.archived, layout, onEvent) }
+        item(key = "tasks") { TasksCard("반복 할 일", d, drag, Place(PlaceType.AREA, a.id, a.name), tasks, a.archived, layout, onEvent) }
     }
 }
 
@@ -644,6 +680,15 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
     // '전체'는 이미 묶음 안에 있고, '지연'은 날짜가 있어야 하므로 이 줄이 없다
     val noDue = if (range == "next7") d.liveTasks.filter { dueDay(it) == null && inOwner(it, owner) && (showDone || !it.done) } else emptyList()
     val order = rememberTaskComparator()
+    // 검색에서 고른 정리 안 된 할 일: 지금 탭·담당·완료 거르기에 가려 있으면 거르기를 풀어 보이게 한 뒤 그 묶음까지 내린다
+    val focusId by TaskFocus.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(focusId) {
+        val t = d.liveTasks.firstOrNull { it.id == focusId } ?: return@LaunchedEffect
+        if (t in noDue) showNoDue = true
+        else if (groups.none { g -> t in g.rows }) { range = "all"; owner = "all"; if (t.done) showDone = true }
+    }
+    val focusKey = groups.firstOrNull { g -> g.rows.any { it.id == focusId } }?.let { "g-${it.key ?: "unsorted"}" }
+        ?: "nodue".takeIf { noDue.any { it.id == focusId } }
     val selection = LocalTaskPaneTools.current?.selection
     if (selection != null) {
         val visible = groups.flatMap { it.rows } + if (showNoDue) noDue else emptyList()
@@ -653,7 +698,7 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
     // 한 줄 빠른 입력은 목록 위 카드 대신 화면 아래 떠 있는 띠(DEC-73): 스크롤해도 보이고, 캘린더·매트릭스(P4)도 같은 띠를 쓴다.
     // '#'이 없으면 이 기기에서 마지막에 넣은 곳(DEC-70)
     Box(Modifier.fillMaxSize()) {
-        PaneFrame(onBack, canSelect = true) {
+        PaneFrame(onBack, canSelect = true, scrollToKey = focusKey) {
             item(key = "head") {
                 // 보기 전환은 좁은 칸에서도 제목과 같은 줄, 완료 포함은 그 아래 줄 오른쪽에 고정한다
                 // (11/06 사용자: 기간·담당 버튼 줄 끝에 두면 숫자 자릿수에 따라 같은 줄·다음 줄을 오갔음)
