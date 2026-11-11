@@ -20,7 +20,7 @@
 | FR-10 | 중요 변경 승인·거절·일괄 확인 | P1 / P1.5 보관함 | ApprovalEvent, InboxItem(P1.5) | S06(P1.5 보관함) | TC-08 |
 | FR-11 | 출처·변경 이력·덮어쓰기 방지 | P1 | EvidenceLink/ActivityLog | S05/S06 | TC-09 |
 | FR-12 | 오늘/지연/팔로업·기록별 승인 대기·처리 중 기록, P1.5 하나 고르기·끼어들기 | P1 / P1.5 | Task/ChangeProposal/ProcessingJob, TodayPick·Task.doneAt(P1.5) | S02 | TC-17 |
-| FR-13 | 프로젝트·기간·기본 필터·키워드 | P1 | Project/MeetingVersion | S08 | TC-17 |
+| FR-13 | 프로젝트·기간·기본 필터·키워드(DEC-98, Design §3.14: 할 일·회의록·기록 제목·자료, 전사 제외) | P1 | Task/SourceRecord/MeetingVersion/Resource/ChangeProposal(초안) — `wb_search`(0039) | S08(오늘·프로젝트·기록 탭 🔍) | TC-17, DB fr13_search.sql(19개, 반영 전·후 19/19), 앱 SearchQueryTest(8개) |
 | FR-14 | PC/모바일 동기화·처리 상태 | P1 | ProcessingJob | S02/S05 | TC-13 |
 | FR-15 | 기간별 보관·삭제·복구·내보내기 | P1 | DeletionRequest/Tombstone | S09 | TC-10/TC-11/TC-12 |
 | FR-16 | 운영 비용·사용량·예산 대기 | P1 | CostLedger/BudgetReservation | S09 | TC-14 |
