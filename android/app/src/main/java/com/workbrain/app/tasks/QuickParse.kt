@@ -29,7 +29,10 @@ data class QuickTask(
  * 규칙 해석기(AI 호출 없음, DEC-23). 목업 parseQuick과 같은 규칙에 DEC-70(지난 M/D는 다음 해)과
  * 한국어 조사('까지'·'에')·'이번 주 X요일'을 더했다. 못 알아본 말은 제목에 그대로 남긴다.
  * 낱말은 앞뒤가 띄어쓰기여야 알아본다('3시간'·'C#'·메일 주소의 '@'를 잘못 떼지 않으려고).
- * 날짜·시각끼리는 붙여 써도 된다('내일3시', '다음주월요일3시', '11/7오후3시'). 본문과는 띄어 쓴다.
+ * 날짜·시각끼리는 붙여 써도 된다('내일3시', '다음주월요일3시', '11/7오후3시', '내일아침9시'). 본문과는 띄어 쓴다.
+ * 시간대 낱말(DEC-97): 아침·새벽 = 오전, 저녁·밤 = 오후, 점심은 그냥 시각과 같다('아침9시' = 9:00, '저녁7시' = 19:00).
+ * 숫자 없이 쓴 아침·점심·오후·퇴근전은 날짜 바로 뒤에서만 정해 둔 시각으로 읽는다('내일 아침' = 9:00) —
+ * 혼자 쓴 '점심'은 '팀 점심 메뉴'처럼 제목의 말일 때가 많아서 그대로 둔다.
  */
 object QuickParse {
     const val MAX_TITLE = 200
@@ -44,16 +47,31 @@ object QuickParse {
     private val RELATIVE = Regex("$HEAD(오늘|내일|모레)$TAIL")
     private val MONTH_DAY = Regex("$HEAD(\\d{1,2})/(\\d{1,2})$TAIL")
     private val WEEKDAY = Regex("$HEAD(?:(이번|다음)\\s?주\\s?)?([월화수목금토일])요일$TAIL")
-    private val TIME = Regex("$HEAD(?:(오전|오후)\\s?)?(\\d{1,2})(?::(\\d{2})|시(?:\\s?(\\d{1,2})분|\\s?(반))?)$TAIL")
+    // 시각 앞에 붙는 낱말: 오전·오후 + 시간대 낱말(DEC-97)
+    private const val DAYPART = "오전|오후|아침|새벽|점심|저녁|밤"
+    private val TIME = Regex("$HEAD(?:($DAYPART)\\s?)?(\\d{1,2})(?::(\\d{2})|시(?:\\s?(\\d{1,2})분|\\s?(반))?)$TAIL")
     private val VAGUE = Regex("$HEAD(다음\\s?주|이번\\s?주|다음\\s?달|이번\\s?달|월말)$TAIL")
 
+    // 숫자 없이 날짜 바로 뒤에 쓰면 정해 둔 시각으로 읽는 낱말(DEC-97, 사용자 업무 흐름). 저녁·밤·새벽·오전은 숫자가 있어야 읽는다
+    private const val SLOT_WORDS = "아침|점심|오후|퇴근\\s?전"
+    private val SLOT = Regex("$HEAD($SLOT_WORDS)$TAIL")
+    private val SLOT_TIME = mapOf(
+        "아침" to LocalTime.of(9, 0),
+        "점심" to LocalTime.of(13, 0),
+        "오후" to LocalTime.of(16, 0),
+        "퇴근전" to LocalTime.of(18, 0),
+    )
+    // '밤 12시'는 그날 밤 자정 = 그날 마감 끝으로 본다(다음 날 0시로 넘기지 않음)
+    private val END_OF_DAY = LocalTime.of(23, 59)
+
     /**
-     * 날짜 바로 뒤에 붙여 쓴 시각을 떼어 놓는다: '내일3시 미팅' → '내일 3시 미팅'(사용자 규칙 '시간 (띄고) 본문', DEC-70).
+     * 날짜 바로 뒤에 붙여 쓴 시각·시간대 낱말을 떼어 놓는다: '내일3시 미팅' → '내일 3시 미팅'(사용자 규칙 '시간 (띄고) 본문', DEC-70),
+     * '내일아침9시' → '내일 아침9시', '내일아침' → '내일 아침'(DEC-97).
      * 날짜는 앞이 띄어쓰기, 시각은 뒤가 띄어쓰기일 때만 — '내일3시미팅'·'회의금요일3시'·'내일3시간'은 그대로 둔다
      */
     private val GLUED = Regex(
         "$HEAD(오늘|내일|모레|\\d{1,2}/\\d{1,2}|다음\\s?주|이번\\s?주|다음\\s?달|이번\\s?달|월말|(?:(?:이번|다음)\\s?주\\s?)?[월화수목금토일]요일)" +
-            "(?=(?:(?:오전|오후)\\s?)?\\d{1,2}(?::\\d{2}|시(?:\\d{1,2}분|반)?)(?:까지|에)?\\s)",
+            "(?=(?:(?:$DAYPART)\\s?)?\\d{1,2}(?::\\d{2}|시(?:\\d{1,2}분|반)?)(?:까지|에)?\\s|(?:$SLOT_WORDS)(?:까지|에)?\\s)",
     )
 
     private const val DAYS = "월화수목금토일"
@@ -119,28 +137,48 @@ object QuickParse {
         }
 
         var assignee: String? = null
-        takeFirst(PERSON) { m -> assignee = m.groupValues[1].take(40); true }
+        takeFirst(PERSON) { m ->
+            val who = m.groupValues[1].take(40)
+            assignee = who
+            // '@'는 담당자, '#'은 넣을 곳. 프로젝트 이름과 맞으면 헷갈렸을 수 있어 알려만 준다(저장은 막지 않음, DEC-97)
+            if (who.length >= 2 && placesFor(who, places).isNotEmpty()) warnings += "@$who${topic(who)} 담당자로 들어가요 · 프로젝트면 #$who"
+            true
+        }
 
         var date: LocalDate? = null
+        // 날짜 낱말이 있던 자리: 바로 뒤에 숫자 없이 쓴 '아침'·'퇴근전'을 찾는 데 쓴다
+        var dateAt = -1
         takeFirst(RELATIVE) { m ->
             date = today.plusDays(when (m.groupValues[1]) { "내일" -> 1L; "모레" -> 2L; else -> 0L })
+            dateAt = m.range.first
             true
         }
         if (date == null) takeFirst(MONTH_DAY) { m ->
             val (mo, d) = m.groupValues[1].toInt() to m.groupValues[2].toInt()
-            monthDay(mo, d, today).also { if (it == null) warnings += "$mo/${d}는 없는 날짜예요" }?.let { date = it; true } ?: false
+            monthDay(mo, d, today).also { if (it == null) warnings += "$mo/${d}는 없는 날짜예요" }
+                ?.let { date = it; dateAt = m.range.first; true } ?: false
         }
         if (date == null) takeFirst(WEEKDAY) { m ->
             date = weekday(m.groupValues[1], DAYS.indexOf(m.groupValues[2]) + 1, today)
+            dateAt = m.range.first
             true
         }
 
         var time: LocalTime? = null
         var timeText: String? = null
+        var timeRejected = false
         takeFirst(TIME) { m ->
             val parsed = time(m)
-            if (parsed == null) warnings += "${m.value.trim()}: 없는 시각이에요"
+            if (parsed == null) { warnings += timeWarning(m); timeRejected = true }
             parsed?.let { time = it; timeText = m.value.trim(); true } ?: false
+        }
+        // 시각을 안 적었을 때만: 날짜 바로 뒤(사이엔 띄어쓰기만)의 시간대 낱말. TIME이 아무것도 안 지웠으니 dateAt은 그대로 맞다.
+        // '내일 오후 25시'처럼 적은 시각이 틀렸으면 정해 둔 시각으로 덮지 않는다(경고만)
+        if (date != null && time == null && !timeRejected) {
+            SLOT.find(s, dateAt)?.takeIf { s.substring(dateAt, it.range.first).isBlank() }?.let { m ->
+                time = SLOT_TIME.getValue(m.groupValues[1].replace(" ", ""))
+                s = s.replaceRange(m.range, " ")
+            }
         }
 
         var vague: String? = null
@@ -302,9 +340,13 @@ object QuickParse {
         }
     }
 
-    /** 오전·오후가 없는 1~7시는 업무 시간대로 보고 오후로 한다(목업). '15:00'처럼 쌍점으로 쓴 것은 그대로 */
+    /**
+     * 오전·오후가 없는 1~7시는 업무 시간대로 보고 오후로 한다(목업). '15:00'처럼 쌍점으로 쓴 것은 그대로.
+     * 아침·새벽은 오전, 저녁·밤은 오후, 점심은 앞 낱말이 없는 것과 같다(DEC-97).
+     * 저녁·밤 12시는 그날 23:59, 밤 1~5시는 날짜가 넘어가 헷갈리므로 읽지 않는다(새벽으로 적게 안내)
+     */
     private fun time(m: MatchResult): LocalTime? {
-        val (ampm, hText, colonMin, min, half) = m.destructured
+        val (part, hText, colonMin, min, half) = m.destructured
         var hour = hText.toInt()
         val minute = when {
             colonMin.isNotEmpty() -> colonMin.toInt()
@@ -313,11 +355,31 @@ object QuickParse {
             else -> 0
         }
         if (hour > 23 || minute > 59) return null
+        val morning = part == "오전" || part == "아침" || part == "새벽"
+        val evening = part == "저녁" || part == "밤"
+        if (part == "밤" && hour in 1..5) return null
+        if (evening && hour == 12) return END_OF_DAY
         when {
-            ampm == "오후" && hour < 12 -> hour += 12
-            ampm == "오전" && hour == 12 -> hour = 0
-            ampm.isEmpty() && colonMin.isEmpty() && hour in 1..7 -> hour += 12
+            (part == "오후" || evening) && hour < 12 -> hour += 12
+            morning && hour == 12 -> hour = 0
+            (part.isEmpty() || part == "점심") && colonMin.isEmpty() && hour in 1..7 -> hour += 12
         }
         return LocalTime.of(hour, minute)
+    }
+
+    private fun timeWarning(m: MatchResult): String {
+        val text = m.value.trim()
+        val hour = m.groupValues[2].toIntOrNull()
+        return if (m.groupValues[1] == "밤" && hour in 1..5) "$text: '새벽 ${hour}시'로 적어 주세요" else "$text: 없는 시각이에요"
+    }
+
+    /** 이름 뒤 조사 '은/는'(받침 있으면 은). 한글이 아니면 '은(는)' */
+    private fun topic(word: String): String {
+        val c = word.last()
+        return when {
+            c !in '가'..'힣' -> "은(는)"
+            (c - '가') % 28 != 0 -> "은"
+            else -> "는"
+        }
     }
 }

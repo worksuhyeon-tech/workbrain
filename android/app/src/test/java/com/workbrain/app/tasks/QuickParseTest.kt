@@ -298,4 +298,86 @@ class QuickParseTest {
         assertEquals("", parse("   ").title)
         assertEquals("", parse("내일 3시").title)
     }
+
+    // ── DEC-97 시간대 낱말·@ 안내(11/11 사용자 입력 '…요청 내일아침9시'를 못 읽음) ──
+
+    @Test fun `사용자 줄 모양 - 내일아침9시를 읽고 @가 프로젝트 이름이면 안내`() {
+        val r = parse("@사고접수 박지훈님한테 알림톡 생성 요청 내일아침9시", noDueMeansToday = true)
+        assertEquals("박지훈님한테 알림톡 생성 요청", r.title)
+        assertEquals(day(11, 7), r.dueDate)
+        assertEquals(LocalTime.of(9, 0), r.dueTime)
+        assertEquals("사고접수", r.assignee)
+        assertEquals(listOf("@사고접수는 담당자로 들어가요 · 프로젝트면 #사고접수"), r.warnings)
+    }
+
+    @Test fun `시간대 낱말 + 시각 - 아침 새벽은 오전, 저녁 밤은 오후, 점심은 그냥 시각`() {
+        fun at(raw: String) = parse(raw).let { it.dueTime to it.title }
+        assertEquals(LocalTime.of(9, 0) to "보고", at("아침 9시 보고"))
+        assertEquals(LocalTime.of(9, 0) to "보고", at("아침9시 보고"))
+        // 예전에는 '7시'만 읽어 업무 시간대 규칙으로 19시가 됐다
+        assertEquals(LocalTime.of(7, 0) to "운동", at("아침 7시 운동"))
+        assertEquals(LocalTime.of(2, 0) to "배치 확인", at("새벽 2시 배치 확인"))
+        assertEquals(LocalTime.of(19, 0) to "회식", at("저녁 7시 회식"))
+        assertEquals(LocalTime.of(19, 30) to "회식", at("저녁 7:30 회식"))
+        assertEquals(LocalTime.of(22, 0) to "배포", at("밤 10시 배포"))
+        assertEquals(LocalTime.of(13, 0) to "약속", at("점심 1시 약속"))
+        assertEquals(LocalTime.of(12, 0) to "약속", at("점심 12시 약속"))
+        assertEquals(LocalTime.of(12, 0) to "점심", at("12시 점심"))
+    }
+
+    @Test fun `날짜와 시간대 낱말은 붙여 써도 띄어 써도 된다`() {
+        for (raw in listOf("내일아침9시 보고", "내일 아침 9시 보고", "내일 아침9시 보고", "내일아침 9시 보고")) {
+            val r = parse(raw)
+            assertEquals(raw, day(11, 7), r.dueDate)
+            assertEquals(raw, LocalTime.of(9, 0), r.dueTime)
+            assertEquals(raw, "보고", r.title)
+        }
+        val r = parse("금요일저녁7시 회식")
+        assertEquals(friday to LocalTime.of(19, 0), r.dueDate to r.dueTime)
+    }
+
+    @Test fun `숫자 없이 날짜 바로 뒤 - 아침 9시 점심 13시 오후 16시 퇴근전 18시`() {
+        fun at(raw: String) = parse(raw).let { Triple(it.dueDate, it.dueTime, it.title) }
+        assertEquals(Triple(day(11, 7), LocalTime.of(9, 0), "보고"), at("내일 아침 보고"))
+        assertEquals(Triple(day(11, 7), LocalTime.of(9, 0), "보고"), at("내일아침 보고"))
+        assertEquals(Triple(day(11, 7), LocalTime.of(13, 0), "약속"), at("내일 점심 약속"))
+        assertEquals(Triple(friday, LocalTime.of(16, 0), "보고"), at("금요일 오후 보고"))
+        assertEquals(Triple(friday, LocalTime.of(16, 0), "보고"), at("금요일오후 보고"))
+        assertEquals(Triple(day(11, 12), LocalTime.of(18, 0), "정리"), at("11/12 퇴근전까지 정리"))
+        assertEquals(Triple(day(11, 7), LocalTime.of(18, 0), "정리"), at("내일 퇴근 전 정리"))
+    }
+
+    @Test fun `숫자 없는 시간대 낱말이 날짜 뒤가 아니면 제목의 말`() {
+        val lunch = parse("팀 점심 메뉴 정하기")
+        assertEquals("팀 점심 메뉴 정하기", lunch.title)
+        assertNull(lunch.dueDate)
+        assertNull(lunch.dueTime)
+        assertEquals("아침 보고", parse("아침 보고").title)
+        // 정해 둔 시각이 없는 저녁·밤은 날짜만 읽고 낱말은 제목에 둔다
+        val dinner = parse("내일 저녁 회식")
+        assertEquals(day(11, 7), dinner.dueDate)
+        assertNull(dinner.dueTime)
+        assertEquals("저녁 회식", dinner.title)
+    }
+
+    @Test fun `밤 12시는 그날 23시59분, 밤 1~5시는 새벽으로 적게 안내`() {
+        assertEquals(LocalTime.of(23, 59), parse("밤 12시 마감").dueTime)
+        val r = parse("내일 밤 1시 배포")
+        assertNull(r.dueTime)
+        assertEquals("밤 1시 배포", r.title)
+        assertEquals(listOf("밤 1시: '새벽 1시'로 적어 주세요"), r.warnings)
+    }
+
+    @Test fun `틀린 시각을 적었으면 정해 둔 시각으로 덮지 않는다`() {
+        val r = parse("내일 오후 25시 회의")
+        assertNull(r.dueTime)
+        assertEquals(listOf("오후 25시: 없는 시각이에요"), r.warnings)
+    }
+
+    @Test fun `@가 사람 이름이면 안내 없음, 프로젝트·반복실행 이름이면 안내`() {
+        assertTrue(parse("@박지훈 자료 요청").warnings.isEmpty())
+        assertEquals(listOf("@심사는 담당자로 들어가요 · 프로젝트면 #심사"), parse("@심사 자료 요청").warnings)
+        // 한글이 아닌 이름은 받침을 몰라 '은(는)'
+        assertEquals(listOf("@ERP은(는) 담당자로 들어가요 · 프로젝트면 #ERP"), parse("@ERP 자료 요청").warnings)
+    }
 }
