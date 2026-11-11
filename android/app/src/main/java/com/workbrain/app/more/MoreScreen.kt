@@ -64,15 +64,19 @@ private enum class MorePage { VOCAB, GUIDELINE, WORK_PLAN }
 /**
  * 더보기: 계정(로그아웃·내 이름)·이번 달 AI 비용·내 용어집·회의록 지침·업무계획·앱 정보(글꼴 라이선스).
  * 펼친 화면은 왼쪽 메뉴 / 오른쪽 고른 항목(목업 S09).
- * startPlan: 오늘 탭 화요일 카드에서 넘어오면 그 종류(주간·월간)의 업무계획을 바로 연다(FR-33). 한 번 쓰면 onStartUsed로 비운다
+ * startPlan: 오늘 탭(화요일 카드·⋮ 업무계획)에서 넘어오면 그 종류(주간·월간)의 업무계획을 바로 연다(FR-33). 한 번 쓰면 onStartUsed로 비운다.
+ * 그렇게 연 업무계획은 '← 오늘'·뒤로 가기가 오늘 탭으로 돌아간다(DEC-94, onBackToToday)
  */
 @Composable
-fun MoreScreen(startPlan: PlanKind? = null, onStartUsed: () -> Unit = {}) {
+fun MoreScreen(startPlan: PlanKind? = null, onStartUsed: () -> Unit = {}, onBackToToday: () -> Unit = {}) {
     var opened by rememberSaveable { mutableStateOf<MorePage?>(null) }
     var planKind by rememberSaveable { mutableStateOf(PlanKind.WEEKLY) }
+    // 오늘 탭에서 바로 연 업무계획인지. 더보기 메뉴에서 무엇이든 다시 고르면 보통 더보기 화면으로 돌아간다
+    var fromToday by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(startPlan) {
-        if (startPlan != null) { planKind = startPlan; opened = MorePage.WORK_PLAN; onStartUsed() }
+        if (startPlan != null) { planKind = startPlan; opened = MorePage.WORK_PLAN; fromToday = true; onStartUsed() }
     }
+    val openPage: (MorePage) -> Unit = { opened = it; fromToday = false }
     // '공유 → WorkBrain'으로 받은 스킬 zip은 지침 화면이 열어서 확인 시트까지 이어 간다
     val shared by SharedImport.pending.collectAsStateWithLifecycle()
     val incomingZip = (shared as? SharedImport.Item.SkillZip)?.uri
@@ -82,20 +86,25 @@ fun MoreScreen(startPlan: PlanKind? = null, onStartUsed: () -> Unit = {}) {
         when (opened) {
             MorePage.VOCAB -> VocabScreen(onBack)
             MorePage.GUIDELINE -> GuidelineScreen(onBack, incomingZip, onIncomingHandled = { SharedImport.pending.value = null })
-            MorePage.WORK_PLAN -> WorkPlanScreen(onBack, planKind)
+            // 오늘 탭에서 왔으면 펼친 화면 오른쪽 칸에도 '← 오늘'을 둔다
+            MorePage.WORK_PLAN -> if (fromToday) {
+                WorkPlanScreen(onBack = { fromToday = false; opened = null; onBackToToday() }, planKind, backLabel = "오늘")
+            } else {
+                WorkPlanScreen(onBack, planKind)
+            }
             null -> Unit
         }
     }
     if (isWideWindow()) {
         TwoPane(
             leftWeight = 0.4f,
-            left = { MoreMenu(openedPage = opened, onOpen = { opened = it }) },
+            left = { MoreMenu(openedPage = opened, onOpen = openPage) },
             right = { if (opened != null) page(null) else PanePlaceholder("왼쪽에서 항목을 고르면 여기에 열려요") },
         )
     } else if (opened != null) {
         page { opened = null }
     } else {
-        MoreMenu(openedPage = null, onOpen = { opened = it })
+        MoreMenu(openedPage = null, onOpen = openPage)
     }
 }
 

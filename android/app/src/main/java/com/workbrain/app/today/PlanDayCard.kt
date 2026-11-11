@@ -34,7 +34,8 @@ import java.time.LocalDate
 
 /**
  * 오늘 탭 화요일 카드(FR-33, DEC-87): 매주 화요일 날짜 줄 바로 아래에 '주간 업무계획 만드는 날'.
- * 그달 마지막 화요일이면 주간·월간 둘 다([주간 ›][월간 ›]). ×를 누르면 그날은 이 기기에서 숨긴다(다음 화요일에 다시 뜸)
+ * 그달 마지막 화요일이면 주간·월간 둘 다([주간 ›][월간 ›]). ×를 누르면 그날은 이 기기에서 숨긴다(다음 화요일에 다시 뜸).
+ * 버튼은 업무계획 화면을 열기만 하고, 만들기는 그 화면의 [업무계획 만들기]로 한다(DEC-95 ③)
  */
 @Composable
 fun PlanDayCard(today: LocalDate, onOpen: (PlanKind) -> Unit, modifier: Modifier = Modifier) {
@@ -67,7 +68,7 @@ fun PlanDayCard(today: LocalDate, onOpen: (PlanKind) -> Unit, modifier: Modifier
                 SecondaryButton("주간 ›", onClick = { onOpen(PlanKind.WEEKLY) })
                 PrimaryButton("월간 ›", onClick = { onOpen(PlanKind.MONTHLY) })
             } else {
-                PrimaryButton("만들기 ›", onClick = { onOpen(PlanKind.WEEKLY) })
+                PrimaryButton("열기 ›", onClick = { onOpen(PlanKind.WEEKLY) })
             }
         }
     }

@@ -38,6 +38,22 @@ class PlanDatesTest {
         assertEquals("monthly_plan_202611.docx", PlanDates.fileName(weekly.copy(kind = "monthly")))
     }
 
+    // 서버 규칙(_shared/work-plan.ts periods)과 같아야 저장본을 찾는다(DEC-95)
+    @Test fun periodStartMatchesServerCells() {
+        assertEquals(d("2026-11-09"), PlanDates.periodStart(PlanKind.WEEKLY, d("2026-11-10")))   // 화 → 그 주 월요일
+        assertEquals(d("2026-11-09"), PlanDates.periodStart(PlanKind.WEEKLY, d("2026-11-09")))   // 월요일은 그대로
+        assertEquals(d("2026-11-09"), PlanDates.periodStart(PlanKind.WEEKLY, d("2026-11-15")))   // 일요일도 같은 주
+        assertEquals(d("2026-12-28"), PlanDates.periodStart(PlanKind.WEEKLY, d("2027-01-01")))   // 해를 넘는 주
+        assertEquals(d("2026-11-01"), PlanDates.periodStart(PlanKind.MONTHLY, d("2026-11-24")))
+    }
+
+    @Test fun periodTextBeforeMaking() {
+        assertEquals("11.9 ~ 11.13 · 11.16 ~ 11.20", PlanDates.periodText(PlanKind.WEEKLY, d("2026-11-10")))
+        assertEquals("12.28 ~ 1.1 · 1.4 ~ 1.8", PlanDates.periodText(PlanKind.WEEKLY, d("2026-12-30")))
+        assertEquals("11.1 ~ 11.30 · 12.1 ~ 12.31", PlanDates.periodText(PlanKind.MONTHLY, d("2026-11-24")))
+        assertEquals("1.1 ~ 1.31 · 2.1 ~ 2.28", PlanDates.periodText(PlanKind.MONTHLY, d("2027-01-15")))
+    }
+
     @Test fun unknownKindFallsBackToWeekly() {
         assertEquals(PlanKind.MONTHLY, PlanKind.of("monthly"))
         assertEquals(PlanKind.WEEKLY, PlanKind.of("daily"))

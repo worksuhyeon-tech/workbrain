@@ -148,7 +148,7 @@ fun MainShell() {
     val afterTrash: () -> Unit = { detailId = null; tab = Tab.RECORDS }
     // 다른 탭에서 프로젝트 탭의 특정 항목('all' = 모든 할 일, 'p:ID')을 열 때 한 번 넘기는 열쇠
     var projectsStart by remember { mutableStateOf<String?>(null) }
-    // 오늘 탭 화요일 카드에서 더보기의 업무계획(주간·월간)을 바로 열 때 한 번 넘기는 열쇠(FR-33)
+    // 오늘 탭(화요일 카드·⋮ 업무계획)에서 더보기의 업무계획(주간·월간)을 바로 열 때 한 번 넘기는 열쇠(FR-33). 뒤로 가면 오늘 탭(DEC-94)
     var planStart by remember { mutableStateOf<PlanKind?>(null) }
     val todayNav = TodayNav(
         openRecord = open,
@@ -195,7 +195,7 @@ fun MainShell() {
                         }
                     },
                 )
-                Tab.MORE -> MoreScreen(startPlan = planStart, onStartUsed = { planStart = null })
+                Tab.MORE -> MoreScreen(startPlan = planStart, onStartUsed = { planStart = null }, onBackToToday = { tab = Tab.TODAY })
             }
         }
     }

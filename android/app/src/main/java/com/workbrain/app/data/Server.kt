@@ -459,16 +459,25 @@ object Server {
 
     /**
      * 업무계획(FR-33, DEC-87·88): 처리 함수가 기준일이 속한 주(달)와 다음 주(달)의 표 글을 규칙으로 만들고,
-     * 전주 칸 □ 줄만 AI가 '이름 + 진행 상태' 한 줄로 다듬는다(한 번에 약 1원). 자료를 못 읽으면 예외, AI만 못 쓰면 ai 값으로 알린다
+     * 전주 칸 □ 줄만 AI가 '이름 + 진행 상태' 한 줄로 다듬는다(한 번에 약 1원). 자료를 못 읽으면 예외, AI만 못 쓰면 ai 값으로 알린다.
+     * 서버가 결과를 work_plan에 남기고 돌려준다(DEC-95). 같은 기간을 다시 만들면 고쳐 쓴다
      */
     suspend fun workPlan(kind: PlanKind, baseDate: LocalDate): WorkPlanResult {
         val res = invokeFunction("process-record", buildJsonObject {
             put("action", "work_plan"); put("kind", kind.code); put("base_date", baseDate.toString())
         })
         val json = Json.parseToJsonElement(res.bodyAsText()) as JsonObject
-        val plan = json["plan"] ?: error(json["error"]?.jsonPrimitive?.contentOrNull ?: "업무계획을 만들지 못했어요")
-        return WorkPlanResult(planJson.decodeFromJsonElement(WorkPlan.serializer(), plan), json["ai"]?.jsonPrimitive?.contentOrNull ?: "none")
+        val fail = json["error"]?.jsonPrimitive?.contentOrNull ?: "업무계획을 만들지 못했어요"
+        val plan = json["plan"] ?: error(fail)
+        val madeAt = json["made_at"]?.jsonPrimitive?.contentOrNull ?: error(fail)
+        return WorkPlanResult(planJson.decodeFromJsonElement(WorkPlan.serializer(), plan), json["ai"]?.jsonPrimitive?.contentOrNull ?: "none", madeAt)
     }
+
+    /** 이 기간에 만들어 둔 업무계획(DEC-95, 다른 기기에서 만든 것 포함). 아직 없으면 null */
+    suspend fun savedWorkPlan(kind: PlanKind, baseDate: LocalDate): WorkPlanResult? =
+        db.from("work_plan").select(Columns.raw("plan,ai,made_at")) {
+            filter { eq("kind", kind.code); eq("period_start", PlanDates.periodStart(kind, baseDate).toString()) }
+        }.decodeList<SavedWorkPlanRow>().firstOrNull()?.toResult()
 
     /** 업무계획 Word: 미리보기로 받은 글을 그대로 보내 같은 표를 .docx로 받는다(AI를 다시 부르지 않음, 서버는 모양·크기만 검사) */
     suspend fun planWord(plan: WorkPlan): ByteArray =

@@ -3,7 +3,8 @@
 // 회의록 문서는 사용자가 '회의록 만들기'를 눌렀을 때만 따로 만든다(action: "document", DEC-56).
 // 프로젝트 연결 제안(FR-06, DEC-75)은 EXTRACT 직후에 만들고, 지난 기록·실패분은 앱이 켜질 때 action: "suggest_links"로 채운다.
 // 프로젝트 현재 상태 제안(FR-09, DEC-86)은 사용자가 기록을 프로젝트에 연결한 뒤 앱이 action: "project_state"로 부른다.
-// 주간·월간 업무계획(FR-33, DEC-87·88)은 action: "work_plan" — 규칙으로 표 글을 만들고 □ 줄만 AI로 다듬어 돌려준다(저장 안 함).
+// 주간·월간 업무계획(FR-33, DEC-87·88)은 action: "work_plan" — 사용자가 [업무계획 만들기]를 누르면 규칙으로 표 글을 만들고
+// □ 줄만 AI로 다듬어 work_plan 표에 남긴 뒤 돌려준다(DEC-95, 0038 — 앱은 저장본을 읽어 보여 준다).
 // 무료 플랜의 함수 실행 시간 제한 안에 들도록 단계를 나눴고, 앱이 끝날 때까지 다시 부른다(같은 작업은 한 번만 잡힘).
 // AI 결과는 초안·제안으로만 저장한다. 할 일은 사용자가 승인해야 생긴다(§3.4).
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
@@ -727,10 +728,25 @@ async function proposeState(db: SupabaseClient, uid: string, recordId: string, p
 }
 
 /**
- * 업무계획(FR-33, DEC-87·88): 규칙으로 두 칸 글을 만들고, 전주 칸 □ 줄만 AI 한 번으로 '이름 + 진행 상태' 한 줄로 다듬는다.
- * AI를 못 쓰면(키 없음·예산 대기·실패) 규칙 줄(이름 : 현재 상태 첫 문장)을 그대로 두고 그 까닭을 ai로 알린다. 결과는 저장하지 않는다
+ * 업무계획 만들기(FR-33, DEC-95): 만든 결과를 사람·종류·기간(전주·전월 칸 시작일)마다 한 줄로 남긴다(다시 만들면 고쳐 씀, 0038).
+ * 앱이 응답 전에 끊겨도(화면 끄기·통신 끊김) 결과가 남아, 앱은 다시 들어올 때 저장본을 읽는다. 저장하지 못하면 실패로 돌려준다
  */
-async function workPlan(db: SupabaseClient, uid: string, kind: PlanKind, baseDate: string): Promise<{ plan: WorkPlan; ai: string }> {
+async function workPlan(db: SupabaseClient, uid: string, kind: PlanKind, baseDate: string): Promise<{ plan: WorkPlan; ai: string; made_at: string }> {
+  const { plan, ai } = await makeWorkPlan(db, uid, kind, baseDate);
+  const madeAt = new Date().toISOString();
+  const { error } = await db.from("work_plan").upsert(
+    { owner_id: uid, kind, period_start: plan.previous.start, plan, ai, made_at: madeAt },
+    { onConflict: "owner_id,kind,period_start" },
+  );
+  if (error) throw new Error("업무계획 저장 실패: " + error.message);
+  return { plan, ai, made_at: madeAt };
+}
+
+/**
+ * 업무계획 글(FR-33, DEC-87·88): 규칙으로 두 칸 글을 만들고, 전주 칸 □ 줄만 AI 한 번으로 '이름 + 진행 상태' 한 줄로 다듬는다.
+ * AI를 못 쓰면(키 없음·예산 대기·실패) 규칙 줄(이름 : 현재 상태 첫 문장)을 그대로 두고 그 까닭을 ai로 알린다
+ */
+async function makeWorkPlan(db: SupabaseClient, uid: string, kind: PlanKind, baseDate: string): Promise<{ plan: WorkPlan; ai: string }> {
   const input = await loadPlanInput(db, uid, kind, baseDate);
   const plan = buildWorkPlan(input);
   const heads = headInputs(plan, input.places);
