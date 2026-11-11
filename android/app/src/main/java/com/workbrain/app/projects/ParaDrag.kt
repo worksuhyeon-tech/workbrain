@@ -31,6 +31,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -39,6 +40,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.composed
@@ -60,6 +62,7 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,8 +81,8 @@ import kotlinx.coroutines.CancellationException
 import kotlin.math.roundToInt
 
 /*
- * 길게 눌러 끌어서 옮기기(DEC-24, DEC-72) — 화면 쪽.
- * 무엇을 어디에 놓을 수 있는지는 DropRules.kt, 놓은 뒤 서버 호출·알림·되돌리기는 ProjectsScreen이 맡는다.
+ * 길게 눌러 끌어서 옮기기(DEC-24, DEC-72, 오늘 탭 DEC-93) — 화면 쪽.
+ * 무엇을 어디에 놓을 수 있는지는 DropRules.kt, 놓은 뒤 서버 호출·알림·되돌리기는 ProjectsScreen·TodayScreen이 맡는다.
  * 좌표는 모두 화면 루트 기준이라 트리(왼쪽)·상세(오른쪽)·'옮길 곳' 띠가 한 상태를 같이 본다.
  */
 
@@ -273,6 +276,22 @@ fun Modifier.autoScrollZone(state: ParaDragState, id: String, scroll: ScrollStat
     onGloballyPositioned { state.zone(id, it.boundsInRoot(), scroll) }
 }
 
+/** 끄는 동안 매 프레임 스크롤 칸(트리·'옮길 곳' 띠) 가장자리를 보고 저절로 스크롤한다(프로젝트·오늘 탭 공용) */
+@Composable
+fun DragAutoScroll(state: ParaDragState) {
+    val density = LocalDensity.current
+    val dragging = state.item != null
+    LaunchedEffect(state, dragging) {
+        if (!dragging) return@LaunchedEffect
+        val edge = with(density) { 48.dp.toPx() }
+        val step = with(density) { 14.dp.toPx() }
+        while (true) {
+            withFrameNanos { }
+            state.autoScroll(edge, step)
+        }
+    }
+}
+
 /** 목업 .drop-ok: 2px 점선 테두리 + 옅은 파랑 바탕 */
 fun Modifier.dropHighlight(on: Boolean, color: Color, corner: Float = 4f): Modifier = if (!on) this else drawBehind {
     val r = CornerRadius(corner.dp.toPx())
@@ -325,7 +344,7 @@ fun DragGhost(state: ParaDragState, origin: () -> Offset) {
 }
 
 /**
- * 접은 화면 '옮길 곳' 띠(DEC-72 ①, 목업에 없음): 접은 화면은 트리가 다른 화면이라, 할 일을 끄는 동안 아래에서 올라온다.
+ * '옮길 곳' 띠(DEC-72 ①, 목업에 없음): 접은 프로젝트 화면은 트리가 다른 화면이고 오늘 탭은 트리가 없어서(DEC-93), 할 일을 끄는 동안 아래에서 올라온다.
  * 보관 안 된 프로젝트·반복실행 이름 칩(지금 있는 곳 빼고 이름순). 높이는 화면 절반까지, 넘치면 띠 안에서 스크롤
  */
 @OptIn(ExperimentalLayoutApi::class)

@@ -31,11 +31,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -47,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.data.Budget
 import com.workbrain.app.data.InboxRow
 import com.workbrain.app.data.Para
+import com.workbrain.app.data.ParaData
 import com.workbrain.app.data.Place
 import com.workbrain.app.data.PlaceType
 import com.workbrain.app.data.Server
@@ -56,6 +60,14 @@ import com.workbrain.app.data.TaskRow
 import com.workbrain.app.data.PlanKind
 import com.workbrain.app.data.TaskSource
 import com.workbrain.app.data.usedNamesOf
+import com.workbrain.app.projects.DragAutoScroll
+import com.workbrain.app.projects.DragGhost
+import com.workbrain.app.projects.DragItem
+import com.workbrain.app.projects.DropAction
+import com.workbrain.app.projects.MoveTargetsPanel
+import com.workbrain.app.projects.OriginRef
+import com.workbrain.app.projects.ParaDragState
+import com.workbrain.app.projects.dragSource
 import com.workbrain.app.record.RecordingSession
 import com.workbrain.app.record.RecordingStore
 import com.workbrain.app.record.UploadManager
@@ -148,6 +160,8 @@ fun TodayScreen(nav: TodayNav) {
     var budget by remember { mutableStateOf<Budget?>(null) }
     var cost by remember { mutableStateOf<Int?>(null) }
     var places by remember { mutableStateOf<List<Place>>(emptyList()) }
+    // 끌어 놓기 규칙(DropRules)이 보는 데이터. 출처·옮길 곳도 여기서 꺼낸다
+    var para by remember { mutableStateOf<ParaData?>(null) }
     var sessions by remember { mutableStateOf<List<RecordingSession>>(emptyList()) }
     var message by remember { mutableStateOf<Pair<String, Tone>?>(null) }
     var editing by remember { mutableStateOf<TaskRow?>(null) }
@@ -163,18 +177,16 @@ fun TodayScreen(nav: TodayNav) {
     // 할 일이 핵심이라 그것만 실패를 알리고, 나머지(출처·검토 대기·비용·옮길 곳)는 못 읽으면 비워 둔다
     suspend fun load() = coroutineScope {
         val t = async { runCatching { Server.todayTasks() } }
-        val src = async { runCatching { Para.sources() }.getOrNull() }
+        val pd = async { runCatching { Para.load() }.getOrNull() }
         val pend = async { runCatching { Server.pendingProposals() }.getOrNull() }
         val b = async { runCatching { Server.budget() }.getOrNull() }
         val c = async { runCatching { Server.monthCostKrw() }.getOrNull() }
-        val pl = async { runCatching { Para.places() }.getOrNull() }
         t.await().onSuccess { tasks = it }.onFailure { message = "불러오지 못했어요. 인터넷 연결을 확인해 주세요." to Tone.Crit }
-        src.await()?.let { sources = it }
+        pd.await()?.let { d -> para = d; sources = d.sources; places = d.places }
         // 기록별 검토 대기는 할 일 후보만 센다. 프로젝트 현재 상태 제안(FR-09)은 프로젝트 상세·검토함에서 본다
         pend.await()?.let { pending = it.filterNot { r -> r.isState } }
         budget = b.await()
         cost = c.await()
-        pl.await()?.let { places = it }
         sessions = RecordingStore.list(context, null)
     }
     LaunchedEffect(Unit) { load() }
@@ -237,20 +249,32 @@ fun TodayScreen(nav: TodayNav) {
     SideEffect { selection.visible = shownTasks.map { it.id } }
     BackHandler(enabled = selection.active) { selection.stop() }
 
-    /** 고른 할 일을 한 곳으로 옮긴다. 되돌리기는 원래 곳으로 */
+    /** 할 일을 한 곳으로 옮기고 알린다. 되돌리기는 원래 곳으로(선택 › 이동·끌어 놓기 공용) */
+    fun moveAndAnnounce(picked: List<TaskRow>, to: Place?) = scope.launch {
+        val r = moveTasks(context, picked, to)
+        load()
+        val undo: (() -> Unit)? = if (r.moved.isEmpty()) null else {
+            { scope.launch { moveTasksBack(r.moved); load(); announcer.show("되돌렸어요") } }
+        }
+        announcer.show(movedManyText(r, to), undo)
+    }
+
     fun moveSelected(to: Place?) {
         val picked = shownTasks.filter { it.id in selection.ids }
         moving = false
         selection.stop()
-        scope.launch {
-            val r = moveTasks(context, picked, to)
-            load()
-            val undo: (() -> Unit)? = if (r.moved.isEmpty()) null else {
-                { scope.launch { moveTasksBack(r.moved); load(); announcer.show("되돌렸어요") } }
-            }
-            announcer.show(movedManyText(r, to), undo)
-        }
+        moveAndAnnounce(picked, to)
     }
+
+    // 길게 눌러 끌어 옮기기(DEC-93). 오늘 탭엔 트리가 없어 접은 프로젝트 화면처럼 아래 '옮길 곳' 띠에 놓는다
+    val currentMove by rememberUpdatedState(::moveAndAnnounce)
+    val drag = remember {
+        ParaDragState(onDrop = { a -> (a as? DropAction.MoveTask)?.let { currentMove(listOf(it.task), it.to) } }, onBlocked = { announcer.show(it) })
+    }
+    SideEffect { drag.data = para }
+    DragAutoScroll(drag)
+    // 따라오는 이름 칩은 화면 상자 안 좌표로 그린다
+    val boxOrigin = remember { OriginRef() }
 
     /** 고른 할 일을 지운다: 줄은 바로 빠지고, 3초 '되돌리기'가 지나면 서버에서 지운다(DEC-90) */
     fun deleteSelected() {
@@ -271,7 +295,8 @@ fun TodayScreen(nav: TodayNav) {
             onOpen = { t -> editError = null; editing = t },
             onRecipients = { t -> editError = null; recipientsEditing = t },
             selection = selection,
-            onPlace ={ p -> nav.openProjects(if (p.type == PlaceType.PROJECT) "p:${p.id}" else "a:${p.id}") },
+            drag = drag,
+            onPlace = { p -> nav.openProjects(if (p.type == PlaceType.PROJECT) "p:${p.id}" else "a:${p.id}") },
             onAll = { nav.openProjects("all") },
         )
     }
@@ -280,7 +305,7 @@ fun TodayScreen(nav: TodayNav) {
         ProcessingCard(processing, uploads, onResume = { s -> UploadManager.resume(context, s) }, onOpenAll = nav.openRecords)
     }
 
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().onGloballyPositioned { boxOrigin.value = it.positionInRoot() }) {
         Column(
             // 맨 아래 내용이 떠 있는 입력 띠에 가리지 않게 띠 높이만큼 더 비운다(DEC-73)
             Modifier.fillMaxSize().background(Wb.colors.surface).verticalScroll(rememberScrollState())
@@ -340,8 +365,11 @@ fun TodayScreen(nav: TodayNav) {
                 scope.launch { load() }
             }
         }
+        // 할 일을 끄는 동안만 아래 '옮길 곳' 띠가 입력 띠를 덮고 올라온다(DEC-93)
+        MoveTargetsPanel(drag, Modifier.align(Alignment.BottomCenter))
         // 입력 띠에 가리지 않게 띠 위에 띄운다
         AnnounceHost(announcer, Modifier.align(Alignment.BottomCenter).padding(bottom = QUICK_DOCK_SPACE))
+        DragGhost(drag) { boxOrigin.value }
     }
 
     editing?.let { t ->
@@ -399,6 +427,7 @@ private fun TodayCard(
     onOpen: (TaskRow) -> Unit,
     onRecipients: (TaskRow) -> Unit,
     selection: TaskSelection,
+    drag: ParaDragState,
     onPlace: (Place) -> Unit,
     onAll: () -> Unit,
 ) {
@@ -413,6 +442,8 @@ private fun TodayCard(
                         if (i > 0) HorizontalDivider(color = Wb.colors.border)
                         TaskLine(t, sources[t.id]?.label, showPriority, readOnly = false, onToggle = { onToggle(t) }, onOpen = { onOpen(t) }, place = placeOf(t), onPlace = onPlace, onRecipients = { onRecipients(t) },
                             selected = if (selection.active) t.id in selection.ids else null, onSelect = { selection.toggle(t.id) },
+                            // 길게 눌러 다른 프로젝트·반복실행으로 끈다(DEC-93). 고르는 중에는 끌지 않는다
+                            modifier = Modifier.dragSource(drag, if (selection.active) null else DragItem.Task(t.id, t.title)),
                         )
                     }
                 }

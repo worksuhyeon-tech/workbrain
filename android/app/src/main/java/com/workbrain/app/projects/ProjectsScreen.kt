@@ -26,13 +26,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.data.Para
@@ -364,18 +362,7 @@ fun ProjectsScreen(
     val currentDrop by rememberUpdatedState(::drop)
     val drag = remember { ParaDragState(onDrop = { currentDrop(it) }, onBlocked = { announcer.show(it) }) }
     SideEffect { drag.data = data }
-    // 끄는 동안 매 프레임 트리·'옮길 곳' 띠 가장자리를 보고 저절로 스크롤한다
-    val density = LocalDensity.current
-    val dragging = drag.item != null
-    LaunchedEffect(dragging) {
-        if (!dragging) return@LaunchedEffect
-        val edge = with(density) { 48.dp.toPx() }
-        val step = with(density) { 14.dp.toPx() }
-        while (true) {
-            withFrameNanos { }
-            drag.autoScroll(edge, step)
-        }
-    }
+    DragAutoScroll(drag)
     // 놓을 수 있는 접힌 칸 머리(1·4)에 올라가면 그 칸을 펼친다(목업)
     LaunchedEffect(drag.hot) {
         val s = (drag.hot as? DropKey.Section)?.section ?: return@LaunchedEffect
