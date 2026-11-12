@@ -121,7 +121,7 @@ fun ParaTreePanel(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
+        shape = ControlShape,
         color = Wb.colors.card,
         border = BorderStroke(1.dp, Wb.colors.border),
     ) {

@@ -105,6 +105,7 @@ import com.workbrain.app.tasks.doneInstant
 import com.workbrain.app.tasks.dueDay
 import com.workbrain.app.tasks.isLate
 import com.workbrain.app.tasks.movedText
+import com.workbrain.app.ui.ControlShape
 import com.workbrain.app.ui.AnnounceHost
 import com.workbrain.app.ui.Banner
 import com.workbrain.app.ui.CONFLICT_TEXT
@@ -657,8 +658,8 @@ private fun CostWarn(budget: Budget?, cost: Int?, onOpen: () -> Unit) {
     if (budget == null || cost == null || cost < budget.warnKrw) return
     val won = NumberFormat.getNumberInstance(Locale.KOREA)
     Row(
-        Modifier.fillMaxWidth().padding(bottom = 12.dp).clip(RoundedCornerShape(8.dp))
-            .background(Wb.colors.warn.copy(alpha = 0.10f)).border(1.dp, Wb.colors.warn.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+        Modifier.fillMaxWidth().padding(bottom = 12.dp).clip(ControlShape)
+            .background(Wb.colors.warn.copy(alpha = 0.10f)).border(1.dp, Wb.colors.warn.copy(alpha = 0.3f), ControlShape)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

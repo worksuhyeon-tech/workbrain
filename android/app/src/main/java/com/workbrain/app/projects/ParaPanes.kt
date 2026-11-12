@@ -254,8 +254,8 @@ private fun HeadButtons(key: String, archived: Boolean, onEvent: (ParaEvent) -> 
 @Composable
 private fun ArchBanner(text: String) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Wb.colors.surface)
-            .border(1.dp, Wb.colors.border, RoundedCornerShape(8.dp)).padding(12.dp),
+        Modifier.fillMaxWidth().clip(ControlShape).background(Wb.colors.surface)
+            .border(1.dp, Wb.colors.border, ControlShape).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(WbIcons.Archive, contentDescription = null, tint = Wb.colors.muted, modifier = Modifier.size(18.dp))
@@ -591,7 +591,7 @@ private fun ResourcePane(d: ParaData, r: ResourceRow, layout: PaneLayout, onBack
                         body ?: "아직 내용이 없어요 · [수정]에서 ${if (r.kind == "link") "주소" else "메모"}를 적어요",
                         fontSize = 15.sp, lineHeight = 24.sp,
                         color = when { body == null -> Wb.colors.muted; r.kind == "link" -> Wb.colors.link; else -> Wb.colors.ink },
-                        modifier = Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(Wb.colors.surface)
+                        modifier = Modifier.padding(top = 10.dp).fillMaxWidth().clip(ControlShape).background(Wb.colors.surface)
                             // 서버가 http(s) 주소만 받는다(다른 앱을 여는 주소 차단). 브라우저가 없으면 조용히 넘어간다
                             .clickable(enabled = r.kind == "link" && body != null) { body?.let { runCatching { uri.openUri(it) } } }
                             .padding(12.dp),

@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -171,7 +170,8 @@ fun DarkSeg(
 /** 목업 .btn(흰 바탕 테두리) / .btn.primary(파랑) — 상세 머리·카드 안의 작은 버튼. enabled = false면 흐리게 하고 누르지 못하게 */
 @Composable
 fun SmallButton(text: String, primary: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(4.dp)
+    // 버튼은 알약(DEC-104, DESIGN.md) — 목업 .btn의 각진 4dp에서 바뀜
+    val shape = PillShape
     Text(
         text,
         fontSize = 14.sp,
