@@ -64,7 +64,6 @@ import com.workbrain.app.ui.AnnounceHost
 import com.workbrain.app.ui.Banner
 import com.workbrain.app.ui.CONFLICT_TEXT
 import com.workbrain.app.ui.PageHeader
-import com.workbrain.app.ui.PrimaryButton
 import com.workbrain.app.ui.Tone
 import com.workbrain.app.ui.Wb
 import com.workbrain.app.ui.isWideWindow
@@ -98,7 +97,8 @@ private data class ArchiveAsk(val key: String, val name: String, val openTasks: 
 
 /**
  * S03 프로젝트(PARA 트리) — 목업 workbrain-project.html 모양(DEC-66), 기능 범위는 1단계(DEC-65).
- * 펼친 화면: 머리('프로젝트' + [+ 새로 만들기]) 아래 왼쪽 트리 패널 / 오른쪽 상세(목업 .pj-layout, DEC-47).
+ * 펼친 화면: 머리('프로젝트' + 🔍·⋮) 아래 왼쪽 트리 패널 / 오른쪽 상세(목업 .pj-layout, DEC-47).
+ * 새로 만들기는 트리 칸 머리의 (+)로만 한다(머리 [+ 새로 만들기]는 같은 일이라 뺐다, DEC-100 ④).
  * 접힌 화면: 머리 + 트리 패널 → 항목을 누르면 상세 전체 화면(뒤로 가기로 트리, Design §6.3).
  * 결과는 화면 아래 알림으로 알리고, 되돌릴 수 있으면 '되돌리기'(DEC-24). 길게 눌러 끌어서 옮기기(DEC-72)는 같은 동작의 버튼과 함께 둔다.
  * startKey: 다른 탭에서 열 항목('all'·'p:ID'·'a:ID', 오늘 화면 링크). 쓰고 나면 onStartUsed로 비운다.
@@ -383,12 +383,6 @@ fun ProjectsScreen(
     // 따라오는 이름 칩은 화면 상자 안 좌표로 그린다
     val boxOrigin = remember { OriginRef() }
 
-    // 위쪽 '+ 새로 만들기'는 가장 자주 만드는 1. 프로젝트 칸의 (+)와 같다(목업)
-    val newProject = {
-        if (ParaSection.PROJECTS.no !in openSections) openSections += ParaSection.PROJECTS.no
-        adding = ParaSection.PROJECTS
-        if (!wide) selected = null
-    }
     // 지금 오른쪽(접은 화면은 전체)에 할 일 목록이 보이고 고칠 수 있는 곳인지. 트리만 보이거나 자료·보관된 곳이면 '선택'을 뺀다
     val shownKey = selected ?: if (wide) ALL_TASKS else null
     val canSelect = data?.let { d ->
@@ -420,10 +414,7 @@ fun ProjectsScreen(
         if (selection.active) {
             SelectionHeader(selection, m)
         } else {
-            PageHeader("프로젝트", "하고 있는 일 한눈에", m) {
-                menu(canSelect)
-                PrimaryButton("+ 새로 만들기", onClick = newProject)
-            }
+            PageHeader("프로젝트", "하고 있는 일 한눈에", m) { menu(canSelect) }
         }
     }
 

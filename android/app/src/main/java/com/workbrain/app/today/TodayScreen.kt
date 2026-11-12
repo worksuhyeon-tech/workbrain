@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
@@ -150,6 +152,7 @@ private data class Pending(val recordId: String, val title: String, val day: Str
  * 오른쪽(접힌 화면은 아래) '검토 대기'(기록별, 승인 버튼 없음)와 '처리 중인 기록'.
  * 한 줄 빠른 입력은 화면 아래 떠 있는 띠(기한을 안 적으면 오늘 마감, DEC-70·73). 비용이 경고선을 넘을 때만 위에 띠.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodayScreen(nav: TodayNav) {
     val scope = rememberCoroutineScope()
@@ -193,6 +196,15 @@ fun TodayScreen(nav: TodayNav) {
         sessions = RecordingStore.list(context, null)
     }
     LaunchedEffect(Unit) { load() }
+    // 화면을 아래로 끌어 새로고침(11/12 사용자, ⋮의 '새로고침' 항목을 대신함). 다시 읽는 동안만 위에 빙글 표시
+    var refreshing by remember { mutableStateOf(false) }
+    val refresh: () -> Unit = {
+        scope.launch {
+            refreshing = true
+            message = null
+            try { load() } finally { refreshing = false }
+        }
+    }
 
     fun setDone(t: TaskRow, done: Boolean) = scope.launch {
         val ok = runCatching { Server.setTaskDone(t, done) }.getOrNull()
@@ -309,6 +321,7 @@ fun TodayScreen(nav: TodayNav) {
     }
 
     Box(Modifier.fillMaxSize().onGloballyPositioned { boxOrigin.value = it.positionInRoot() }) {
+        PullToRefreshBox(isRefreshing = refreshing, onRefresh = refresh, modifier = Modifier.fillMaxSize()) {
         Column(
             // 맨 아래 내용이 떠 있는 입력 띠에 가리지 않게 띠 높이만큼 더 비운다(DEC-73)
             Modifier.fillMaxSize().background(Wb.colors.surface).verticalScroll(rememberScrollState())
@@ -320,13 +333,7 @@ fun TodayScreen(nav: TodayNav) {
             } else {
                 PageHeader("오늘", "오늘 챙길 것만 모았어요") {
                     SearchButton(nav.openSearch)
-                    TaskListMenu(
-                        onSelect = selection::start,
-                        more = listOf(
-                            "업무계획" to { nav.openWorkPlan(PlanKind.WEEKLY) },
-                            "새로고침" to { scope.launch { message = null; load() } },
-                        ),
-                    )
+                    TaskListMenu(onSelect = selection::start, more = listOf("업무계획" to { nav.openWorkPlan(PlanKind.WEEKLY) }))
                 }
             }
             // 목업 .page-head .sub
@@ -355,6 +362,7 @@ fun TodayScreen(nav: TodayNav) {
                 FootLink("더보기") { nav.openMore() }
                 Note("에서 봐요.")
             }
+        }
         }
         // 한 줄 빠른 입력은 '오늘 할 일' 카드 머리 대신 화면 아래 떠 있는 띠(DEC-73). 기한을 안 적으면 오늘 마감(목업 S02).
         // 오늘 화면에 안 보이는 것(내일 이후·모호)은 알림에 기한을 함께 쓴다

@@ -2,6 +2,13 @@ package com.workbrain.app.tasks
 
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
+import com.workbrain.app.ui.PillShape
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -134,39 +141,62 @@ class TaskSelection(active: Boolean, ids: Set<String>) {
 @Composable
 fun rememberTaskSelection(): TaskSelection = rememberSaveable(saver = TaskSelection.Saver) { TaskSelection(false, emptySet()) }
 
+/** 메뉴 한 줄 높이·좌우 여백(기본 48dp·12dp + 최소 폭 200dp는 항목 셋에 비해 너무 컸음, 11/12 사용자) */
+private val MENU_ROW_HEIGHT = 40.dp
+private val MENU_ROW_PADDING = PaddingValues(horizontal = 16.dp)
+
 /**
  * 오른쪽 위 ⋮(갤럭시 '내 파일'처럼). onSelect가 null이면 '선택'을 뺀다(할 일 목록이 안 보이는 화면).
- * more: 화면마다 더하는 항목(오늘 탭: 업무계획·새로고침). 누르면 메뉴를 닫고 부른다
+ * 정렬은 한 줄에 아이콘 둘(깃발 = 우선순위순, 달력 = 기한순)을 두고 지금 것을 진하게, 누르면 바로 바뀐다
+ * (11/12 사용자: '우선순위순' 글자가 자리를 많이 차지하고 작은 목록을 한 번 더 열어야 했음).
+ * more: 화면마다 더하는 항목(오늘 탭: 업무계획). 누르면 메뉴를 닫고 부른다
  */
 @Composable
 fun TaskListMenu(onSelect: (() -> Unit)?, more: List<Pair<String, () -> Unit>> = emptyList()) {
     val context = LocalContext.current
     val order = TaskSort.order(context)
     var open by remember { mutableStateOf(false) }
-    var sortOpen by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }) {
             Icon(WbIcons.More, contentDescription = "더보기 메뉴", tint = Wb.colors.ink)
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }, modifier = Modifier.widthIn(min = 200.dp)) {
-            onSelect?.let { select -> DropdownMenuItem(text = { Text("선택") }, onClick = { open = false; select() }) }
-            DropdownMenuItem(
-                text = { Text("정렬 방식") },
-                trailingIcon = { Text(order.label, fontSize = 13.sp, color = Wb.colors.muted) },
-                onClick = { open = false; sortOpen = true },
-            )
-            more.forEach { (label, action) -> DropdownMenuItem(text = { Text(label) }, onClick = { open = false; action() }) }
-        }
-        // 정렬 방식: 같은 자리에 두 가지를 띄우고 지금 것에 체크
-        DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }, modifier = Modifier.widthIn(min = 200.dp)) {
-            TaskOrder.entries.forEach { o ->
-                DropdownMenuItem(
-                    text = { Text(o.label, fontWeight = if (o == order) FontWeight.Bold else null) },
-                    trailingIcon = { if (o == order) Icon(WbIcons.Check, contentDescription = "지금 정렬", tint = Wb.colors.primary, modifier = Modifier.size(18.dp)) },
-                    onClick = { sortOpen = false; TaskSort.set(context, o) },
-                )
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            onSelect?.let { select -> MenuRow("선택") { open = false; select() } }
+            Row(
+                Modifier.height(MENU_ROW_HEIGHT).padding(start = 16.dp, end = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("정렬", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(end = 20.dp))
+                SortIcon(WbIcons.Flag, TaskOrder.PRIORITY, order) { open = false; TaskSort.set(context, it) }
+                SortIcon(WbIcons.Calendar, TaskOrder.DUE, order) { open = false; TaskSort.set(context, it) }
             }
+            more.forEach { (label, action) -> MenuRow(label) { open = false; action() } }
         }
+    }
+}
+
+@Composable
+private fun MenuRow(label: String, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        onClick = onClick,
+        contentPadding = MENU_ROW_PADDING,
+        modifier = Modifier.height(MENU_ROW_HEIGHT),
+    )
+}
+
+/** 정렬 아이콘 하나: 지금 기준이면 진한 알약 바탕. 읽어 주기는 '우선순위순 정렬, 선택됨'처럼 */
+@Composable
+private fun SortIcon(icon: ImageVector, value: TaskOrder, current: TaskOrder, onPick: (TaskOrder) -> Unit) {
+    val on = value == current
+    Box(
+        Modifier.size(34.dp).clip(PillShape)
+            .background(if (on) Wb.colors.pillActive else Color.Transparent)
+            .selectable(selected = on, role = Role.RadioButton) { onPick(value) }
+            .semantics { contentDescription = "${value.label} 정렬" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = if (on) Wb.colors.onPillActive else Wb.colors.muted, modifier = Modifier.size(18.dp))
     }
 }
 
