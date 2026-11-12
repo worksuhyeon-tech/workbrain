@@ -121,6 +121,31 @@
   --shadow-lg: var(--shadow-lg);
 }
 
+/* 서랍(할 일 수정 등): 열 때 오른쪽에서 밀려 들어오고, 닫힐 때 다시 오른쪽으로 빠진다(11/13 사용자). 뒤 막은 함께 옅어진다 */
+@theme {
+  --animate-drawer-in: wb-drawer-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-drawer-out: wb-drawer-out 0.2s cubic-bezier(0.4, 0, 1, 1) both;
+  --animate-fade-in: wb-fade-in 0.24s ease-out both;
+  --animate-fade-out: wb-fade-out 0.2s ease-in both;
+
+  @keyframes wb-drawer-in {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+  @keyframes wb-drawer-out {
+    from { transform: translateX(0); }
+    to { transform: translateX(100%); }
+  }
+  @keyframes wb-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes wb-fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+}
+
 @layer base {
   body {
     margin: 0;

@@ -2,13 +2,9 @@ import { Link } from 'react-router-dom'
 import { isDone, type TaskRow } from '../data/types'
 import { cn } from '../lib/cn'
 import type { LocalDate } from '../rules/dates'
+import type { SubCount } from '../rules/subtasks'
 import { dueChipText, isLate } from '../rules/tasks'
 import { Icons } from './icons'
-
-export interface SubCount {
-  done: number
-  total: number
-}
 
 /**
  * 우선순위 표시(DEC-103, 사용자 2026-11-12): 높음은 제목 앞 주황 별, 보통은 표시 없음, 낮음은 회색 아래 화살표.
@@ -34,7 +30,8 @@ export function PriorityMark({ priority }: { priority: number | null }) {
 
 /**
  * 할 일 한 줄(목업 .trow, 앱 TaskLine): 체크 · (우선순위 표시) 제목(+팔로업) · (속한 곳) 출처 · 기한 칩.
- * 체크는 완료 ↔ 다시 열기. parentTitle이 있으면 오늘 화면의 '상위 › 하위' 줄, sub가 있으면 제목 옆 '⤷ 1/3'
+ * 체크는 완료 ↔ 다시 열기, 제목을 누르면 수정 서랍. parentTitle이 있으면 오늘 화면의 '상위 › 하위' 줄,
+ * sub가 있으면 제목 옆 '⤷ 1/3' 칩(누르면 아래로 펼침·접힘), compact는 상위 아래 펼친 하위 줄(들여 쓰고 곳·출처 줄 없이)
  */
 export function TaskLine({
   t,
@@ -43,8 +40,12 @@ export function TaskLine({
   showPlace,
   parentTitle,
   sub,
+  subOpen,
+  onSubtasks,
+  compact,
   busy,
   onToggle,
+  onOpen,
 }: {
   t: TaskRow
   today: LocalDate
@@ -52,8 +53,12 @@ export function TaskLine({
   showPlace: boolean
   parentTitle?: string | null
   sub?: SubCount | null
+  subOpen?: boolean
+  onSubtasks?: () => void
+  compact?: boolean
   busy?: boolean
   onToggle: () => void
+  onOpen: () => void
 }) {
   const done = isDone(t)
   const late = isLate(t, today)
@@ -61,7 +66,7 @@ export function TaskLine({
   const placeName = t.project?.name ?? t.area?.name
 
   return (
-    <div className="grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-[11px] last:border-b-0">
+    <div className={cn('grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 last:border-b-0', compact ? 'bg-card-2 py-2 pl-12' : 'py-[11px]')}>
       <input
         type="checkbox"
         checked={done}
@@ -70,20 +75,27 @@ export function TaskLine({
         aria-label={`${t.title} ${done ? '다시 열기' : '완료'}`}
         className="size-[18px] accent-primary"
       />
-      <span className={cn('text-[15px] font-medium text-ink', done && 'text-muted line-through')}>
-        {!t.parent_id && <PriorityMark priority={t.priority} />}
-        {parentTitle && <span className="font-normal text-muted">{parentTitle} › </span>}
-        {t.title}
+      <span className={cn('font-medium text-ink', compact ? 'text-sm' : 'text-[15px]', done && 'text-muted line-through')}>
+        <button type="button" onClick={onOpen} className={cn('cursor-pointer text-left hover:underline', done && 'line-through')}>
+          {!t.parent_id && <PriorityMark priority={t.priority} />}
+          {parentTitle && <span className="font-normal text-muted">{parentTitle} › </span>}
+          {t.title}
+        </button>
         {sub && (
-          <span
+          <button
+            type="button"
+            onClick={onSubtasks}
+            aria-expanded={subOpen}
+            aria-label={`하위 할 일 ${sub.total}개 중 ${sub.done}개 끝남, ${subOpen ? '접기' : '펼치기'}`}
             className={cn(
-              'ml-1.5 inline-flex items-center gap-0.5 rounded-full px-2 py-px align-[1px] text-[11px] font-bold whitespace-nowrap',
+              'ml-1.5 inline-flex items-center gap-0.5 rounded-full px-2 py-px align-[1px] text-[11px] font-bold whitespace-nowrap no-underline',
               sub.done === sub.total ? 'bg-good-soft text-good' : 'border border-border bg-surface text-muted',
             )}
           >
             <Icons.sub />
             {sub.done === sub.total ? '하위 다 끝남' : `${sub.done}/${sub.total}`}
-          </span>
+            <span aria-hidden="true" className="ml-0.5">{subOpen ? '⌄' : '›'}</span>
+          </button>
         )}
         {/* 담당 칩은 늘 제목 다음 줄 — 제목이 짧으면 옆에 붙고 길면 내려가 들쭉날쭉하던 것(11/13 사용자, 앱과 같음) */}
         {(t.owner_kind === 'other' || t.owner_kind === 'unknown') && (
@@ -94,6 +106,7 @@ export function TaskLine({
             {t.owner_kind === 'unknown' && <span className="rounded-full bg-warn-soft px-2 py-px text-[11px] font-bold whitespace-nowrap text-warn">담당 확인</span>}
           </span>
         )}
+        {!compact && (
         <span className="mt-0.5 block text-xs font-normal text-muted no-underline">
           {showPlace && placeId && placeName && (
             <Link to={`/projects/${placeId}`} className="mr-1.5 inline-flex items-center gap-1 text-xs font-bold text-body hover:text-primary">
@@ -111,6 +124,7 @@ export function TaskLine({
           )}
           {source}
         </span>
+        )}
       </span>
       <span
         className={cn(

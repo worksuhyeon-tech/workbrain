@@ -32,6 +32,7 @@ export const Icons = {
       <path fill="currentColor" d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.4l-5.8 3.1 1.1-6.5L2.6 9.4l6.5-.9z" />
     </svg>
   ),
+  trash: () => <Stroke size={16}><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3" /></Stroke>,
   /** 우선순위 낮음: 아래 화살표(Outlook '중요도 낮음'과 같은 모양) */
   low: () => <Stroke size={14}><path d="M12 5v14M6 13l6 6 6-6" /></Stroke>,
 }

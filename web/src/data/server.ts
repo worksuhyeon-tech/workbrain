@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase'
 import type { Place } from '../rules/place'
-import type { AreaRow, ProjectRow, TaskRow, TaskSource } from './types'
+import { newTaskFields } from '../rules/tasks'
+import type { AreaRow, ProjectRow, TaskEdit, TaskRow, TaskSource } from './types'
 
 /*
  * 서버 읽기·쓰기(앱 data/Server.kt·Para.kt와 같은 표·칸). 권한은 서버 RLS가 본인 것만 연다.
@@ -70,6 +71,57 @@ export async function loadSources(): Promise<Map<string, TaskSource>> {
 /** 사용자가 직접 만드는 새 할 일. 아카이브된 곳은 서버가 WB409로 막는다 */
 export async function createTask(fields: Record<string, unknown>): Promise<void> {
   must(await supabase.from('task').insert(fields), 'create task')
+}
+
+/**
+ * 할 일 고치기(제목·우선순위·담당·기한·어디에·받는 사람). 버전이 같을 때만 바꾸고 바뀐 행을 돌려준다 —
+ * 다른 기기에서 먼저 바꿨으면 null(M18). 수정 전후는 서버 트리거가 task_revision에 쌓고, 보관된 곳으로 옮기면 서버가 막는다
+ */
+export async function updateTask(t: TaskRow, e: TaskEdit): Promise<TaskRow | null> {
+  const rows = must(
+    await supabase
+      .from('task')
+      .update({
+        title: e.title,
+        priority: e.priority,
+        owner_kind: e.owner_kind,
+        assignee: e.assignee,
+        due_date: e.due_date,
+        due_time: e.due_time,
+        due_ambiguous: e.due_ambiguous,
+        due_text: e.due_text,
+        project_id: e.project_id,
+        area_id: e.area_id,
+        recipients: e.recipients,
+        version: t.version + 1,
+      })
+      .eq('id', t.id)
+      .eq('version', t.version)
+      .select(TASK_WITH_PLACE),
+    'update task',
+  ) as TaskRow[]
+  return rows[0] ?? null
+}
+
+/** 하위 할 일 넣기(FR-23a): 곳은 서버가 상위 것을 넣고, 끝난 상위면 서버가 다시 연다 */
+export async function createSubtask(parent: TaskRow, e: TaskEdit): Promise<void> {
+  must(await supabase.from('task').insert({ ...newTaskFields({ ...e, project_id: null, area_id: null, priority: null }), parent_id: parent.id }), 'create subtask')
+}
+
+/** 할 일 지우기. 버전이 같을 때만 — 다른 기기에서 먼저 고쳤으면 false. 하위·변경 이력은 서버가 함께 지운다 */
+export async function deleteTask(t: TaskRow): Promise<boolean> {
+  const rows = must(await supabase.from('task').delete().eq('id', t.id).eq('version', t.version).select('id'), 'delete task')
+  return rows.length > 0
+}
+
+/** 받는 사람 고르기 칩(DEC-77): 그 기록의 참석자 + 이름 붙은 화자. 보조 정보라 못 읽으면 빈 목록 */
+export async function recordPeople(recordId: string): Promise<string[]> {
+  const r = await supabase.rpc('wb_record_people', { p_record_id: recordId })
+  if (r.error) {
+    console.warn('load record people failed', r.error)
+    return []
+  }
+  return (r.data as string[] | null) ?? []
 }
 
 /** 완료·완료 취소. 버전이 같을 때만 바꾼다 — 다른 기기에서 먼저 바꿨으면 false(M18) */
