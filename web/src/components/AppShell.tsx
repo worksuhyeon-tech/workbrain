@@ -26,7 +26,7 @@ function RailLink({ item }: { item: NavItem }) {
         cn(
           'flex h-10 w-full items-center justify-center gap-3 rounded-md text-[15px] font-medium text-body hover:bg-surface min-[761px]:justify-start min-[761px]:px-3',
           '[&>svg]:flex-none [&>svg]:text-muted',
-          isActive && 'bg-primary/12 font-semibold text-ink [&>svg]:text-primary',
+          isActive && 'bg-sky font-semibold text-ink [&>svg]:text-signal',
         )
       }
     >
@@ -48,7 +48,7 @@ export function AppShell({ email, children }: { email: string; children: ReactNo
         <div className="flex items-center gap-3 px-2 pt-2 pb-4">
           <BrandLogo />
           <div className="hidden min-[761px]:block">
-            <div className="text-xl font-bold tracking-[-0.4px] text-ink">WorkBrain</div>
+            <div className="text-xl font-bold tracking-[-0.1px] text-ink">WorkBrain</div>
             <div className="mt-0.5 font-hand text-[21px] leading-none text-muted">일의 기억</div>
           </div>
         </div>
@@ -106,7 +106,7 @@ export function PageHead({ title, hand, sub, children }: { title: string; hand?:
   return (
     <div className="mb-6">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-[30px] font-semibold tracking-[-0.6px]">{title}</h1>
+        <h1 className="text-[30px] font-semibold tracking-[-0.18px]">{title}</h1>
         {hand && <span className="font-hand text-xl text-muted">{hand}</span>}
         <div className="flex-1" />
         {children}

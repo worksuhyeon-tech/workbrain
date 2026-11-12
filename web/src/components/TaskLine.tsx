@@ -74,23 +74,24 @@ export function TaskLine({
         {!t.parent_id && <PriorityMark priority={t.priority} />}
         {parentTitle && <span className="font-normal text-muted">{parentTitle} › </span>}
         {t.title}
-        {t.owner_kind === 'other' && t.assignee && (
-          <span className="ml-1.5 rounded-full bg-info/12 px-2 py-px align-[1px] text-[11px] font-bold whitespace-nowrap text-info no-underline">
-            {t.assignee} · 팔로업
-          </span>
-        )}
-        {t.owner_kind === 'unknown' && (
-          <span className="ml-1.5 rounded-full bg-warn/13 px-2 py-px align-[1px] text-[11px] font-bold whitespace-nowrap text-warn">담당 확인</span>
-        )}
         {sub && (
           <span
             className={cn(
               'ml-1.5 inline-flex items-center gap-0.5 rounded-full px-2 py-px align-[1px] text-[11px] font-bold whitespace-nowrap',
-              sub.done === sub.total ? 'bg-good/12 text-good' : 'border border-border bg-surface text-muted',
+              sub.done === sub.total ? 'bg-good-soft text-good' : 'border border-border bg-surface text-muted',
             )}
           >
             <Icons.sub />
             {sub.done === sub.total ? '하위 다 끝남' : `${sub.done}/${sub.total}`}
+          </span>
+        )}
+        {/* 담당 칩은 늘 제목 다음 줄 — 제목이 짧으면 옆에 붙고 길면 내려가 들쭉날쭉하던 것(11/13 사용자, 앱과 같음) */}
+        {(t.owner_kind === 'other' || t.owner_kind === 'unknown') && (
+          <span className="mt-1 flex flex-wrap gap-1.5">
+            {t.owner_kind === 'other' && t.assignee && (
+              <span className="rounded-full bg-info-soft px-2 py-px text-[11px] font-bold whitespace-nowrap text-info">{t.assignee} · 팔로업</span>
+            )}
+            {t.owner_kind === 'unknown' && <span className="rounded-full bg-warn-soft px-2 py-px text-[11px] font-bold whitespace-nowrap text-warn">담당 확인</span>}
           </span>
         )}
         <span className="mt-0.5 block text-xs font-normal text-muted no-underline">
@@ -114,8 +115,8 @@ export function TaskLine({
       <span
         className={cn(
           'rounded-full border border-border bg-surface px-2.5 py-[3px] text-xs font-bold whitespace-nowrap text-muted tabular-nums',
-          late && 'border-transparent bg-crit/12 text-crit',
-          t.due_ambiguous && !t.due_date && !t.due_time && 'border-transparent bg-warn/12 text-warn',
+          late && 'border-transparent bg-crit-soft text-crit',
+          t.due_ambiguous && !t.due_date && !t.due_time && 'border-transparent bg-warn-soft text-warn',
         )}
       >
         {dueChipText(t, today)}

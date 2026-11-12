@@ -43,7 +43,10 @@ import com.workbrain.app.data.PlaceType
  * 목업의 이모지 자리(📁 🔁 🔗 📝 ✅ 🎯 🧭 🗄️ 🎙️)는 선 글리프로 바꿨다(Design §6.5 이모지 금지).
  */
 
-/** 종류별 글리프와 색: 프로젝트 베이지 폴더(DEC-103, 전에는 주황) · 반복실행 파랑 · 모든 할 일 초록 */
+/**
+ * 종류별 글리프와 색(목업 이모지 색과 비슷하게): 프로젝트 주황 폴더 · 반복실행 파랑 · 모든 할 일 초록.
+ * 할 일 줄의 폴더만 베이지(DEC-103, TaskLine) — 프로젝트 탭 트리·칩은 주황이 낫다는 사용자 의견(11/13)
+ */
 object ParaGlyph {
     val allTasks = WbIcons.Review
     fun project() = WbIcons.Folder
@@ -53,7 +56,7 @@ object ParaGlyph {
     fun place(type: PlaceType?) = when (type) { PlaceType.PROJECT -> project(); PlaceType.AREA -> area(); null -> allTasks }
 
     @Composable fun tint(type: PlaceType?): Color = when (type) {
-        PlaceType.PROJECT -> Wb.colors.folder
+        PlaceType.PROJECT -> GlassTint.Orange.deep
         PlaceType.AREA -> GlassTint.Blue.deep
         null -> GlassTint.Green.deep
     }
@@ -67,7 +70,7 @@ fun Modifier.dashedPill(color: Color): Modifier = drawBehind {
     drawRoundRect(color = color, cornerRadius = CornerRadius(r, r), style = stroke)
 }
 
-/** 목업 .card: 흰 바탕 + 옅은 테두리 + 14dp 모서리. 안쪽 여백은 쓰는 곳이 정한다 */
+/** 목업 .card: 흰 바탕 + 옅은 테두리 + 24dp 모서리, 그림자 없음(DEC-104). 안쪽 여백은 쓰는 곳이 정한다 */
 @Composable
 fun MockCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Surface(
@@ -75,7 +78,6 @@ fun MockCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() 
         shape = CardShape,
         color = Wb.colors.card,
         border = BorderStroke(1.dp, Wb.colors.border),
-        shadowElevation = 1.dp,
     ) { Column(content = content) }
 }
 

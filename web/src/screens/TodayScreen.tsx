@@ -102,7 +102,7 @@ export function TodayScreen() {
     <>
       <PageHead title="오늘" hand="오늘 챙길 것만 모았어요" sub={`${HEAD_DATE.format(new Date())} · 모든 프로젝트 · 확정 상태 기준`} />
       {failed && (
-        <div className="mb-4 flex items-center gap-3 rounded-lg border border-crit/30 bg-crit/10 p-3 text-sm text-crit">
+        <div className="mb-4 flex items-center gap-3 rounded-lg bg-crit-soft p-3 text-sm text-crit">
           <span className="flex-1">불러오지 못했어요. 인터넷 연결을 확인해 주세요.</span>
           <button type="button" className="font-bold underline" onClick={() => void load()}>
             다시 시도
@@ -113,7 +113,7 @@ export function TodayScreen() {
       <div className="grid items-start gap-4 min-[1041px]:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
         <section aria-label="오늘 할 일" className="rounded-xl border border-border bg-card shadow-sm">
           <div className="flex items-center gap-2 px-4 pt-4 pb-2">
-            <h2 className="text-[17px] font-bold">오늘 할 일</h2>
+            <h2 className="text-[17px] font-bold tracking-[-0.09px]">오늘 할 일</h2>
             <span className="text-sm font-semibold text-muted tabular-nums">{g ? `${openCount}건` : ''}</span>
             <Link to="/tasks" className="ml-auto text-[13px] font-bold">
               다음 7일 · 전체 →
@@ -157,12 +157,12 @@ export function TodayScreen() {
 
         <section aria-label="검토 대기" className="rounded-xl border border-border bg-card shadow-sm">
           <div className="flex items-center gap-2 px-4 pt-4 pb-2">
-            <h2 className="text-[17px] font-bold">검토 대기</h2>
+            <h2 className="text-[17px] font-bold tracking-[-0.09px]">검토 대기</h2>
             <span className="text-sm font-semibold text-muted tabular-nums">{data?.pending != null ? `${data.pending}건` : ''}</span>
           </div>
           <div className="flex items-center gap-2 border-t border-border px-4 py-3">
             <span className="flex-1 text-xs text-muted">AI 제안은 승인해야 반영돼요. 승인 버튼은 기록 화면과 검토함에만 있어요.</span>
-            <Link to="/review" className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-semibold text-on-primary hover:bg-primary-hover">
+            <Link to="/review" className="inline-flex h-9 items-center rounded-full bg-primary px-5 text-sm font-semibold text-on-primary hover:bg-primary-hover">
               검토함 열기
             </Link>
           </div>

@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.workbrain.app.data.Place
+import com.workbrain.app.data.PlaceType
 import com.workbrain.app.data.TaskRow
 import com.workbrain.app.ui.ParaGlyph
 import com.workbrain.app.ui.PillShape
@@ -151,11 +152,20 @@ fun TaskLine(
                     textDecoration = if (t.done) TextDecoration.LineThrough else null,
                 )
                 subtasks?.let { SubtaskChip(it, subtasksOpen, onSubtasks?.takeIf { !selecting }) }
-                when (t.ownerKind) {
-                    "other" -> OwnChip("${t.assignee.orEmpty()} · 팔로업", Wb.colors.info, WbIcons.Person)
-                    "unknown" -> OwnChip("담당 확인", Wb.colors.warn, null)
+            }
+            // 담당 칩(팔로업·담당 확인)과 받는 사람 칩은 늘 제목 다음 줄에 — 제목이 짧으면 옆에 붙고 길면 내려가 들쭉날쭉하던 것(11/13 사용자)
+            if (t.ownerKind == "other" || t.ownerKind == "unknown" || t.recipients.isNotEmpty()) {
+                FlowRow(
+                    Modifier.padding(top = 3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    when (t.ownerKind) {
+                        "other" -> OwnChip("${t.assignee.orEmpty()} · 팔로업", Wb.colors.info, WbIcons.Person)
+                        "unknown" -> OwnChip("담당 확인", Wb.colors.warn, null)
+                    }
+                    RecipientsChip(t.recipients, if (selecting) onSelect else if (readOnly) null else onRecipients ?: onOpen)
                 }
-                RecipientsChip(t.recipients, if (selecting) onSelect else if (readOnly) null else onRecipients ?: onOpen)
             }
             // 펼친 하위 줄은 출처 줄 없이(상위에 이미 보임)
             if (!compact) Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -164,7 +174,12 @@ fun TaskLine(
                         Modifier.clip(RoundedCornerShape(4.dp)).clickable(enabled = !selecting && place != null && onPlace != null) { place?.let { onPlace?.invoke(it) } }.padding(end = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(ParaGlyph.place(place?.type), contentDescription = null, tint = ParaGlyph.tint(place?.type), modifier = Modifier.size(12.dp))
+                        // 할 일 줄의 프로젝트 폴더는 베이지(DEC-103), 나머지는 트리와 같은 색
+                        Icon(
+                            ParaGlyph.place(place?.type), contentDescription = null,
+                            tint = if (place?.type == PlaceType.PROJECT) Wb.colors.folder else ParaGlyph.tint(place?.type),
+                            modifier = Modifier.size(12.dp),
+                        )
                         Text(place?.name ?: UNSORTED, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Wb.colors.body, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 3.dp))
                     }
                 }

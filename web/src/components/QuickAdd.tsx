@@ -110,7 +110,7 @@ export function QuickAdd({
           type="button"
           onClick={() => void add()}
           disabled={saving}
-          className="h-9 rounded-md border border-primary bg-primary px-4 text-sm font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
+          className="h-9 rounded-full border border-primary bg-primary px-5 text-sm font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
         >
           {saving ? '추가 중…' : '추가'}
         </button>
@@ -122,7 +122,7 @@ export function QuickAdd({
               key={i}
               className={cn(
                 'rounded-full border border-border bg-surface px-[9px] py-0.5 text-xs font-semibold text-body',
-                c.warn && 'border-warn/35 text-warn',
+                c.warn && 'border-transparent bg-warn-soft text-warn',
               )}
             >
               {c.priority !== undefined && <PriorityMark priority={c.priority} />}
@@ -136,7 +136,7 @@ export function QuickAdd({
               key={`${p.type}:${p.id}`}
               type="button"
               onClick={() => setText(choosePlace(text, parsed.placeAsked!, p))}
-              className="rounded-full border border-primary/40 bg-primary/8 px-[9px] py-0.5 text-xs font-semibold text-primary"
+              className="rounded-full border border-signal/40 bg-sky px-[9px] py-0.5 text-xs font-semibold text-primary"
             >
               {p.name}
             </button>

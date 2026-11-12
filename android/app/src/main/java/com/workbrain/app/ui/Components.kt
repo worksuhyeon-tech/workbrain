@@ -32,8 +32,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 // 목업 공통 모양(radius·간격)을 한곳에 둔다
-val CardShape = RoundedCornerShape(14.dp)      // --r-xl
-val ControlShape = RoundedCornerShape(8.dp)    // --r-lg (선택지·업로드 줄)
+val CardShape = RoundedCornerShape(24.dp)      // --r-xl(DEC-104 카드 24)
+val ControlShape = RoundedCornerShape(10.dp)   // --r-lg (입력칸·선택지·업로드 줄, DEC-104 10)
 val PillShape = RoundedCornerShape(200.dp)     // --r-pill
 
 /** 화면 머리: 제목 + 손글씨 한마디(목업 .page-head .hand) */
@@ -59,7 +59,7 @@ fun PageHeader(title: String, hand: String?, modifier: Modifier = Modifier, trai
     }
 }
 
-/** 카드: 흰 바탕 + 옅은 테두리 + 14dp 모서리(목업 .card) */
+/** 카드: 흰 바탕 + 옅은 테두리 + 24dp 모서리(목업 .card). 그림자 없음(DEC-104 — 테두리·파스텔로 구분) */
 @Composable
 fun WbCard(modifier: Modifier = Modifier, padding: PaddingValues = PaddingValues(16.dp), content: @Composable ColumnScope.() -> Unit) {
     Surface(
@@ -67,7 +67,6 @@ fun WbCard(modifier: Modifier = Modifier, padding: PaddingValues = PaddingValues
         shape = CardShape,
         color = Wb.colors.card,
         border = BorderStroke(1.dp, Wb.colors.border),
-        shadowElevation = 1.dp,
     ) { Column(Modifier.padding(padding), content = content) }
 }
 
@@ -96,11 +95,22 @@ private fun toneColor(tone: Tone): Color = when (tone) {
     Tone.Mute -> Wb.colors.muted
 }
 
+/** 상태 칩·안내 띠 바탕(DEC-104): 안내만 파스텔 하늘, 지연·완료·경고·보라는 글자색 12%(예전 뱃지) */
+@Composable
+private fun toneSoft(tone: Tone): Color = when (tone) {
+    Tone.Good -> Wb.colors.goodSoft
+    Tone.Warn -> Wb.colors.warnSoft
+    Tone.Crit -> Wb.colors.critSoft
+    Tone.Info -> Wb.colors.infoSoft
+    Tone.Purple -> Wb.colors.purple.copy(alpha = 0.12f)
+    Tone.Mute -> Wb.colors.surface
+}
+
 /** 상태 칩: 글자색 + 같은 색 12% 바탕(목업 .chip) */
 @Composable
 fun WbChip(text: String, tone: Tone, modifier: Modifier = Modifier) {
     val color = toneColor(tone)
-    val base = modifier.background(if (tone == Tone.Mute) Wb.colors.surface else color.copy(alpha = 0.12f), PillShape)
+    val base = modifier.background(if (tone == Tone.Mute) Wb.colors.surface else toneSoft(tone), PillShape)
     Text(
         text,
         fontSize = 12.sp,
@@ -122,8 +132,7 @@ fun Banner(text: String, tone: Tone, modifier: Modifier = Modifier) {
         color = color,
         modifier = modifier
             .fillMaxWidth()
-            .background(color.copy(alpha = 0.10f), ControlShape)
-            .border(1.dp, color.copy(alpha = 0.28f), ControlShape)
+            .background(toneSoft(tone), ControlShape)
             .padding(12.dp),
     )
 }
@@ -138,25 +147,25 @@ fun EmptyState(hand: String, body: String, modifier: Modifier = Modifier, icon: 
     }
 }
 
-/** 주 버튼(파란 바탕) */
+/** 주 버튼(파란 바탕, 알약 — DEC-104) */
 @Composable
 fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     Button(
         onClick = onClick,
         enabled = enabled,
-        shape = ControlShape,
+        shape = PillShape,
         colors = ButtonDefaults.buttonColors(containerColor = Wb.colors.primary, contentColor = Wb.colors.onPrimary),
         modifier = modifier.height(44.dp),
     ) { Text(text, style = MaterialTheme.typography.labelLarge) }
 }
 
-/** 보조 버튼(흰 바탕 + 테두리, 목업 .btn) */
+/** 보조 버튼(흰 바탕 + 테두리, 목업 .btn, 알약 — DEC-104) */
 @Composable
 fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
-        shape = ControlShape,
+        shape = PillShape,
         border = BorderStroke(1.dp, Wb.colors.borderStrong),
         colors = ButtonDefaults.outlinedButtonColors(containerColor = Wb.colors.card, contentColor = Wb.colors.body),
         contentPadding = PaddingValues(horizontal = 14.dp),
@@ -187,7 +196,8 @@ fun SegmentPills(
                 onClick = { onChange(v) },
                 shape = PillShape,
                 color = if (on) Wb.colors.card else Color.Transparent,
-                shadowElevation = if (on) 1.dp else 0.dp,
+                // 그림자 대신 옅은 테두리로 고른 칸을 띄운다(DEC-104)
+                border = if (on) BorderStroke(1.dp, Wb.colors.border) else null,
                 modifier = if (compact) Modifier.height(32.dp) else Modifier.weight(1f).height(36.dp),
             ) {
                 Row(

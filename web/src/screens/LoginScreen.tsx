@@ -65,11 +65,11 @@ export function LoginScreen() {
           <div className="mb-8 flex items-center gap-3">
             <BrandLogo size={48} />
             <div className="leading-[1.1]">
-              <div className="text-[26px] font-extrabold tracking-[-0.6px] text-ink">WorkBrain</div>
+              <div className="text-[26px] font-extrabold tracking-[-0.15px] text-ink">WorkBrain</div>
               <div className="mt-0.5 font-hand text-[22px] text-muted">일의 기억</div>
             </div>
           </div>
-          <h1 className="mb-4 text-[38px] leading-[1.18] font-semibold tracking-[-1px]">
+          <h1 className="mb-4 text-[38px] leading-[1.18] font-semibold tracking-[-0.23px]">
             회의는 녹음만,
             <br />
             정리는 WorkBrain이.
@@ -98,12 +98,12 @@ export function LoginScreen() {
       <main className="flex items-center justify-center bg-surface p-6">
         <div className="w-full max-w-[440px]">
           <div className="mb-1.5 font-hand text-2xl leading-none text-primary">다시 오셨네요</div>
-          <h2 className="mb-6 text-[28px] font-bold">로그인</h2>
+          <h2 className="mb-6 text-[28px] font-bold tracking-[-0.17px]">로그인</h2>
           <button
             type="button"
             onClick={login}
             disabled={busy}
-            className="flex h-11 w-full items-center justify-center gap-2 rounded-md bg-primary text-[15px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
+            className="flex h-11 w-full items-center justify-center gap-2 rounded-full bg-primary text-[15px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
           >
             {busy ? '로그인 창으로 가는 중…' : 'Google로 로그인'}
           </button>

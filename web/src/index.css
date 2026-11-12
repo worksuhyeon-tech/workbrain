@@ -10,52 +10,66 @@
   src: url("/fonts/hand-accent.woff2") format("woff2");
 }
 
-/* 색·간격·모서리는 웹 목업(docs/02-design/mockups/workbrain-*.html) :root 토큰 그대로 */
+/*
+ * 디자인 토큰(DEC-104, Aboard 스타일 '흰 책상 위 파스텔 공책' — docs/02-design/DESIGN-SYSTEM-reference.md).
+ * 배경 #fafafa·카드 흰색·글자 #262626/#757577·강조는 파랑 하나. 그림자 대신 옅은 테두리와 파스텔 바탕을 쓰고,
+ * 떠 있는 메뉴·알림만 옅은 그림자 하나. 버튼 파랑도 원본 #008ae8 그대로(사용자: 진하게 하니 예전 파랑과 같아 보임 — 흰 글자 대비 3.6:1을 감수).
+ * 상태 색(지연·경고·완료·안내)은 뜻이 있어 남기고, 안내 칩 바탕만 파스텔 하늘, 지연·완료·경고 칩은 예전처럼 글자색 12%.
+ * 목업 10장(docs/02-design/mockups)도 같은 값이다
+ */
 :root {
-  --canvas: #ffffff; --surface: #f5f8fb; --card: #ffffff; --card-2: #fbfdfe;
-  --border: #e3e8ee; --border-strong: #cfd8e2; --ink: #0e1726; --body: #17253d; --muted: #5c6b7c;
-  --primary: #0078d4; --primary-hover: #106ebe; --on-primary: #ffffff; --link: #0067b8;
-  --dark-action: #091f2c; --pill-active: #06161f; --on-pill: #ffffff;
-  --good-fg: #0f7a43; --warn-fg: #935600; --crit-fg: #b02a1f; --info-fg: #0067b8;
+  --canvas: #ffffff; --surface: #fafafa; --card: #ffffff; --card-2: #fcfcfc;
+  --border: #ececed; --border-strong: #cfcfd2; --ink: #262626; --body: #3a3a3c; --muted: #757577; --ash: #aeaeaf;
+  --primary: #008ae8; --primary-hover: #0079d0; --on-primary: #ffffff; --link: #0077c8; --signal: #008ae8;
+  --dark-action: #262626; --pill-active: #262626; --on-pill: #ffffff;
+  --good-fg: #0f7a43; --warn-fg: #935600; --crit-fg: #b02a1f; --info-fg: #0069b4;
+  /* 안내 칩만 파스텔 하늘, 지연·완료·경고 칩(지연·'추가됨'·'담당 확인')은 예전처럼 글자색 12%(11/13 사용자) */
+  --good-soft: color-mix(in srgb, #0f7a43 12%, transparent); --warn-soft: color-mix(in srgb, #935600 12%, transparent); --crit-soft: color-mix(in srgb, #b02a1f 12%, transparent); --info-soft: #e0f2fe;
+  --blush: #fbcfe8; --lavender: #e6dafd; --mint: #b6edee; --powder: #afe4ff; --butter: #ffe77a; --sky: #e0f2fe;
+  /* 글래스 아이콘(뒤판 그라데이션·유리 앞판)은 예전 색 그대로 — 파스텔보다 낫다는 사용자 의견(11/13, DEC-104 ⑤) */
   --g-purple: linear-gradient(135deg, #8b7bf2, #b9a7ff); --g-green: linear-gradient(135deg, #15c08a, #78e7c3);
   --g-orange: linear-gradient(135deg, #ff8a3d, #ffc08a); --g-pink: linear-gradient(135deg, #ff4d8d, #ff95ba);
   --glass-front: linear-gradient(135deg, rgba(255,255,255,.60), rgba(255,255,255,.14)); --glass-border: rgba(255,255,255,.7); --glass-ink: #1b2435;
-  --hero-bg: linear-gradient(160deg, #eaf3fb 0%, #eef0fb 55%, #f6ecf4 100%);
-  /* 프로젝트 폴더(사용자 선택 베이지)·반복실행(앱과 같은 파랑)·우선순위 높음 별(OneNote '중요'처럼 주황), 2026-11-12 */
+  --hero-bg: linear-gradient(160deg, #fdf2f8 0%, #f3eefe 50%, #eaf7fb 100%);
+  /* 할 일 줄의 프로젝트 폴더(사용자 선택 베이지)·반복실행(앱과 같은 파랑)·우선순위 높음 별(OneNote '중요'처럼 주황), DEC-103 */
   --folder: #b88a5e; --area-icon: #1e7fea; --star: #f08a24;
-  --shadow-sm: 0 1px 2px rgba(14,23,38,.08), 0 1px 1px rgba(14,23,38,.05);
-  --shadow-md: 0 2px 10px rgba(14,23,38,.10), 0 1px 3px rgba(14,23,38,.06);
-  --shadow-lg: 0 12px 32px rgba(14,23,38,.14), 0 4px 10px rgba(14,23,38,.08);
+  --shadow-sm: none;
+  --shadow-md: 0 2px 8px rgba(205,205,205,.6);
+  --shadow-lg: 0 4px 16px rgba(205,205,205,.5);
   --font: "Pretendard Variable", "Pretendard", system-ui, -apple-system, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   --font-hand: "HandAccent", "Pretendard Variable", cursive;
   color-scheme: light;
 }
 
-/* 어두운 색: 기기 설정을 따르되, 위 막대의 테마 단추로 고른 값(data-theme)이 이긴다 */
+/* 어두운 색(Aboard에는 없어 같은 느낌으로 만듦): 기기 설정을 따르되, 위 막대의 테마 단추로 고른 값(data-theme)이 이긴다 */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --canvas: #0b1117; --surface: #0f1620; --card: #141d27; --card-2: #17212c;
-    --border: #243240; --border-strong: #31424f; --ink: #eef4fa; --body: #c3d0dc; --muted: #8ea0b2;
-    --primary: #3aa0f0; --primary-hover: #58b0f4; --on-primary: #06131d; --link: #6bb8f6;
-    --dark-action: #1d2a36; --pill-active: #eaf2f9; --on-pill: #06131d;
-    --good-fg: #55d393; --warn-fg: #e6a84a; --crit-fg: #f08478; --info-fg: #6bb8f6;
+    --canvas: #141416; --surface: #121214; --card: #1c1c1f; --card-2: #212124;
+    --border: #2c2c30; --border-strong: #45454b; --ink: #f1f1f2; --body: #d6d6d8; --muted: #9b9ba0; --ash: #6e6e73;
+    --primary: #3aa6f5; --primary-hover: #5bb5f7; --on-primary: #04131f; --link: #6bbcf7; --signal: #3aa6f5;
+    --dark-action: #2a2a2e; --pill-active: #f1f1f2; --on-pill: #141416;
+    --good-fg: #55d393; --warn-fg: #e6a84a; --crit-fg: #f08478; --info-fg: #8fcfff;
+    --good-soft: color-mix(in srgb, #55d393 12%, transparent); --warn-soft: color-mix(in srgb, #e6a84a 12%, transparent); --crit-soft: color-mix(in srgb, #f08478 12%, transparent); --info-soft: rgba(175,228,255,.12);
+    --blush: #4a2a3c; --lavender: #3a3252; --mint: #1f3c3d; --powder: #1e3a4c; --butter: #4a4220; --sky: #1b3042;
     --glass-front: linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,.05)); --glass-border: rgba(255,255,255,.28); --glass-ink: #f3f7fb;
-    --hero-bg: linear-gradient(160deg, #0e1a24 0%, #121a2b 55%, #1b1526 100%);
+    --hero-bg: linear-gradient(160deg, #1d1720 0%, #18172a 50%, #13201f 100%);
     --folder: #d9b48c; --area-icon: #5aa8f0; --star: #f5a04a;
-    --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-md: 0 2px 10px rgba(0,0,0,.45); --shadow-lg: 0 14px 36px rgba(0,0,0,.55);
+    --shadow-sm: none; --shadow-md: 0 2px 8px rgba(0,0,0,.45); --shadow-lg: 0 4px 16px rgba(0,0,0,.5);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --canvas: #0b1117; --surface: #0f1620; --card: #141d27; --card-2: #17212c;
-  --border: #243240; --border-strong: #31424f; --ink: #eef4fa; --body: #c3d0dc; --muted: #8ea0b2;
-  --primary: #3aa0f0; --primary-hover: #58b0f4; --on-primary: #06131d; --link: #6bb8f6;
-  --dark-action: #1d2a36; --pill-active: #eaf2f9; --on-pill: #06131d;
-  --good-fg: #55d393; --warn-fg: #e6a84a; --crit-fg: #f08478; --info-fg: #6bb8f6;
+  --canvas: #141416; --surface: #121214; --card: #1c1c1f; --card-2: #212124;
+  --border: #2c2c30; --border-strong: #45454b; --ink: #f1f1f2; --body: #d6d6d8; --muted: #9b9ba0; --ash: #6e6e73;
+  --primary: #3aa6f5; --primary-hover: #5bb5f7; --on-primary: #04131f; --link: #6bbcf7; --signal: #3aa6f5;
+  --dark-action: #2a2a2e; --pill-active: #f1f1f2; --on-pill: #141416;
+  --good-fg: #55d393; --warn-fg: #e6a84a; --crit-fg: #f08478; --info-fg: #8fcfff;
+  --good-soft: color-mix(in srgb, #55d393 12%, transparent); --warn-soft: color-mix(in srgb, #e6a84a 12%, transparent); --crit-soft: color-mix(in srgb, #f08478 12%, transparent); --info-soft: rgba(175,228,255,.12);
+  --blush: #4a2a3c; --lavender: #3a3252; --mint: #1f3c3d; --powder: #1e3a4c; --butter: #4a4220; --sky: #1b3042;
   --glass-front: linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,.05)); --glass-border: rgba(255,255,255,.28); --glass-ink: #f3f7fb;
-  --hero-bg: linear-gradient(160deg, #0e1a24 0%, #121a2b 55%, #1b1526 100%);
+  --hero-bg: linear-gradient(160deg, #1d1720 0%, #18172a 50%, #13201f 100%);
   --folder: #d9b48c; --area-icon: #5aa8f0; --star: #f5a04a;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-md: 0 2px 10px rgba(0,0,0,.45); --shadow-lg: 0 14px 36px rgba(0,0,0,.55);
+  --shadow-sm: none; --shadow-md: 0 2px 8px rgba(0,0,0,.45); --shadow-lg: 0 4px 16px rgba(0,0,0,.5);
   color-scheme: dark;
 }
 
@@ -70,10 +84,12 @@
   --color-ink: var(--ink);
   --color-body: var(--body);
   --color-muted: var(--muted);
+  --color-ash: var(--ash);
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-hover);
   --color-on-primary: var(--on-primary);
   --color-link: var(--link);
+  --color-signal: var(--signal);
   --color-dark-action: var(--dark-action);
   --color-pill: var(--pill-active);
   --color-on-pill: var(--on-pill);
@@ -81,14 +97,25 @@
   --color-warn: var(--warn-fg);
   --color-crit: var(--crit-fg);
   --color-info: var(--info-fg);
+  --color-good-soft: var(--good-soft);
+  --color-warn-soft: var(--warn-soft);
+  --color-crit-soft: var(--crit-soft);
+  --color-info-soft: var(--info-soft);
+  --color-blush: var(--blush);
+  --color-lavender: var(--lavender);
+  --color-mint: var(--mint);
+  --color-powder: var(--powder);
+  --color-butter: var(--butter);
+  --color-sky: var(--sky);
   --color-folder: var(--folder);
   --color-area-icon: var(--area-icon);
   --color-star: var(--star);
   --font-sans: var(--font);
   --font-hand: var(--font-hand);
-  --radius-md: 4px;
-  --radius-lg: 8px;
-  --radius-xl: 14px;
+  /* 모서리(DEC-104): 입력칸·작은 칸 10px, 카드 24px, 버튼·칩은 rounded-full(알약) */
+  --radius-md: 10px;
+  --radius-lg: 10px;
+  --radius-xl: 24px;
   --shadow-sm: var(--shadow-sm);
   --shadow-md: var(--shadow-md);
   --shadow-lg: var(--shadow-lg);
@@ -100,15 +127,16 @@
     background: var(--surface);
     color: var(--body);
     font-family: var(--font);
-    font-size: 17px;
+    /* 본문 16px(Aboard body), 자간은 큰 글자일수록 조금씩 좁힌다(제목은 화면마다 tracking-[…]) */
+    font-size: 16px;
     line-height: 1.5;
-    letter-spacing: -0.1px;
+    letter-spacing: -0.08px;
     -webkit-font-smoothing: antialiased;
   }
   h1, h2, h3 { color: var(--ink); margin: 0; text-wrap: balance; }
   a { color: var(--link); text-decoration: none; }
   button { font-family: inherit; cursor: pointer; }
-  :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

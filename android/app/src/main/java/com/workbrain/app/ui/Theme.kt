@@ -32,6 +32,11 @@ data class WbColors(
     val primary: Color, val onPrimary: Color, val link: Color,
     val darkAction: Color, val pillActive: Color, val onPillActive: Color,
     val good: Color, val warn: Color, val crit: Color, val info: Color,
+    /**
+     * 상태 칩·안내 띠 바탕(DEC-104): 안내만 파스텔 하늘, 지연·완료·경고는 예전처럼 글자색 12%
+     * (11/13 사용자: 지연·'추가됨'·'담당 확인' 뱃지는 예전이 낫다). 글자와 대비 4.5:1 넘음
+     */
+    val goodSoft: Color, val warnSoft: Color, val critSoft: Color, val infoSoft: Color,
     /** 보라 칩 글자(검색 결과 '회의록', 11/12 사용자). 목업 --g-purple 계열을 칩 바탕(12%) 위에서 글자 대비 4.5:1 넘게 진하게 */
     val purple: Color,
     /** 줄 강조: 검색으로 찾아간 할 일 줄 깜빡임. 분홍 #FFAFD7의 20%(2026-11-12 사용자 지정) */
@@ -46,12 +51,13 @@ data class WbColors(
 )
 
 private val LightWb = WbColors(
-    surface = Color(0xFFF5F8FB), card = Color(0xFFFFFFFF), card2 = Color(0xFFFBFDFE),
-    border = Color(0xFFE3E8EE), borderStrong = Color(0xFFCFD8E2),
-    ink = Color(0xFF0E1726), body = Color(0xFF17253D), muted = Color(0xFF5C6B7C),
-    primary = Color(0xFF0078D4), onPrimary = Color(0xFFFFFFFF), link = Color(0xFF0067B8),
-    darkAction = Color(0xFF091F2C), pillActive = Color(0xFF06161F), onPillActive = Color(0xFFFFFFFF),
-    good = Color(0xFF0F7A43), warn = Color(0xFF935600), crit = Color(0xFFB02A1F), info = Color(0xFF0067B8),
+    surface = Color(0xFFFAFAFA), card = Color(0xFFFFFFFF), card2 = Color(0xFFFCFCFC),
+    border = Color(0xFFECECED), borderStrong = Color(0xFFCFCFD2),
+    ink = Color(0xFF262626), body = Color(0xFF3A3A3C), muted = Color(0xFF757577),
+    primary = Color(0xFF008AE8), onPrimary = Color(0xFFFFFFFF), link = Color(0xFF0077C8),
+    darkAction = Color(0xFF262626), pillActive = Color(0xFF262626), onPillActive = Color(0xFFFFFFFF),
+    good = Color(0xFF0F7A43), warn = Color(0xFF935600), crit = Color(0xFFB02A1F), info = Color(0xFF0069B4),
+    goodSoft = Color(0x1F0F7A43), warnSoft = Color(0x1F935600), critSoft = Color(0x1FB02A1F), infoSoft = Color(0xFFE0F2FE),
     purple = Color(0xFF5E46C8),
     highlight = Color(0x33FFAFD7),
     highlightText = Color(0x80FFAFD7),
@@ -61,12 +67,13 @@ private val LightWb = WbColors(
 )
 
 private val DarkWb = WbColors(
-    surface = Color(0xFF0F1620), card = Color(0xFF141D27), card2 = Color(0xFF17212C),
-    border = Color(0xFF243240), borderStrong = Color(0xFF31424F),
-    ink = Color(0xFFEEF4FA), body = Color(0xFFC3D0DC), muted = Color(0xFF8EA0B2),
-    primary = Color(0xFF3AA0F0), onPrimary = Color(0xFF06131D), link = Color(0xFF6BB8F6),
-    darkAction = Color(0xFF0A1A24), pillActive = Color(0xFFEAF2F9), onPillActive = Color(0xFF06131D),
-    good = Color(0xFF55D393), warn = Color(0xFFE6A84A), crit = Color(0xFFF08478), info = Color(0xFF6BB8F6),
+    surface = Color(0xFF121214), card = Color(0xFF1C1C1F), card2 = Color(0xFF212124),
+    border = Color(0xFF2C2C30), borderStrong = Color(0xFF45454B),
+    ink = Color(0xFFF1F1F2), body = Color(0xFFD6D6D8), muted = Color(0xFF9B9BA0),
+    primary = Color(0xFF3AA6F5), onPrimary = Color(0xFF04131F), link = Color(0xFF6BBCF7),
+    darkAction = Color(0xFF2A2A2E), pillActive = Color(0xFFF1F1F2), onPillActive = Color(0xFF141416),
+    good = Color(0xFF55D393), warn = Color(0xFFE6A84A), crit = Color(0xFFF08478), info = Color(0xFF8FCFFF),
+    goodSoft = Color(0x1F55D393), warnSoft = Color(0x1FE6A84A), critSoft = Color(0x1FF08478), infoSoft = Color(0x1FAFE4FF),
     purple = Color(0xFFB9A7FF),
     highlight = Color(0x33FFAFD7),
     highlightText = Color(0x66FFAFD7),
@@ -94,7 +101,7 @@ private fun pretendard(weight: Int) = Font(
 val Pretendard = FontFamily(pretendard(400), pretendard(500), pretendard(600), pretendard(700))
 val HandAccent = FontFamily(Font(R.font.hand_accent))
 
-private fun style(size: Int, weight: Int, line: Int, tracking: Double = -0.2) = TextStyle(
+private fun style(size: Int, weight: Int, line: Int, tracking: Double = -0.08) = TextStyle(
     fontFamily = Pretendard,
     fontWeight = FontWeight(weight),
     fontSize = size.sp,
@@ -102,15 +109,15 @@ private fun style(size: Int, weight: Int, line: Int, tracking: Double = -0.2) = 
     letterSpacing = tracking.sp,
 )
 
-// 목업 글자 크기: 화면 제목 22~30, 카드 제목 16~17, 본문 14~15, 보조 12~13
+// 목업 글자 크기: 화면 제목 22~30, 카드 제목 16~17, 본문 14~15, 보조 12~13. 자간은 DEC-104(Aboard 비율: 24px -0.14, 20px -0.1)
 private val WbTypography = Typography(
-    headlineMedium = style(26, 700, 34, -0.6),
-    titleLarge = style(20, 700, 28, -0.4),
-    titleMedium = style(17, 700, 24),
+    headlineMedium = style(26, 700, 34, -0.16),
+    titleLarge = style(20, 700, 28, -0.1),
+    titleMedium = style(17, 700, 24, -0.09),
     titleSmall = style(15, 700, 22),
     bodyLarge = style(16, 400, 24),
     bodyMedium = style(15, 400, 22),
-    bodySmall = style(13, 400, 19, -0.1),
+    bodySmall = style(13, 400, 19, -0.04),
     labelLarge = style(14, 600, 20),
     labelMedium = style(12, 700, 16, 0.0),
     labelSmall = style(11, 600, 14, 0.0),
