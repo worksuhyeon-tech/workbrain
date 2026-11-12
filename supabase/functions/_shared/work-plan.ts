@@ -27,6 +27,10 @@ export type PlanTask = {
   placeId: string | null;         // 프로젝트나 반복실행. 없으면 '정리 안 됨'이라 넣지 않는다(DEC-87)
   /** AI 제안을 승인해 생긴 할 일의 출처 기록. 직접 추가는 null */
   source: { recordId: string; title: string | null; at: string } | null;
+  /** 하위 할 일이면 상위 할 일 ID(FR-23a). 하위는 따로 줄이 없다 */
+  parentId?: string | null;
+  /** 상위 할 일의 하위 개수(기간과 상관없이 전체). 하위가 없으면 비움 */
+  subtasks?: { total: number; done: number } | null;
 };
 
 export type PlanMeeting = {
@@ -132,6 +136,11 @@ const tail = (parts: string[]) => `(${parts.join(" ").replace(/ /g, NBSP)})`;
  * 전주 칸은 실적 칸이라 그 주 예정 일은 예정일에 끝낸다고 보고 날짜만 '(11/9)'(2026-11-11 사용자 결정, 지난 기한이 '예정'으로 보이던 것).
  * 금주 칸은 '(11/18 예정)'. 팔로업은 회사 보고 표기대로 '(w.박지훈, 11/14 예정)'(DEC-88)
  */
+/** 상위 할 일 괄호 끝 '하위 4건 중 3건 완료'(DEC-101 ⑥). 하위가 없으면 없음 */
+function subPart(t: PlanTask): string[] {
+  return t.subtasks && t.subtasks.total > 0 ? [`하위 ${t.subtasks.total}건 중 ${t.subtasks.done}건 완료`] : [];
+}
+
 function taskLine(t: PlanTask, kind: "done" | "previous" | "next"): string {
   const due = dueOf(t);
   const date = t.dueAmbiguous && t.dueText ? t.dueText.trim() : due ? slashed(due) : "";
@@ -139,7 +148,14 @@ function taskLine(t: PlanTask, kind: "done" | "previous" | "next"): string {
     ? `완료 ${slashed(seoulDate(t.doneAt!))}`
     : kind === "previous" ? date : date ? `${date} 예정` : "예정";
   const who = t.ownerKind === "other" && t.assignee ? [`w.${t.assignee.trim()},`] : [];
-  return `${t.title.trim()} ${tail([...who, when])}`;
+  const sub = subPart(t).map((s) => `· ${s}`);
+  return `${t.title.trim()} ${tail([...who, when, ...sub].filter(Boolean))}`;
+}
+
+/** 자기는 그 칸 조건에 안 맞지만 하위가 맞아서 넣는 상위 줄: 괄호에는 하위 숫자만('w.' 팔로업은 남김) */
+function parentOnlyLine(t: PlanTask): string {
+  const who = t.ownerKind === "other" && t.assignee ? [`w.${t.assignee.trim()},`] : [];
+  return `${t.title.trim()} ${tail([...who, ...subPart(t)])}`;
 }
 
 /** 회의 한 줄: '- 접수 화면 1차 리뷰 (11/12 회의)'. 제목에 이미 회의·통화·미팅이 있으면 날짜만('IT 개발팀 통화 (11/13)') */
@@ -156,17 +172,23 @@ export function buildWorkPlan(input: PlanInput): WorkPlan {
   const places = [...input.places].sort((a, b) =>
     a.type === b.type ? byKo(a.name, b.name) : a.type === "project" ? -1 : 1
   );
-  const tasksOf = (placeId: string) => input.tasks.filter((t) => t.placeId === placeId);
+  // 하위 할 일은 따로 줄이 없고 상위 줄에 숫자로만 보인다(FR-23a, DEC-101 ⑥). 하위의 곳은 늘 상위와 같다
+  const tasksOf = (placeId: string) => input.tasks.filter((t) => t.placeId === placeId && !t.parentId);
+  const kidsOf = (id: string) => input.tasks.filter((t) => t.parentId === id);
+  const doneIn = (t: PlanTask, cell: { start: string; end: string }) => t.status === "done" && !!t.doneAt && within(seoulDate(t.doneAt), cell);
+  const dueIn = (t: PlanTask, cell: { start: string; end: string }) => t.status !== "done" && within(dueOf(t), cell);
 
   const previous: PlanLine[] = [];
   const next: PlanLine[] = [];
   for (const place of places) {
     const mine = tasksOf(place.id);
     // 전주 칸: 그 주에 끝낸 일(보관한 곳도 실적이라 넣음) + 그 주 기한인데 안 끝난 일(보관한 곳은 뺌)
-    const done = mine.filter((t) => t.status === "done" && t.doneAt && within(seoulDate(t.doneAt), p.previous))
-      .sort((a, b) => a.doneAt!.localeCompare(b.doneAt!));
-    const planned = place.archived ? [] : mine.filter((t) => t.status !== "done" && within(dueOf(t), p.previous))
-      .sort((a, b) => dueOf(a)!.localeCompare(dueOf(b)!));
+    const done = mine.filter((t) => doneIn(t, p.previous)).sort((a, b) => a.doneAt!.localeCompare(b.doneAt!));
+    const planned = place.archived ? [] : mine.filter((t) => dueIn(t, p.previous)).sort((a, b) => dueOf(a)!.localeCompare(dueOf(b)!));
+    // 자기는 안 맞지만 하위가 그 주에 끝났거나 그 주 기한인 상위(보관한 곳은 끝낸 것만)
+    const prevByKids = mine.filter((t) => !done.includes(t) && !planned.includes(t) &&
+      kidsOf(t.id).some((c) => doneIn(c, p.previous) || (!place.archived && dueIn(c, p.previous))))
+      .sort((a, b) => byKo(a.title, b.title));
     const shownSources = new Set([...done, ...planned].map((t) => t.source?.recordId).filter(Boolean));
     // 그 주 회의 중 이 칸 할 일의 출처로 이미 보이는 회의는 '*'로만, 아니면 따로 한 줄(DEC-87)
     const meetings = place.type === "project"
@@ -177,6 +199,7 @@ export function buildWorkPlan(input: PlanInput): WorkPlan {
     const noted = new Set<string>();
     for (const t of done) pushTask(prevLines, t, "done", noted);
     for (const t of planned) pushTask(prevLines, t, "previous", noted);
+    for (const t of prevByKids) prevLines.push({ level: "item", text: parentOnlyLine(t) });
     for (const m of meetings) prevLines.push({ level: "item", text: meetingLine(m) });
     if (prevLines.length) {
       // □ 줄은 우선 규칙으로(이름 : 현재 상태 첫 문장). AI가 이름+진행 상태 한 줄로 다듬으면 applyHeads로 바꾼다(DEC-88)
@@ -185,12 +208,14 @@ export function buildWorkPlan(input: PlanInput): WorkPlan {
     }
 
     // 금주 칸: 다음 주 기한인데 안 끝난 일(보관한 곳은 뺌)
-    const upcoming = place.archived ? [] : mine.filter((t) => t.status !== "done" && within(dueOf(t), p.next))
-      .sort((a, b) => dueOf(a)!.localeCompare(dueOf(b)!));
-    if (upcoming.length) {
+    const upcoming = place.archived ? [] : mine.filter((t) => dueIn(t, p.next)).sort((a, b) => dueOf(a)!.localeCompare(dueOf(b)!));
+    const nextByKids = place.archived ? [] : mine.filter((t) => !upcoming.includes(t) && kidsOf(t.id).some((c) => dueIn(c, p.next)))
+      .sort((a, b) => byKo(a.title, b.title));
+    if (upcoming.length || nextByKids.length) {
       next.push({ level: "head", text: place.name.trim(), placeId: place.id });
       const nextNoted = new Set<string>();
       for (const t of upcoming) pushTask(next, t, "next", nextNoted);
+      for (const t of nextByKids) next.push({ level: "item", text: parentOnlyLine(t) });
     }
   }
 

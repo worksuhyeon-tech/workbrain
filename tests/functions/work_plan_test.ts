@@ -138,3 +138,36 @@ Deno.test("Word 파일이 만들어진다(zip 머리 PK, 주간·월간)", async
     assertEquals([bytes[0], bytes[1]], [0x50, 0x4b]);
   }
 });
+
+Deno.test("하위 할 일(FR-23a): 하위는 따로 줄 없이 상위 괄호에 '하위 N건 중 M건 완료', 하위만 맞아도 상위 줄", () => {
+  const base = SAMPLE_INPUT.tasks[2]; // CRM의 안 끝난 일(11/13 기한) 모양을 빌린다
+  const open = { ...base, source: null, dueDate: null, dueTime: null, doneAt: null, status: "open" };
+  const input: PlanInput = {
+    ...SAMPLE_INPUT,
+    meetings: [],
+    tasks: [
+      // 상위 A: 이번 주 기한, 하위 3개(1개 끝)
+      { ...open, id: "pa", title: "결제 화면 개편", dueDate: "2026-11-12", subtasks: { total: 3, done: 1 } },
+      { ...open, id: "pa1", title: "오류 문구 수정", parentId: "pa", status: "done", doneAt: "2026-11-10T02:00:00Z" },
+      { ...open, id: "pa2", title: "버튼 색 확인", parentId: "pa", dueDate: "2026-11-13" },
+      { ...open, id: "pa3", title: "다다음 주 하위", parentId: "pa", dueDate: "2026-11-25" },
+      // 상위 B: 자기는 기한 없음, 하위 하나가 이번 주에 끝남 · 다른 하위는 다음 주 기한
+      { ...open, id: "pb", title: "정산 규칙 정리", subtasks: { total: 2, done: 1 } },
+      { ...open, id: "pb1", title: "초안 공유", parentId: "pb", status: "done", doneAt: "2026-11-11T01:00:00Z" },
+      { ...open, id: "pb2", title: "검토 회신", parentId: "pb", dueDate: "2026-11-18" },
+      // 상위 C: 하위가 없는 보통 할 일(괄호 그대로)
+      { ...open, id: "pc", title: "이관 일정 회신", dueDate: "2026-11-12" },
+    ],
+  };
+  const plan = buildWorkPlan(input);
+  assertEquals(texts(plan.previous.lines), [
+    "□ CRM 이관 12건 : 12건 중 8건 이관 끝",
+    "- 결제 화면 개편 (11/12 · 하위 3건 중 1건 완료)",
+    "- 이관 일정 회신 (11/12)",
+    "- 정산 규칙 정리 (하위 2건 중 1건 완료)",
+  ]);
+  assertEquals(texts(plan.next.lines), [
+    "□ CRM 이관 12건",
+    "- 정산 규칙 정리 (하위 2건 중 1건 완료)",
+  ]);
+});
