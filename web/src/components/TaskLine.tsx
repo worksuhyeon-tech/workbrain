@@ -1,0 +1,125 @@
+import { Link } from 'react-router-dom'
+import { isDone, type TaskRow } from '../data/types'
+import { cn } from '../lib/cn'
+import type { LocalDate } from '../rules/dates'
+import { dueChipText, isLate } from '../rules/tasks'
+import { Icons } from './icons'
+
+export interface SubCount {
+  done: number
+  total: number
+}
+
+/**
+ * 우선순위 표시(DEC-103, 사용자 2026-11-12): 높음은 제목 앞 주황 별, 보통은 표시 없음, 낮음은 회색 아래 화살표.
+ * 목업의 오른쪽 '높음·보통·낮음' 글자 칸 대신이다
+ */
+export function PriorityMark({ priority }: { priority: number | null }) {
+  if (priority === 1)
+    return (
+      <span title="우선순위 높음" className="mr-1 inline-block align-[-2px] text-star">
+        <Icons.star />
+        <span className="sr-only">우선순위 높음</span>
+      </span>
+    )
+  if (priority === 3)
+    return (
+      <span title="우선순위 낮음" className="mr-1 inline-block align-[-2px] text-muted">
+        <Icons.low />
+        <span className="sr-only">우선순위 낮음</span>
+      </span>
+    )
+  return null
+}
+
+/**
+ * 할 일 한 줄(목업 .trow, 앱 TaskLine): 체크 · (우선순위 표시) 제목(+팔로업) · (속한 곳) 출처 · 기한 칩.
+ * 체크는 완료 ↔ 다시 열기. parentTitle이 있으면 오늘 화면의 '상위 › 하위' 줄, sub가 있으면 제목 옆 '⤷ 1/3'
+ */
+export function TaskLine({
+  t,
+  today,
+  source,
+  showPlace,
+  parentTitle,
+  sub,
+  busy,
+  onToggle,
+}: {
+  t: TaskRow
+  today: LocalDate
+  source: string
+  showPlace: boolean
+  parentTitle?: string | null
+  sub?: SubCount | null
+  busy?: boolean
+  onToggle: () => void
+}) {
+  const done = isDone(t)
+  const late = isLate(t, today)
+  const placeId = t.project_id ? `p:${t.project_id}` : t.area_id ? `a:${t.area_id}` : null
+  const placeName = t.project?.name ?? t.area?.name
+
+  return (
+    <div className="grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-[11px] last:border-b-0">
+      <input
+        type="checkbox"
+        checked={done}
+        disabled={busy}
+        onChange={onToggle}
+        aria-label={`${t.title} ${done ? '다시 열기' : '완료'}`}
+        className="size-[18px] accent-primary"
+      />
+      <span className={cn('text-[15px] font-medium text-ink', done && 'text-muted line-through')}>
+        {!t.parent_id && <PriorityMark priority={t.priority} />}
+        {parentTitle && <span className="font-normal text-muted">{parentTitle} › </span>}
+        {t.title}
+        {t.owner_kind === 'other' && t.assignee && (
+          <span className="ml-1.5 rounded-full bg-info/12 px-2 py-px align-[1px] text-[11px] font-bold whitespace-nowrap text-info no-underline">
+            {t.assignee} · 팔로업
+          </span>
+        )}
+        {t.owner_kind === 'unknown' && (
+          <span className="ml-1.5 rounded-full bg-warn/13 px-2 py-px align-[1px] text-[11px] font-bold whitespace-nowrap text-warn">담당 확인</span>
+        )}
+        {sub && (
+          <span
+            className={cn(
+              'ml-1.5 inline-flex items-center gap-0.5 rounded-full px-2 py-px align-[1px] text-[11px] font-bold whitespace-nowrap',
+              sub.done === sub.total ? 'bg-good/12 text-good' : 'border border-border bg-surface text-muted',
+            )}
+          >
+            <Icons.sub />
+            {sub.done === sub.total ? '하위 다 끝남' : `${sub.done}/${sub.total}`}
+          </span>
+        )}
+        <span className="mt-0.5 block text-xs font-normal text-muted no-underline">
+          {showPlace && placeId && placeName && (
+            <Link to={`/projects/${placeId}`} className="mr-1.5 inline-flex items-center gap-1 text-xs font-bold text-body hover:text-primary">
+              {t.project_id ? (
+                <span className="text-folder">
+                  <Icons.folder />
+                </span>
+              ) : (
+                <span className="text-area-icon">
+                  <Icons.repeat />
+                </span>
+              )}
+              {placeName}
+            </Link>
+          )}
+          {source}
+        </span>
+      </span>
+      <span
+        className={cn(
+          'rounded-full border border-border bg-surface px-2.5 py-[3px] text-xs font-bold whitespace-nowrap text-muted tabular-nums',
+          late && 'border-transparent bg-crit/12 text-crit',
+          t.due_ambiguous && !t.due_date && !t.due_time && 'border-transparent bg-warn/12 text-warn',
+        )}
+      >
+        {dueChipText(t, today)}
+      </span>
+    </div>
+  )
+}
