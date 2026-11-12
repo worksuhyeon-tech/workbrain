@@ -127,7 +127,7 @@ fun SubtaskRows(
         subtaskOrder(children).forEach { c ->
             HorizontalDivider(color = Wb.colors.border.copy(alpha = 0.6f), modifier = Modifier.padding(start = 44.dp))
             TaskLine(
-                c, source = null, showPriority = false, readOnly = readOnly,
+                c, source = null, readOnly = readOnly,
                 onToggle = { onToggle(c) }, onOpen = { onOpen(c) }, compact = true,
                 modifier = Modifier.focusFlash(c.id, c.id == focusId, flash),
             )

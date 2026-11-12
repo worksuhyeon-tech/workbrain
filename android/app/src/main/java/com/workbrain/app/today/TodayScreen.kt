@@ -6,7 +6,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -490,45 +489,41 @@ private fun TodayCard(
     // 펼친 상위 할 일(FR-23a)
     val open = rememberOpenSubtasks()
     MockCard {
-        BoxWithConstraints {
-            // 목업은 좁아지면(700px) 우선순위 칸을 숨긴다
-            val showPriority = maxWidth >= 480.dp
-            Column {
-                CardHead("오늘 할 일", "${late.size + todays.size}건", "다음 7일 · 전체", onAll)
-                val rows: @Composable ColumnScope.(List<TaskRow>) -> Unit = { list ->
-                    list.forEachIndexed { i, t ->
-                        if (i > 0) HorizontalDivider(color = Wb.colors.border)
-                        // 오늘 기한·지연인 하위는 '상위 › 하위' 한 줄로 따로(DEC-101 ⑤). 고르기·끌기는 상위만(하위는 따라감)
-                        val kids = if (t.isSubtask) emptyList() else childrenOf(t.id)
-                        TaskLine(t, sources[t.id]?.label, showPriority, readOnly = t.isSubtask && selection.active, onToggle = { onToggle(t) }, onOpen = { onOpen(t) }, place = placeOf(t), onPlace = onPlace, onRecipients = { onRecipients(t) },
-                            selected = if (selection.active && !t.isSubtask) t.id in selection.ids else null, onSelect = { selection.toggle(t.id) },
-                            parentTitle = t.parentId?.let(parentTitleOf),
-                            subtasks = subCountOf(kids), subtasksOpen = t.id in open, onSubtasks = { open.toggle(t.id) },
-                            // 길게 눌러 다른 프로젝트·반복실행으로 끈다(DEC-93). 고르는 중에는 끌지 않는다
-                            modifier = Modifier.dragSource(drag, if (selection.active || t.isSubtask) null else DragItem.Task(t.id, t.title)),
-                        )
-                        if (t.id in open && kids.isNotEmpty() && !selection.active) {
-                            SubtaskRows(kids, readOnly = false, onToggle = onToggle, onOpen = onOpen, onAdd = { text -> onAddSub(t, text) })
-                        }
+        Column {
+            CardHead("오늘 할 일", "${late.size + todays.size}건", "다음 7일 · 전체", onAll)
+            val rows: @Composable ColumnScope.(List<TaskRow>) -> Unit = { list ->
+                list.forEachIndexed { i, t ->
+                    if (i > 0) HorizontalDivider(color = Wb.colors.border)
+                    // 오늘 기한·지연인 하위는 '상위 › 하위' 한 줄로 따로(DEC-101 ⑤). 고르기·끌기는 상위만(하위는 따라감)
+                    val kids = if (t.isSubtask) emptyList() else childrenOf(t.id)
+                    TaskLine(t, sources[t.id]?.label, readOnly = t.isSubtask && selection.active, onToggle = { onToggle(t) }, onOpen = { onOpen(t) }, place = placeOf(t), onPlace = onPlace, onRecipients = { onRecipients(t) },
+                        selected = if (selection.active && !t.isSubtask) t.id in selection.ids else null, onSelect = { selection.toggle(t.id) },
+                        parentTitle = t.parentId?.let(parentTitleOf),
+                        subtasks = subCountOf(kids), subtasksOpen = t.id in open, onSubtasks = { open.toggle(t.id) },
+                        // 길게 눌러 다른 프로젝트·반복실행으로 끈다(DEC-93). 고르는 중에는 끌지 않는다
+                        modifier = Modifier.dragSource(drag, if (selection.active || t.isSubtask) null else DragItem.Task(t.id, t.title)),
+                    )
+                    if (t.id in open && kids.isNotEmpty() && !selection.active) {
+                        SubtaskRows(kids, readOnly = false, onToggle = onToggle, onOpen = onOpen, onAdd = { text -> onAddSub(t, text) })
                     }
                 }
-                if (late.isNotEmpty()) { SubHead("지연 ${late.size}", Wb.colors.crit); rows(late) }
-                if (todays.isNotEmpty()) { SubHead("오늘 ${todays.size}"); rows(todays) }
-                if (follow.isNotEmpty()) { SubHead("챙길 팔로업 ${follow.size} · 남이 맡은 일"); rows(follow) }
-                if (loaded && late.isEmpty() && todays.isEmpty()) {
-                    // 목업 .done-all
-                    HorizontalDivider(color = Wb.colors.border)
-                    Column(Modifier.fillMaxWidth().padding(vertical = 24.dp, horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("오늘 할 일 끝!", fontFamily = HandAccent, fontSize = 26.sp, color = Wb.colors.good)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("다음 7일 일정은 ", fontSize = 14.sp, color = Wb.colors.muted)
-                            Text("모든 할 일", fontSize = 14.sp, color = Wb.colors.link, modifier = Modifier.clickable(onClick = onAll))
-                            Text("에서 봐요.", fontSize = 14.sp, color = Wb.colors.muted)
-                        }
-                    }
-                }
-                if (doneToday.isNotEmpty()) { SubHead("오늘 완료 ${doneToday.size}"); rows(doneToday) }
             }
+            if (late.isNotEmpty()) { SubHead("지연 ${late.size}", Wb.colors.crit); rows(late) }
+            if (todays.isNotEmpty()) { SubHead("오늘 ${todays.size}"); rows(todays) }
+            if (follow.isNotEmpty()) { SubHead("챙길 팔로업 ${follow.size} · 남이 맡은 일"); rows(follow) }
+            if (loaded && late.isEmpty() && todays.isEmpty()) {
+                // 목업 .done-all
+                HorizontalDivider(color = Wb.colors.border)
+                Column(Modifier.fillMaxWidth().padding(vertical = 24.dp, horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("오늘 할 일 끝!", fontFamily = HandAccent, fontSize = 26.sp, color = Wb.colors.good)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("다음 7일 일정은 ", fontSize = 14.sp, color = Wb.colors.muted)
+                        Text("모든 할 일", fontSize = 14.sp, color = Wb.colors.link, modifier = Modifier.clickable(onClick = onAll))
+                        Text("에서 봐요.", fontSize = 14.sp, color = Wb.colors.muted)
+                    }
+                }
+            }
+            if (doneToday.isNotEmpty()) { SubHead("오늘 완료 ${doneToday.size}"); rows(doneToday) }
         }
     }
 }

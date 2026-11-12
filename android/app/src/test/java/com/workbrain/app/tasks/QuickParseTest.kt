@@ -17,7 +17,7 @@ class QuickParseTest {
     private val friday = LocalDate.of(2026, 11, 6)
     private val claim = Place(PlaceType.PROJECT, "p1", "사고접수 개편")
     private val accident = Place(PlaceType.PROJECT, "p2", "사고 조사")
-    private val erp = Place(PlaceType.PROJECT, "p3", "01. 클레임보상 ERP구축")
+    private val erp = Place(PlaceType.PROJECT, "p3", "01. 가상 ERP구축")
     private val review = Place(PlaceType.AREA, "a1", "심사")
     private val autoReview = Place(PlaceType.AREA, "a2", "자동심사")
     private val places = listOf(claim, accident, erp, review, autoReview)

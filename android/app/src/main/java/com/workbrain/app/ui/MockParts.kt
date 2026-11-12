@@ -43,7 +43,7 @@ import com.workbrain.app.data.PlaceType
  * 목업의 이모지 자리(📁 🔁 🔗 📝 ✅ 🎯 🧭 🗄️ 🎙️)는 선 글리프로 바꿨다(Design §6.5 이모지 금지).
  */
 
-/** 종류별 글리프와 색(목업 이모지 색과 비슷하게): 프로젝트 주황 폴더 · 반복실행 파랑 · 모든 할 일 초록 */
+/** 종류별 글리프와 색: 프로젝트 베이지 폴더(DEC-103, 전에는 주황) · 반복실행 파랑 · 모든 할 일 초록 */
 object ParaGlyph {
     val allTasks = WbIcons.Review
     fun project() = WbIcons.Folder
@@ -53,7 +53,7 @@ object ParaGlyph {
     fun place(type: PlaceType?) = when (type) { PlaceType.PROJECT -> project(); PlaceType.AREA -> area(); null -> allTasks }
 
     @Composable fun tint(type: PlaceType?): Color = when (type) {
-        PlaceType.PROJECT -> GlassTint.Orange.deep
+        PlaceType.PROJECT -> Wb.colors.folder
         PlaceType.AREA -> GlassTint.Blue.deep
         null -> GlassTint.Green.deep
     }

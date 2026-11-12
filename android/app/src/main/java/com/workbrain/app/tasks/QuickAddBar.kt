@@ -35,6 +35,7 @@ import com.workbrain.app.record.ChosenProject
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -369,7 +370,11 @@ fun QuickPreview(r: QuickTask, today: LocalDate, onPickPlace: (Place) -> Unit) {
     QuickChip(WbIcons.Pencil, r.title.ifEmpty { "제목 없음" }, italic = r.title.isEmpty())
     quickDueLabel(r, today)?.let { QuickChip(WbIcons.Calendar, it) }
     r.vague?.let { QuickChip(WbIcons.Calendar, "$it · 확인 필요", warn = true) }
-    if (r.priority != 2) QuickChip(WbIcons.Flag, if (r.priority == 1) "높음" else "낮음")
+    // 줄과 같은 기호(DEC-103): 높음 주황 별 · 낮음 회색 아래 화살표
+    when (r.priority) {
+        1 -> QuickChip(WbIcons.Star, "높음", iconTint = Wb.colors.star)
+        3 -> QuickChip(WbIcons.PriorityLow, "낮음", iconTint = Wb.colors.muted)
+    }
     QuickChip(placeIcon(r.place?.type), r.place?.name ?: UNSORTED)
     r.assignee?.let { QuickChip(WbIcons.Person, "$it · 팔로업") }
     r.warnings.forEach { QuickChip(WbIcons.Alert, it, warn = true) }
@@ -397,7 +402,7 @@ private fun PlaceChoiceChip(place: Place, onClick: () -> Unit) {
 
 /** 목업 .qc: 작은 테두리 알약(경고는 주황 글씨·테두리) */
 @Composable
-private fun QuickChip(icon: ImageVector, text: String, warn: Boolean = false, italic: Boolean = false) {
+private fun QuickChip(icon: ImageVector, text: String, warn: Boolean = false, italic: Boolean = false, iconTint: Color? = null) {
     val color = if (warn) Wb.colors.warn else Wb.colors.body
     Row(
         Modifier.background(Wb.colors.surface, PillShape)
@@ -405,7 +410,7 @@ private fun QuickChip(icon: ImageVector, text: String, warn: Boolean = false, it
             .padding(horizontal = 9.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(12.dp))
+        Icon(icon, contentDescription = null, tint = iconTint ?: color, modifier = Modifier.size(12.dp))
         Text(
             text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = color,
             fontStyle = if (italic) FontStyle.Italic else null,

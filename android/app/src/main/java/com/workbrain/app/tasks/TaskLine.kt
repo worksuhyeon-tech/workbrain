@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
@@ -22,11 +21,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,8 +48,6 @@ import java.time.OffsetDateTime
 /*
  * 할 일 한 줄(목업 .trow): 오늘(S02)·프로젝트(S03)·모든 할 일(S07)이 같이 쓴다.
  */
-
-private fun priorityLabel(p: Int?) = when (p) { 1 -> "높음"; 3 -> "낮음"; else -> "보통" }
 
 /** 기한 날짜(시각 포함 기한은 서울 날짜). 기한 없음·모호면 null */
 fun dueDay(t: TaskRow): LocalDate? = t.dueDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
@@ -81,12 +81,12 @@ private fun rowDue(t: TaskRow, today: LocalDate): String {
 }
 
 /**
- * 할 일 한 줄: 체크 · 제목(+팔로업/담당 확인) · (속한 곳) 출처 · 우선순위 · 기한.
+ * 할 일 한 줄: 체크 · (우선순위 표시) 제목(+팔로업/담당 확인) · (속한 곳) 출처 · 기한.
+ * 우선순위(DEC-103): 높음은 제목 앞 주황 별, 보통은 표시 없음, 낮음은 회색 아래 화살표 — 목업의 오른쪽 글자 칸 대신. 하위는 상위를 따라 표시 없음
  * 체크는 완료 ↔ 다시 열기. 줄을 누르면 수정 서랍. readOnly(아카이브)면 둘 다 막는다.
  * place: 여러 곳이 섞인 목록(오늘)에서만 넘긴다. onPlace가 있으면 눌러서 그 프로젝트로 간다(목업 .place).
  * showUnsorted: place가 없을 때 '정리 안 됨'이라고 적는다(모든 할 일의 기한 없음 목록, DEC-78). '오늘'은 지금처럼 비워 둔다
  * onRecipients: 제목 옆 '→ 받는 사람' 칩을 눌렀을 때(DEC-77). 없으면 줄을 누른 것처럼 수정 서랍을 연다
- * showPriority: 좁은 칸에서는 목업처럼 우선순위 칸을 숨긴다(목업 max-width 700)
  * selected: ⋮ › 선택 모드(DEC-92)일 때만 값이 있다. 그때는 앞 체크가 '고르기'가 되고 줄 어디를 눌러도 onSelect(완료·수정·칩은 막음)
  * modifier: 프로젝트 화면에서 길게 눌러 끌기를 붙일 때(DEC-72)
  * 하위 할 일(FR-23a): subtasks가 있으면 제목 옆 '⤷ 1/3' 칩(onSubtasks로 펼침·접힘). parentTitle은 오늘 탭의 '상위 › 하위' 줄,
@@ -97,7 +97,6 @@ private fun rowDue(t: TaskRow, today: LocalDate): String {
 fun TaskLine(
     t: TaskRow,
     source: String?,
-    showPriority: Boolean,
     readOnly: Boolean,
     onToggle: () -> Unit,
     onOpen: () -> Unit,
@@ -117,6 +116,7 @@ fun TaskLine(
     val today = LocalDate.now(SEOUL)
     val late = isLate(t, today)
     val selecting = selected != null
+    val mark = priorityMarkOf(t)
     Row(
         modifier.fillMaxWidth()
             .background(if (selected == true) Wb.colors.primary.copy(alpha = 0.08f) else Color.Transparent)
@@ -139,9 +139,13 @@ fun TaskLine(
                 Text(
                     // 오늘 탭의 하위 할 일은 '상위 › 하위'(상위는 옅게, DEC-101 ⑤)
                     buildAnnotatedString {
+                        mark?.let { appendInlineContent(PRIORITY_MARK, it.second) }
                         parentTitle?.let { withStyle(SpanStyle(color = Wb.colors.muted, fontWeight = FontWeight.Normal)) { append("$it › ") } }
                         append(t.title)
                     },
+                    inlineContent = mark?.let { (icon, label) ->
+                        mapOf(PRIORITY_MARK to priorityMark(icon, label, if (t.priority == 1) Wb.colors.star else Wb.colors.muted))
+                    }.orEmpty(),
                     fontSize = if (compact) 14.sp else 15.sp, fontWeight = FontWeight.Medium,
                     color = if (t.done) Wb.colors.muted else Wb.colors.ink,
                     textDecoration = if (t.done) TextDecoration.LineThrough else null,
@@ -170,13 +174,6 @@ fun TaskLine(
                 )
             }
         }
-        if (showPriority && !compact) {
-            Text(
-                priorityLabel(t.priority), fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-                color = if (t.priority == 1) Wb.colors.crit else Wb.colors.muted,
-                modifier = Modifier.width(44.dp),
-            )
-        }
         WbChip(
             rowDue(t, today),
             when { late -> Tone.Crit; t.dueAmbiguous && dueDay(t) == null -> Tone.Warn; else -> Tone.Mute },
@@ -184,6 +181,22 @@ fun TaskLine(
         )
     }
 }
+
+private const val PRIORITY_MARK = "priority"
+
+/** 제목 앞 우선순위 기호와 읽어 줄 말. 보통·하위(상위를 따름)는 null */
+private fun priorityMarkOf(t: TaskRow): Pair<ImageVector, String>? = when {
+    t.isSubtask -> null
+    t.priority == 1 -> WbIcons.Star to "우선순위 높음"
+    t.priority == 3 -> WbIcons.PriorityLow to "우선순위 낮음"
+    else -> null
+}
+
+/** 글자 줄 안에 넣는 기호(제목 줄 가운데에 맞춤) */
+private fun priorityMark(icon: ImageVector, label: String, tint: Color) =
+    InlineTextContent(Placeholder(17.sp, 15.sp, PlaceholderVerticalAlign.TextCenter)) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.padding(end = 2.dp).size(15.dp))
+    }
 
 /** 목업 .own: 제목 옆 작은 담당 표시 */
 @Composable

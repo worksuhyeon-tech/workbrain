@@ -117,9 +117,9 @@ fun ParaDetail(d: ParaData, drag: ParaDragState, key: String, onBack: (() -> Uni
     BackHandler(enabled = onBack != null) { onBack?.invoke() }
     val id = key.substringAfter(':')
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        // 목업은 좁아지면 머리 버튼이 다음 줄로, 우선순위 칸은 숨는다. 같은 폭에서 '모든 할 일' 위 두 묶음은 칸 여백을 줄인다
+        // 목업은 좁아지면 머리 버튼이 다음 줄로 간다. 같은 폭에서 '모든 할 일' 위 두 묶음은 칸 여백을 줄인다
         val wide = maxWidth >= 560.dp
-        val layout = PaneLayout(wideHead = wide, compactSeg = !wide, showPriority = maxWidth >= 480.dp)
+        val layout = PaneLayout(wideHead = wide, compactSeg = !wide)
         when {
             key == ALL_TASKS -> AllTasksPane(d, drag, layout, onBack, onEvent)
             key.startsWith("p:") -> d.project(id)?.let { ProjectPane(d, drag, it, layout, onBack, onEvent) } ?: Missing(onBack)
@@ -130,7 +130,7 @@ fun ParaDetail(d: ParaData, drag: ParaDragState, key: String, onBack: (() -> Uni
     }
 }
 
-private data class PaneLayout(val wideHead: Boolean, val compactSeg: Boolean, val showPriority: Boolean)
+private data class PaneLayout(val wideHead: Boolean, val compactSeg: Boolean)
 
 @Composable
 private fun Missing(onBack: (() -> Unit)?) {
@@ -442,7 +442,7 @@ private fun TaskLines(
         if (i > 0) HorizontalDivider(color = Wb.colors.border)
         val kids = d.subtasksOf(t.id)
         TaskLine(
-            t, d.sources[t.id]?.label, layout.showPriority, readOnly,
+            t, d.sources[t.id]?.label, readOnly,
             onToggle = { onEvent(ParaEvent.ToggleTask(t)) },
             onOpen = { onEvent(ParaEvent.OpenTask(t)) },
             place = if (withPlace) placeOf(d, t) else null,
