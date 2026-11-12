@@ -56,7 +56,12 @@
 21. 11/06 빠른 입력 시험으로 넣은 할 일 '내일3시 업체미팅'(옛 규칙이라 제목 그대로·그날 마감) 고치거나 완료로 정리.
 22. 회의록 지침을 실제로 바꿀 때: 카톡 '공유 → WorkBrain'으로 zip 받기, 참고 파일 빼기(rev+1).
 
-## PC 웹(DEC-102) — 11/12 밤 결정·계획, ① 할 일 시작 ★ 새 세션은 여기부터
+## 디자인 바꾸기(DEC-104, Aboard 스타일) — 11/12 밤 시작 ★ 새 세션은 여기부터
+원본: 사용자 `C:\Users\suhye\Downloads\DESIGN.md`('Aboard — Style Reference'). 화면 모양은 그대로, 색·글꼴·모서리·그림자만. 결정 넷은 DEC-104.
+✅ 11/12 자정 무렵: 1 웹 토큰·알약 버튼·파스텔 칩·옅은 메뉴 강조(로그인 캡처 확인) 2 목업 10장(`scripts/mockup-tokens-aboard.py`, 오늘·프로젝트 캡처 확인) 3 앱 WbColors·칩/안내 띠 파스텔(`toneSoft`)·CardShape 24·ControlShape 10·버튼 알약·카드/분할 선택/아이콘 그림자 없앰·GlassTint 파스텔(글리프 글자색)·자간(PC 122/122). 11/13 0시 사용자 지적 '버튼 색이 그대로' → 버튼 파랑을 원본 #008ae8로(진하게 한 #0079d0이 예전 #0078d4와 같아 보였음, 웹·앱·목업·문서), 00:03 빌드 Fold8 설치·오늘·검토함 캡처 확인. 사용자 의견(11/13): 대체로 새 디자인이 낫지만 글래스 아이콘 색·프로젝트 탭 폴더·모든 할 일 아이콘은 예전이 나음 → 되돌림(앱 `GlassIcon.kt` 예전 파일, `ParaGlyph` 프로젝트 주황, 할 일 줄 폴더만 베이지, 웹·목업 글래스 토큰·반복실행 #1e7fea도 예전), 00:14 빌드 122/122. 기준 문서를 WorkBrain 최종 DESIGN.md(v2.1)로 새로 씀, Aboard 원본은 `docs/02-design/reference/aboard-DESIGN.md`. 이어서 사용자(11/13): ① 담당 칩(팔로업·담당 확인)·받는 사람 칩을 늘 제목 다음 줄로(앱 TaskLine·웹 TaskLine) ② '추가됨'·'담당 확인' 뱃지(완료·경고 칩)는 예전이 나음 → good/warn 글자색 예전 값 + 바탕 글자색 12%(지연 분홍·안내 하늘은 파스텔 그대로), 웹·목업·DESIGN.md 같이. 00:21 빌드 122/122·Fold8 설치, 팔로업 묶음 캡처 확인(뱃지는 검토 대기 0건이라 화면 확인 못 함). 이어서 사용자: 지연 칩도 예전 빨강(#b02a1f/#f08478, 바탕 12%)으로 — 안내(하늘)만 파스텔 유지. 00:24 빌드 Fold8 설치·오늘 탭 캡처 확인. 커밋 전 4 `DESIGN-SYSTEM-reference.md` v2.0(적용표 + 원본), Design v0.1.45. 커밋 전.
+(처음 계획) **순서**: 1. 웹 `web/src/index.css` 토큰 + 버튼 알약·칩 파스텔 바탕 → 로그인 캡처 비교 2. 목업 10장 토큰(스크립트) → Edge 캡처 3. 앱 `ui/Theme.kt`(WbColors 밝은·어두운)·`GlassTint`·모양(ControlShape·카드)·그림자 → 빌드 → 설치는 물어보고 4. `docs/02-design/DESIGN-SYSTEM-reference.md`를 Aboard 기준 + WorkBrain 적용표로 5. 커밋은 지시 때(이전 상태는 9e91914에 푸시돼 있어 되돌리기 쉬움).
+
+## PC 웹(DEC-102) — 11/12 밤 결정·계획, ① 할 일 시작(디자인 바꾸기 뒤 이어서)
 계획 `docs/01-plan/features/pc-web.plan.md`(결정 표·구조·단계·서버 쪽 필요한 것). Vite + React + TS + Tailwind + shadcn/ui, 폴더 `web/`, Supabase 바로(앱과 같은 RLS·RPC·함수), Vercel 무료(① 끝나면 바로).
 **① 할 일 순서**
 1. ✅ 뼈대(11/12 밤): `web/` Vite 8.3.5·React 19.3.1·TS 7.0.2·Tailwind 4.3.3·supabase-js 2.118.0·react-router 7.18.5·Vitest 4.1.12(모두 2주 넘은 판, 정확한 버전 고정), 목업 CSS 토큰(밝은·어두운·테마 단추)을 `src/index.css` 테마로, 레일 + 위 막대(`components/AppShell.tsx`), 화면 자리(`screens/Placeholder.tsx`), Pretendard는 npm 패키지(나눠 받기), 손글씨는 앱 TTF에서 쓰는 글자만 뽑은 23KB(`web/scripts/subset-hand-font.py` — 문구를 더하면 다시 돌림). 공개 키는 앱처럼 코드에(`src/lib/supabase.ts`, 이미 `android/gradle.properties`로 공개된 값). 로그인 화면은 목업 S01을 Edge로 캡처해 나란히 비교·맞춤(메일 링크·동의 칸 대신 Google 단추 — 앱과 같은 로그인, 로고 앞판은 이모지 대신 앱 아이콘 그림). `npm run build`·`tsc` 통과. `web/dist/`는 git 제외.

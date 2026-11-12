@@ -1,339 +1,106 @@
----
-name: Microsoft
-colors:
-  primary: '#0078d4'
-  primary-dark: '#091f2c'
-  ink: '#0e1726'
-  body: '#17253d'
-  nav-ink: '#262626'
-  muted: '#616161'
-  link: '#0067b8'
-  canvas: '#ffffff'
-  card: '#fefefe'
-  footer: '#f2f2f2'
-typography:
-  display:
-    fontSize: 48px
-    fontWeight: 500
-    lineHeight: 1.17
-    letterSpacing: '-1.2px'
-    use: Observed home and Microsoft 365 public-marketing headings
-  section:
-    fontSize: 32px
-    fontWeight: 500
-    lineHeight: 1.25
-    letterSpacing: '-0.8px'
-    use: Observed marketing section headings
-  card-title:
-    fontSize: 20px
-    fontWeight: 600
-    lineHeight: 1.4
-    letterSpacing: '-0.5px'
-    use: Observed home card headings
-  body:
-    fontSize: 16px
-    fontWeight: 400
-    lineHeight: 1.5
-    letterSpacing: '-0.48px'
-    use: Observed marketing body copy
-  cta:
-    fontSize: 15px
-    fontWeight: 600
-    lineHeight: 1.47
-    letterSpacing: '-0.3px'
-    use: Observed marketing action labels
-  nav:
-    fontSize: 13px
-    fontWeight: 400
-    use: Observed home global navigation
-rounded:
-  sm: 2px
-  md: 4px
-  lg: 8px
-  xl: 24px
-  pill: 200px
-spacing:
-  xs: 4
-  sm: 8
-  md: 12
-  base: 16
-  lg: 24
-  xl: 32
-  xxl: 48
-components:
-  m365-tab-active:
-    type: tab
-    backgroundColor: '#06161f'
-    textColor: '#ffffff'
-    rounded: 200px
-    padding: 8px 24px
-    height: 40px
-    typography: 16px / 600 Segoe UI Variable Text
-    active: true
-    use: Observed active Microsoft 365 pill tab
-fonts:
-  roles:
-    ui: Segoe UI Variable Text
-    display: Segoe UI Variable Display
-    chrome: Segoe UI
----
+# WorkBrain — Design System
+> 흰 책상 위 파스텔 공책, 그 위에 놓인 유리 아이콘
 
-# Design System Inspiration of Microsoft
+**버전** 2.1 · 2026-11-13 · **테마** 밝은 화면 + 어두운 화면(기기 설정을 따름)
 
-> 사용자 제공 참조 문서. WorkBrain UI 디자인의 **기반 디자인 시스템(토큰·타이포·컴포넌트·보이스)** 근거로 사용한다.
-> 비주얼 질감(프로스티드 글래스/그라데이션 아이콘)은 `reference.png`를 함께 참조한다.
+WorkBrain은 종이처럼 옅은 회색 바탕 위에 흰 카드를 놓고, 강조색은 파랑 하나만 쓴다. 모서리는 둥글고(카드 24·입력칸 10·버튼과 칩은 알약), 카드에는 그림자 대신 옅은 테두리만 둔다. 상태(지연·경고·완료·안내)는 글자색을 옅게 깐 칩으로, 안내만 파스텔 하늘 칩으로 알린다. 아이콘은 예전 그대로 색 그라데이션 판 위 반투명 유리판에 선 그림을 얹은 글래스모피즘이라, 담백한 화면에 색과 입체감을 더하는 유일한 곳이다. 화면 제목 옆 손글씨 한마디가 공책 느낌을 더한다.
 
-## Overview
+- 근거: DEC-104(디자인 시스템 Aboard 스타일, 2026-11-12) · DEC-103(우선순위 기호·폴더 색) · 사용자 의견(2026-11-13: 글래스 아이콘 색과 프로젝트 탭 폴더·모든 할 일 아이콘 색은 예전이 낫다)
+- 영감: `docs/02-design/reference/aboard-DESIGN.md`(사용자가 가져온 Aboard 스타일 원본). 이전 판(Microsoft 스타일)은 git 9e91914 이전
+- **값이 있는 곳(셋이 늘 같다)**: 웹 `web/src/index.css` · 앱 `android/app/src/main/java/com/workbrain/app/ui/`(`Theme.kt` WbColors·글자, `Components.kt` 모양·칩, `GlassIcon.kt` 글래스 색, `MockParts.kt` 곳 아이콘 색) · 목업 `docs/02-design/mockups/*.html`(`scripts/mockup-tokens-aboard.py`)
 
-### Visual Theme & Atmosphere
+## 토큰 — 색
 
-Microsoft makes public experiences for people, teams, and organizations across consumer software, cloud services, devices, and developer tools. Its current public marketing uses generous white space, product imagery, blue calls to action, and a familiar Segoe typographic voice to make that breadth feel coherent rather than experimental. The July 2026 capture distinguishes two public marketing surfaces—Microsoft home and Microsoft 365—from Fluent 2 documentation chrome: the first two load the Microsoft-hosted Segoe variable webfonts and use Communication Blue (`#0078d4`) for home actions, while the documentation site is evidence for the Fluent design system rather than a proxy for every Microsoft product UI. Microsoft’s official mission is to empower every person and every organization on the planet to achieve more; its visual system supports that broad, practical framing with clear hierarchy and deliberately familiar controls.
+| 이름 | 밝은 화면 | 어두운 화면 | 쓰임 |
+|---|---|---|---|
+| surface(바탕) | `#fafafa` | `#121214` | 화면 바탕 — 흰색이 아닌 옅은 회색이라 흰 카드와 파스텔이 산다 |
+| card | `#ffffff` | `#1c1c1f` | 카드·서랍·입력칸 바탕 |
+| card-2 | `#fcfcfc` | `#212124` | 카드 안 한 단계 낮은 면 |
+| border | `#ececed` | `#2c2c30` | 카드 테두리·구분선(그림자 대신) |
+| border-strong | `#cfcfd2` | `#45454b` | 입력칸·보조 버튼 테두리 |
+| ink | `#262626` | `#f1f1f2` | 제목·중요한 글자(부드러운 검정) |
+| body | `#3a3a3c` | `#d6d6d8` | 본문 |
+| muted | `#757577` | `#9b9ba0` | 보조 글자·손글씨 부제·낮음 화살표 |
+| primary | `#008ae8` | `#3aa6f5` | 주 버튼 바탕·고른 메뉴 아이콘·초점선(누를 때 `#0079d0`/`#5bb5f7`) |
+| link | `#0077c8` | `#6bbcf7` | 글자 링크('다음 7일 · 전체 →') — 작은 글씨라 버튼보다 진하게 |
+| sky | `#e0f2fe` | `#1b3042` | 고른 메뉴 바탕·고르기 칩 바탕 |
+| dark-action | `#262626` | `#2a2a2e` | 아래 알림(토스트) 바탕 |
+| pill-active | `#262626` | `#f1f1f2` | 고른 분할 선택 알약 |
 
-On the captured marketing surfaces, headings use a display instance of Segoe, text uses the Text instance, and the global header/footer retain Segoe UI. Home combines dark blue-black headings (`#0e1726`), body copy (`#17253d`), white canvas (`#ffffff`), and 8px blue action controls. Microsoft 365 introduces its own observed dark action treatment (`#091f2c`) and 200px active pill tabs. These are public-web observations, not a claim that any authenticated product, Windows app, or documentation surface uses the same values.
+## 토큰 — 상태 색(글자 / 칩 바탕)
 
-**Key Characteristics:**
-- A white (`#ffffff`) public-marketing canvas with near-white (`#fefefe`) cards and a quiet footer (`#f2f2f2`)
-- Home primary CTAs in Communication Blue (`#0078d4`) with 8px corners
-- Microsoft 365 marketing CTAs in dark navy (`#091f2c`) with the same 8px corner treatment
-- Segoe UI Variable Text for body/actions and Segoe UI Variable Display for observed large headings
-- Segoe UI in global navigation/footer chrome, with `#262626` navigation and `#616161` footer links
-- Fluent 2 is a separate official system domain; its component guidance is not used to fill missing marketing variants
+뜻이 있는 색이라 남긴다. 안내 칩만 파스텔 하늘 바탕, 지연·완료·경고 칩(지연·'추가됨'·'담당 확인')은 예전처럼 글자색 12% 바탕(11/13 사용자). 글자와 바탕 대비는 4.5:1이 넘는다.
 
-### Primary tasks
+| 상태 | 글자 밝은 / 어두운 | 칩 바탕 밝은 / 어두운 | 예 |
+|---|---|---|---|
+| 지연(crit) | `#b02a1f` / `#f08478` | 글자색 12%(예전) | '지연 · 11/11' |
+| 경고(warn) | `#935600` / `#e6a84a` | 글자색 12%(예전) | '담당 확인'·'다음 주 · 확인 필요' |
+| 완료(good) | `#0f7a43` / `#55d393` | 글자색 12%(예전) | '추가됨'·'하위 다 끝남' |
+| 안내(info) | `#0069b4` / `#8fcfff` | 하늘 `#e0f2fe` / 하늘 12% | '박지훈 · 팔로업' |
+| 회의록(purple) | `#5e46c8` / `#b9a7ff` | 글자색 12% | 검색 결과 칩 |
 
-- Find a product across software, cloud services, devices, and developer tools
-- Read what the company says it stands for
-- Look up Fluent 2 tokens for color, type, spacing, and elevation
-- Follow Fluent component and accessibility guidance while building a product
+## 아이콘 색
 
-### Brand Narrative
+| 무엇 | 색 | 비고 |
+|---|---|---|
+| 글래스 아이콘(아래 메뉴·기록 탭 마이크·더보기·빈 화면 등) | 뒤판 그라데이션(밝은 → 진한) + 반투명 흰 유리판 + 진한 색 선 그림, 밝은 화면에서 같은 색 옅은 그림자 | **예전 색 그대로**(사용자 11/13). 보라 `#b9a7ff→#6c5cf0` · 주황 `#ffc27a→#ff7a2e` · 초록 `#78e7c3→#12b37f` · 분홍 `#ff9bb8→#ff3d7f` · 파랑 `#8cc8ff→#1e7fea` · 빨강 `#ffa49a→#e0453a` · 회색 `#e2e8ee→#8a99a8`. 어두운 화면은 그림이 흰색 |
+| 프로젝트(트리·상세·칩) | 주황 `#ff7a2e` 폴더 | 예전 그대로(사용자 11/13) |
+| 할 일 줄의 프로젝트 폴더 | 베이지 `#b88a5e` / `#d9b48c` | DEC-103(오늘·모든 할 일 줄) |
+| 반복실행 | 파랑 `#1e7fea` / 웹 어두운 `#5aa8f0` | |
+| 모든 할 일 | 초록 `#12b37f` | 예전 그대로(사용자 11/13) |
+| 우선순위 높음 / 낮음 | 주황 별 `#f08a24`(어두운 `#f5a04a`) / 회색 아래 화살표(muted) | DEC-103, 보통은 표시 없음 |
+| 브랜드 로고 | 초록 글래스 판 + 🧠 | 이모지 예외(사용자 11/12) |
 
-Microsoft describes its mission as empowering every person and every organization on the planet to achieve more. Its current About material connects that mission to expanding opportunity, earning trust, protecting fundamental rights, and advancing sustainability. That purpose provides useful narrative context for a broad product family, but it is not itself a visual-token source.
+## 글꼴
 
-Fluent 2 supplies the cross-platform design-system context: official documentation describes global and alias tokens for color, type, spacing, elevation, and theming. The public marketing capture and Fluent documentation are therefore complementary—not interchangeable—evidence domains.
+- **본문·제목**: Pretendard(가변). 윈도우·갤럭시 어디서나 같은 모양. 굵기 400·500·600·700
+- **손글씨**: HandAccent — 화면 제목 옆 한마디('오늘 챙길 것만 모았어요')·'일의 기억'에만, 색은 muted. 웹은 쓰는 글자만 담은 파일(`web/scripts/subset-hand-font.py`)
+- **자간**: 큰 글자일수록 조금씩 좁힌다(크기의 약 0.6%)
 
-### Principles
+| 역할 | 크기 / 굵기 | 자간 |
+|---|---|---|
+| 화면 제목(웹) | 30px / 600 | -0.18px |
+| 화면 제목(앱 headlineMedium) | 26 / 700 | -0.16 |
+| 서랍 제목(titleLarge) | 20 / 700 | -0.1 |
+| 카드 제목 | 17 / 700 | -0.09 |
+| 본문 | 15~16 / 400 | -0.08 |
+| 보조·칩 | 12~13 / 400~700 | 0 ~ -0.04 |
 
-1. **Empower people and organizations.** Microsoft’s stated mission centers the user’s outcome. *UI implication:* state the user’s task and next action plainly.
-2. **Earn trust.** Microsoft names a safe, secure, and responsible digital world as an enduring commitment. *UI implication:* make consequential states and explanations clear rather than decorative.
-3. **Respect platform context.** Fluent uses native platform defaults where appropriate. *UI implication:* use the relevant platform/Fluent guidance instead of forcing marketing chrome into a product UI.
-4. **Use semantic systems.** Fluent documents global and alias token layers. *UI implication:* choose role-based tokens in a Fluent implementation rather than hard-coding a marketing hex.
+## 모서리
 
-### Personas
-
-Microsoft’s official mission names people and organizations globally, but this capture does not provide validated research defining product-specific personas. Personas may be added only from approved, product-specific research.
-
-## Colors
-
-### Observed public marketing
-- **Communication Blue** (`#0078d4`): home primary CTA background.
-- **Dark Microsoft 365 action** (`#091f2c`): observed Microsoft 365 CTA background.
-- **Active pill dark** (`#06161f`): observed active Microsoft 365 pill-tab background.
-- **Heading ink** (`#0e1726`): observed home and Microsoft 365 headings.
-- **Body ink** (`#17253d`): observed marketing body text.
-- **Navigation ink** (`#262626`): observed global-header text.
-- **Link blue** (`#0067b8`): observed text-link treatment.
-- **Muted gray** (`#616161`): observed footer text.
-- **Canvas white** (`#ffffff`): observed marketing and action foreground.
-- **Card white** (`#fefefe`): observed Microsoft 365 card/background treatment.
-- **Footer gray** (`#f2f2f2`): observed global-footer surface.
-
-### Fluent 2 boundary
-Fluent’s official color guidance describes global values and semantic alias tokens, including theme-aware state values. Those design-system values are useful for Fluent implementations, but they are not assigned to the marketing token set above unless they occur in the supplied marketing capture.
-
-## Typography
-
-### Evidence classes
-- **Live computed and loaded:** `Segoe UI Variable Text` is high-confidence loaded (797 visible uses) in body, buttons, cards, dialogs, menus, tabs, and text. Its Microsoft-hosted WOFF2/TTF sources were recorded by the collector.
-- **Live computed and loaded:** `SegoeUI` is high-confidence loaded (242 visible uses) in navigation, footer, inputs, and other public-web chrome, with Microsoft-hosted Segoe UI sources recorded.
-- **Live computed and loaded:** `Segoe UI Variable Display` is high-confidence loaded (58 visible uses) for captured headings. `Segoe UI Variable Small` is loaded but has only two captured text uses, so it is not a general UI-family token.
-- **Official product-use / design-system context:** Fluent identifies Segoe UI as its primary typeface and uses Segoe UI Variable in its Windows type ramp; it also defaults to native platform fonts where appropriate. This is design-system guidance, not evidence that every Microsoft product or platform uses the web stack.
-- **Official distributed asset and licence boundary:** Microsoft’s font FAQ says Windows fonts cannot be self-hosted from a Windows installation; Segoe UI may be licensed through Monotype, while Segoe UI Variable is not available for licensing or use outside Microsoft products or non-Windows platforms. Captured Microsoft-hosted files therefore establish use on the observed pages, not reusable project assets.
-- **Declared-only:** `Cascadia Code` is declared by the Fluent documentation site with zero visible captured use. `FabricMDL2Icons`, `MWF-FLUENT-ICONS`, `Leelawadee UI Web`, localized Segoe Web faces, and `SegoeUI Fallback` also have zero visible captured use. They are not typography-family tokens.
-
-### Observed hierarchy
-
-| Role | Family | Size / line-height | Weight | Tracking | Surface |
-|---|---|---|---|---|---|
-| Marketing display | Segoe UI Variable Text / Display | 48px / 56px | 500 | -1.2px | home and Microsoft 365 |
-| Marketing section | Segoe UI Variable Display | 32px / 40px | 500 | -0.8px | home and Microsoft 365 |
-| Card title | Segoe UI Variable Display | 20px / 28px | 600 | -0.5px | home |
-| Body | Segoe UI Variable Text | 16px / 24px | 400 | -0.48px | marketing |
-| CTA | Segoe UI Variable Text | 15px / 22px | 600 | -0.3px | marketing |
-| Global nav | Segoe UI | 13px / normal | 400 | normal | home chrome |
-| Footer link | Segoe UI | 11px / 16px | 400 | -0.48px | home chrome |
-
-### Fluent typography context
-Fluent’s web ramp starts at 10px/14px captions and documents a 68px/92px display role, with Segoe UI as the default web face. Treat that as official Fluent system guidance, separate from the values captured above.
-
-## Layout
-
-- Home marketing uses large image-led bands and 40px or 48px actions; Microsoft 365 has its own dense product-marketing modules.
-- The supplied capture records a public-web spacing cluster of 4px, 8px, 12px, 16px, 24px, 32px, and 48px. It does not establish a universal layout scale for authenticated apps.
-- Do not use Fluent documentation geometry to fill gaps in the two captured marketing surfaces.
-
-### Responsive Behavior
-
-The supplied evidence is desktop-only (1440×900). It demonstrates 40px, 48px, and 52px public-marketing actions, but it does not establish mobile breakpoints, navigation collapse behavior, or touch-target rules. Follow the relevant Fluent platform guidance when implementing a responsive product surface.
-
-## Elevation & Depth
-
-The current bundle records mostly flat public-marketing actions and containers. It does not provide a stable, cross-surface shadow recipe for Microsoft marketing, so no shadow token is exported. Fluent elevation guidance belongs to the Fluent design-system domain and must be consulted there for a Fluent product implementation.
-
-## Motion & Easing
-
-Fluent’s official design-token documentation establishes that motion can be tokenized, but the supplied capture does not provide a source-backed Microsoft-wide duration or easing table. The relevant official Fluent platform token source applies once a target product and platform are known.
-
-## Components
-
-All values below retain their public-surface and selector provenance. State rows are only included where the collector recorded an active selection; no hover, disabled, validation, or menu variant is inferred from a class name or general Fluent guidance.
-
-### Home marketing actions
-
-**Standard CTA — home · `[data-omd-capture="17"]`–`"25"`**
-- Background: `#0078d4`
-- Text: `#ffffff`
-- Radius: 8px
-- Padding: 8px 16px
-- Height: 40px
-- Font: 15px / 600 / Segoe UI Variable Text
-- Use: Home marketing card action; `home` surface.
-
-**Hero CTA — home · `[data-omd-capture="14"]` / `"16"`**
-- Background: `#0078d4`
-- Text: `#ffffff`
-- Radius: 8px
-- Padding: 12px 17px
-- Height: 48px
-- Font: 15px / 600 / Segoe UI Variable Text
-- Use: Home hero action; `home` surface.
-
-### Microsoft 365 marketing
-
-**Dark CTA — Microsoft 365 · `[data-omd-interaction-capture="tab-2-10"]`**
-- Background: `#091f2c`
-- Text: `#ffffff`
-- Radius: 8px
-- Padding: 12px 16px
-- Height: 52px
-- Font: 15px / 600 / Segoe UI Variable Text
-- Border: 2px solid transparent
-- Use: Captured Microsoft 365 marketing action; `surface-3`.
-
-**Compact dark CTA — Microsoft 365 · `[data-omd-interaction-capture="tab-2-25"]`**
-- Background: `#091f2c`
-- Text: `#ffffff`
-- Radius: 8px
-- Padding: 4px 12px
-- Height: 36px
-- Font: 15px / 600 / Segoe UI Variable Text
-- Border: 2px solid transparent
-- Use: Captured compact Microsoft 365 marketing action; `surface-3`.
-
-**Outline CTA — Microsoft 365 · `[data-omd-interaction-capture="tab-2-53"]`**
-- Text: `#051118`
-- Border: 2px solid `#091f2c`
-- Radius: 8px
-- Padding: 4px 12px
-- Height: 36px
-- Font: 15px / 600 / Segoe UI Variable Text
-- Use: Captured compact secondary action; `surface-3`.
-
-**Active pill tab — Microsoft 365 · `[data-omd-interaction-capture="tab-2-0"]`**
-- Background: `#06161f`
-- Text: `#ffffff`
-- Border: 0px solid transparent
-- Radius: 200px
-- Padding: 8px 24px
-- Height: 40px
-- Font: 16px / 600 / Segoe UI Variable Text
-- Use: Active tab value captured after the collector’s tab interaction; `surface-3`. No inactive-state rule is asserted.
-
-### Global chrome
-
-**Header link — home · `.uhf-nav-item.uhf-nav-link`**
-- Text: `#262626`
-- Radius: 0px
-- Padding: 0px 8px
-- Height: 54px
-- Font: 13px / 400 / Segoe UI
-- Use: Home global-navigation link; `home` surface.
-
-**Footer link — home · `.uhf-footer-link`**
-- Text: `#616161`
-- Radius: 0px
-- Font: 11px / 400 / Segoe UI
-- Use: Home global-footer link; `home` surface.
-
----
-**Verified:** 2026-07-13
-**Tier 1 sources:** supplied collector evidence for https://www.microsoft.com/ko-kr and https://www.microsoft.com/en-us/microsoft-365; https://fluent2.microsoft.design/typography; https://fluent2.microsoft.design/shapes; https://fluent2.microsoft.design/design-tokens; https://learn.microsoft.com/en-us/typography/font-list/segoe-ui; https://learn.microsoft.com/en-us/typography/fonts/font-faq; https://www.microsoft.com/en-us/about
-**Tier 2 sources:** https://getdesign.md/microsoft (attempted; safe-open error and no search record); https://styles.refero.design/?q=microsoft (attempted; safe-open error); https://styles.refero.design/style/5f39e778-d204-42a9-8b8b-a1519dbd3971; https://styles.refero.design/style/c70a9990-bc4b-4a64-a69b-aeb7b344fb74
-**Conflicts unresolved:** none
-
-### Published component roster (47 published for Web/React, none measured here)
-
-Fluent 2 publishes **47 components** on its Web/React platform, read from the rendered navigation
-at `https://fluent2.microsoft.design/components/web/react` on 2026-09-19. No value, state or
-geometry below is asserted by this reference.
-
-Accordion, Avatar, Avatar group, Badge, Breadcrumb, Button, Card, Carousel, Checkbox, Combobox, Dialog, Divider, Drawer, Dropdown, Field, Fluent provider, Icon, Image, Info label, Input, Label, Link, List, Menu, Message bar, Nav, Persona, Popover, Progress bar, Radio group, Rating, Searchbox, Select, Skeleton, Slider, Spin button, Spinner, Switch, Tablist, Tag, Tag picker, Text, Textarea, Toast, Toolbar, Tooltip, Tree
-
-**The platform qualifier matters.** Fluent 2 documents separately for Web, iOS, Android and
-Windows, and the rosters differ. This is the Web/React list only; the other three are not
-enumerated here and should not be assumed to match.
-
-### What this reference measured
-
-The single styling in §4 is an "observed active Microsoft 365 pill tab" — captured on a Microsoft
-product surface rather than on the Fluent documentation, and identified by position with no
-`fui-` class recorded. Microsoft 365 is built with Fluent, but that does not make the capture a
-reading of Fluent's published Tablist. None of the 47 above carries a measured value here.
-
-### States
-
-The collector recorded a Fluent documentation form-error interaction and Microsoft 365 dialog/tab interactions, but does not provide reusable error, success, loading, empty, disabled, or responsive state specifications. State treatments may be added only from the target product’s observed surface or official component guidance.
-
-## Do's and Don'ts
-
-### Do
-- Scope `#0078d4` 8px CTAs to the captured home-marketing surface.
-- Use the loaded Segoe family evidence only for the observed public-web roles.
-- Preserve the 13px Segoe UI global chrome and 11px footer treatment when reproducing that chrome.
-- Use Fluent’s official semantic tokens when building a Fluent product rather than copying public-marketing values.
-
-### Don't
-- Treat the home or Microsoft 365 capture as a token source for Windows, authenticated apps, or documentation chrome.
-- Substitute a system font and label it Segoe UI Variable.
-- Promote Cascadia Code or icon fonts from zero-use declarations into UI typography.
-- Invent inactive, disabled, hover, error, or responsive variants not recorded by the collector.
-
-## Voice & Tone
-
-Microsoft’s official corporate voice is empowering, inclusive, and practical. Its About page frames the mission as helping every person and organization achieve more, while the public Copilot copy uses companion language rather than technical showmanship. Use concise benefit-led labels and sentence case; this is a narrative and content boundary, not an observed rule for every product team.
-
-| Context | Direction |
+| 무엇 | 값 |
 |---|---|
-| Mission framing | Empower the person or organization using the product. |
-| Product copy | Describe the task or outcome plainly. |
-| AI framing | Use assistive/companion language grounded in the product’s capability. |
-| UI labels | Use sentence case, per Fluent typography guidance. |
+| 카드·서랍·큰 판 | 24 |
+| 입력칸·작은 칸·메뉴 줄·안내 띠 | 10 |
+| 버튼(주·보조)·칩·분할 선택·뱃지 | 알약(완전히 둥글게) |
 
-**Source-grounded samples:**
-- "We empower the world" — Microsoft About.
-- "Your everyday AI companion" — Microsoft About’s Copilot section.
-- "What will you do with Copilot?" — Microsoft About’s Copilot section.
+## 그림자
 
-## Agent Prompt Guide
+- **카드·분할 선택**: 없음 — 옅은 테두리(border)로 구분한다
+- **떠 있는 것**(메뉴·알림·팝업): 밝은 화면 `0 2px 8px rgba(205,205,205,.6)`, 큰 것 `0 4px 16px rgba(205,205,205,.5)`. 어두운 화면은 검정 45~50%
+- **글래스 아이콘 뒤판**: 같은 색의 옅은 빛(앱 3dp, 밝은 화면만) — 예외
 
-### Quick Color Reference
-- Home primary CTA: `#0078d4` on `#ffffff`, 8px radius
-- Microsoft 365 captured dark CTA: `#091f2c` on `#ffffff`, 8px radius
-- Microsoft 365 captured active pill: `#06161f` on `#ffffff`, 200px radius
-- Marketing heading/body: `#0e1726` / `#17253d`
-- Global chrome/footer: `#262626` / `#616161` on `#ffffff` / `#f2f2f2`
+## 부품
 
-### Example Component Prompts
-- "Reproduce the observed Microsoft home CTA: #0078d4 background, white text, 8px radius, 8px 16px padding, 40px high, 15px/600 Segoe UI Variable Text."
-- "Reproduce the observed Microsoft 365 active pill tab: #06161f background, white text, 200px radius, 8px 24px padding, 40px high, 16px/600 Segoe UI Variable Text."
-- "Use Fluent 2 documentation for product-system values; do not infer missing Fluent variants from the Microsoft home page."
+- **주 버튼**: 파랑(primary) 알약, 흰 글자 14~15px/600. 한 화면에 한두 개
+- **보조 버튼**: 흰 바탕 + border-strong 테두리 알약, body 글자
+- **칩**: 알약, 12px/700. 상태 칩은 위 표의 바탕, 그 밖(기한·'기한 없음')은 surface 바탕 + 테두리
+- **할 일 줄**: 제목(앞에 우선순위 기호, 옆에 ⤷ 하위 칩) → 다음 줄에 담당 칩(팔로업·담당 확인)·받는 사람 칩 → 그다음 줄에 곳·출처. 담당 칩은 제목 길이와 상관없이 늘 제목 아래(11/13 사용자)
+- **카드**: card 바탕, border 1px, 모서리 24, 그림자 없음
+- **메뉴(웹 왼쪽 레일)**: 고른 줄은 sky 바탕 + 파랑 아이콘, 줄 모서리 10
+- **알림(토스트)**: dark-action 바탕, 흰 글자, '되돌리기'는 밝은 하늘색 글자
+
+## 해도 되는 것 / 안 되는 것
+
+**한다**
+- 바탕은 `#fafafa`, 카드는 흰색 — 흰 바탕에 흰 카드를 놓지 않는다
+- 강조 파랑은 버튼·고른 것·초점에만. 글자 링크는 진한 파랑(link)
+- 상태는 위 표의 칩으로. 글자/바탕 대비 4.5:1 이상
+- 버튼·칩은 알약, 카드는 24, 입력칸은 10
+- 아이콘은 글래스 아이콘(이모지로 대신하지 않음 — 로고만 예외)
+
+**하지 않는다**
+- 카드에 그림자를 넣지 않는다(떠 있는 것만 옅게 하나)
+- 파랑 말고 새 강조색을 늘리지 않는다(상태 색·아이콘 색은 표에 있는 것만)
+- 큰 제목을 자간 0으로 두지 않는다
+- 글래스 아이콘을 파스텔로 바꾸지 않는다(11/13 해 보고 예전이 낫다고 정함)
