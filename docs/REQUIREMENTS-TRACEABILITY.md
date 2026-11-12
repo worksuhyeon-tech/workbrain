@@ -30,7 +30,8 @@
 | FR-20 | AI 우선순위·브리핑·업무 부담 | P2 | KnowledgeItem/Task/Issue | S02 확장 | TC-18 |
 | FR-21 | REST·MCP·ChatGPT/Claude/Claude Code/Codex | P3 | ExternalConnection/AccessAudit | S09 확장 | TC-19 |
 | FR-22 | 회의록 이메일·수신 주소 설정 | P1 본인 발송 / P4 확장 | MeetingVersion/MailDispatch/Settings(mail_recipients) | S05/S09 | TC-24 / TC-20 |
-| FR-23 | 반복·하위 작업·태그·고급 필터 | P4 | Task 확장 | S07 확장 | TC-21 |
+| FR-23a | 하위 할 일(DEC-101, Design §3.15) | P1.5 | Task(parent_id, 0040) | S02 '상위 › 하위'·S03 상위 줄 ⤷ n/m 펼치기·할 일 수정 서랍 '하위 할 일'·하위 서랍 [하위 할 일 삭제](⑦) | DB dec101_subtasks.sql(서버 반영 전·후 13/13), 앱 SubtaskTest, deno work_plan_test, Fold8 실기기(11/12) |
+| FR-23 | 반복·태그·고급 필터 | P4 | Task 확장 | S07 확장 | TC-21 |
 | FR-24 | 알림·캘린더·Google 동기화 | P1.5 오늘 마감 알림 / P4 | 외부 일정 매핑 추가 | S02/S07(보기 전환 자리 P1)/S09 확장 | TC-20/TC-21 |
 | FR-25a | 집중 세션·체크포인트 | P1.5 | FocusSession/Checkpoint | S02(지금 하는 일) | P1.5 TC(미정) |
 | FR-25b | 매트릭스·습관·업무 통계 | P4 | 매트릭스는 Task.priority·기한으로 계산(추가 없음), 습관 기록 추가 | S07 보기 전환(매트릭스), 나머지 P4 별도 화면 | TC-21 |
@@ -61,4 +62,4 @@
 
 PC 마이크 녹음, 무인 통화 직접 캡처, 무인 파일 감시, 실시간 STT, 오프라인 업무 편집·승인, 무승인 자동 반영은 현재 범위에서 제외한다. 외부 AI 쓰기 도구는 후속 독립 Plan이다. 개인정보를 완전히 탐지한다고 보장하거나 승인 없는 회사 자료 처리를 지원하지 않는다.
 
-하위 작업·알림·프로젝트 간 비교·비식별화는 삭제된 요구사항이 아니라 위 표에 각각 FR-23/24/19/17로 배치되어 있다.
+하위 작업·알림·프로젝트 간 비교·비식별화는 삭제된 요구사항이 아니라 위 표에 각각 FR-23a/24/19/17로 배치되어 있다.
