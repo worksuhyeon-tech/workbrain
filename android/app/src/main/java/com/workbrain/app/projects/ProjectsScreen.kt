@@ -20,6 +20,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -51,6 +52,9 @@ import com.workbrain.app.tasks.SelectionHeader
 import com.workbrain.app.tasks.TaskDeletes
 import com.workbrain.app.search.SearchButton
 import com.workbrain.app.tasks.TaskFocus
+import com.workbrain.app.tasks.parseSubtask
+import com.workbrain.app.ui.SEOUL
+import java.time.LocalDate
 import com.workbrain.app.tasks.TaskListMenu
 import com.workbrain.app.tasks.deletedText
 import com.workbrain.app.tasks.moveTasks
@@ -90,6 +94,8 @@ sealed interface ParaEvent {
     data class OpenRecord(val recordId: String, val title: String) : ParaEvent
     /** 한 줄 빠른 입력으로 넣었음(저장은 입력 줄이 이미 함): 다시 읽고 알림만(DEC-70) */
     data class QuickAdded(val message: String) : ParaEvent
+    /** 펼친 하위 줄 끝·수정 서랍의 '+ 하위 할 일' 한 줄(FR-23a) */
+    data class AddSubtask(val parent: TaskRow, val text: String) : ParaEvent
 }
 
 /** 아카이브 전에 묻기: 안 끝난 할 일이 '오늘'·'모든 할 일'에서 빠진다는 것을 알린다(DEC-65) */
@@ -151,7 +157,11 @@ fun ProjectsScreen(
 
     suspend fun load() {
         runCatching { Para.load() }
-            .onSuccess { data = it; loadFailed = false }
+            .onSuccess { d ->
+                data = d; loadFailed = false
+                // 서랍이 열려 있으면 새로 읽은 줄로 바꾼다(하위를 넣으면 서버가 끝난 상위를 다시 열어 버전이 바뀜). 지워졌으면 닫는다
+                editingTask = editingTask?.let { e -> d.tasks.firstOrNull { it.id == e.id } }
+            }
             .onFailure { loadFailed = true }
     }
     LaunchedEffect(Unit) { load() }
@@ -282,7 +292,15 @@ fun ProjectsScreen(
         if (picked.isEmpty()) return
         selection.stop()
         picked.forEach(TaskDeletes::delete)
-        announcer.show(deletedText(picked)) { picked.forEach { TaskDeletes.undo(it.id) } }
+        val subs = picked.sumOf { p -> data?.without(hidden)?.subtasksOf(p.id)?.size ?: 0 }
+        announcer.show(deletedText(picked, subs)) { picked.forEach { TaskDeletes.undo(it.id) } }
+    }
+
+    /** 하위 서랍의 [하위 할 일 삭제](DEC-101 ⑦): 서랍을 닫아 '되돌리기' 알림이 보이게 하고, 3초 뒤 서버에서 지운다 */
+    fun deleteSubtask(t: TaskRow) {
+        editingTask = null
+        TaskDeletes.delete(t)
+        announcer.show(deletedText(listOf(t))) { TaskDeletes.undo(t.id) }
     }
 
     /** 받는 사람만 저장(다른 칸은 지금 값 그대로). 실패하면 서랍을 닫지 않고 띠를 보여 준다 */
@@ -328,6 +346,13 @@ fun ProjectsScreen(
             }
             is ParaEvent.EditLinks -> linkFor = e.resourceId
             is ParaEvent.QuickAdded -> scope.launch { load(); announcer.show(e.message) }
+            is ParaEvent.AddSubtask -> {
+                val edit = parseSubtask(e.text, LocalDate.now(SEOUL)) ?: return
+                // 끝낸 상위에 넣으면 서버가 상위를 다시 연다(DEC-101 ③)
+                act(if (e.parent.done) "하위 할 일을 넣었어요 · 끝낸 상위 할 일을 다시 열었어요" else "하위 할 일을 넣었어요") {
+                    Server.createSubtask(e.parent, edit)
+                }
+            }
             is ParaEvent.Later -> announcer.show(
                 if (e.which == "cal") "캘린더 보기는 P4예요 · 날짜·시각 기한을 그대로 달력에 놓아요(모호한 기한은 옆 칸에 따로)"
                 else "매트릭스는 P4예요 · 지금의 우선순위(중요)와 기한(급함)으로 4칸을 계산해 데이터 추가가 없어요",
@@ -420,7 +445,7 @@ fun ProjectsScreen(
 
     CompositionLocalProvider(LocalTaskPaneTools provides TaskPaneTools(selection, menu)) {
     Box(Modifier.fillMaxSize().background(Wb.colors.surface).onGloballyPositioned { boxOrigin.value = it.positionInRoot() }) {
-        val d = data?.let { all -> if (hidden.isEmpty()) all else all.copy(tasks = all.tasks.filter { it.id !in hidden }) }
+        val d = data?.without(hidden)
         if (d == null) {
             Column(Modifier.padding(horizontal = 16.dp)) {
                 PageHeader("프로젝트", "하고 있는 일 한눈에")
@@ -487,7 +512,8 @@ fun ProjectsScreen(
     }
     }
 
-    val d = data ?: return
+    // 서랍의 하위 칸에서도 지우는 중인 하위는 바로 뺀다(DEC-101 ⑦)
+    val d = data?.without(hidden) ?: return
 
     editKey?.let { key ->
         val id = key.substringAfter(':')
@@ -538,10 +564,20 @@ fun ProjectsScreen(
 
     editingTask?.let { t ->
         val currentName = d.project(t.projectId)?.name ?: d.area(t.areaId)?.name
-        TaskEditSheet(
-            t.toEdit(), d.places, currentName, taskError, taskSaving, onDismiss = { editingTask = null },
-            recordId = d.sources[t.id]?.recordId, usedNames = d.usedNames,
-        ) { e -> saveTask(t, e) }
+        // 하위 서랍으로 넘어가면 입력 칸을 새로 채우도록 할 일마다 따로 그린다
+        key(t.id) {
+            TaskEditSheet(
+                t.toEdit(), d.places, currentName, taskError, taskSaving, onDismiss = { editingTask = null },
+                recordId = d.sources[t.id]?.recordId, usedNames = d.usedNames,
+                parentTitle = t.parentId?.let { pid -> d.tasks.firstOrNull { it.id == pid }?.title ?: "상위 할 일" },
+                subtasks = if (t.isSubtask) null else d.subtasksOf(t.id),
+                onToggleSub = { c -> onEvent(ParaEvent.ToggleTask(c)) },
+                onOpenSub = { c -> taskError = null; editingTask = c },
+                onAddSub = if (d.inArchived(t)) null else { text -> onEvent(ParaEvent.AddSubtask(t, text)) },
+                // 보관된 곳은 상위도 고르지 못하므로(선택 막힘) 하위 삭제도 막는다
+                onDelete = if (t.isSubtask && !d.inArchived(t)) { { deleteSubtask(t) } } else null,
+            ) { e -> saveTask(t, e) }
+        }
     }
     recipientsTask?.let { t ->
         RecipientsSheet(

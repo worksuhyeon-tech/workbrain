@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import com.workbrain.app.data.Place
 import com.workbrain.app.data.PlaceType
 import com.workbrain.app.data.TaskEdit
+import com.workbrain.app.data.TaskRow
 import com.workbrain.app.ui.Banner
 import com.workbrain.app.ui.ControlShape
 import com.workbrain.app.ui.PrimaryButton
@@ -87,6 +88,9 @@ private val PRIOS = listOf(SegItem("1", "높음"), SegItem("2", "보통"), SegIt
  * 저장이 안 되면(error) 서랍을 닫지 않고 입력을 그대로 둔 채 띠를 보여 준다(목업 '미저장 표시').
  * isNew: 빠른 입력 '자세히 ›'로 여는 새 할 일 서랍(DEC-73) — 제목 '새 할 일', 버튼 [추가]. task는 처음 채울 값
  * recordId·usedNames: '받는 사람' 고르기 칩(그 기록의 참석자·화자, 이 공간에서 쓴 이름, DEC-77)
+ * 하위 할 일(FR-23a): parentTitle이 있으면 하위의 서랍 — 곳·우선순위 칸 없이(상위를 따름). subtasks가 있으면(상위·보통 할 일)
+ * 아래 '하위 할 일' 칸: 줄을 누르면 onOpenSub(그 하위 서랍으로), 체크는 onToggleSub, 한 줄 입력은 onAddSub
+ * onDelete가 있으면 맨 아래 [하위 할 일 삭제](DEC-101 ⑦). 상위는 ⋮ › 선택 › 삭제로만 지우므로 하위 서랍에만 넘긴다
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -100,6 +104,12 @@ fun TaskEditSheet(
     isNew: Boolean = false,
     recordId: String? = null,
     usedNames: List<String> = emptyList(),
+    parentTitle: String? = null,
+    subtasks: List<TaskRow>? = null,
+    onToggleSub: (TaskRow) -> Unit = {},
+    onOpenSub: (TaskRow) -> Unit = {},
+    onAddSub: ((String) -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
     onSave: (TaskEdit) -> Unit,
 ) {
     val timed = task.dueTime?.let { runCatching { OffsetDateTime.parse(it).atZoneSameInstant(SEOUL) }.getOrNull() }
@@ -141,18 +151,24 @@ fun TaskEditSheet(
             Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(if (isNew) "새 할 일" else "할 일 수정", style = MaterialTheme.typography.titleLarge, color = Wb.colors.ink, modifier = Modifier.padding(bottom = 8.dp))
+            Text(
+                when { isNew -> "새 할 일"; parentTitle != null -> "하위 할 일 수정"; else -> "할 일 수정" },
+                style = MaterialTheme.typography.titleLarge, color = Wb.colors.ink, modifier = Modifier.padding(bottom = if (parentTitle != null) 2.dp else 8.dp),
+            )
+            parentTitle?.let { Note("상위: $it · 곳과 우선순위는 상위 할 일을 따라가요", Modifier.padding(bottom = 6.dp)) }
             error?.let { Banner(it, Tone.Crit, Modifier.padding(bottom = 4.dp)) }
 
             Label("제목")
             OutlinedTextField(value = title, onValueChange = { title = it.take(200) }, shape = ControlShape, modifier = Modifier.fillMaxWidth())
 
-            Label("어디에")
-            PlaceField(placeLabel, placeType, places) { p ->
-                projectId = p?.id?.takeIf { p.type == PlaceType.PROJECT }
-                areaId = p?.id?.takeIf { p.type == PlaceType.AREA }
+            if (parentTitle == null) {
+                Label("어디에")
+                PlaceField(placeLabel, placeType, places) { p ->
+                    projectId = p?.id?.takeIf { p.type == PlaceType.PROJECT }
+                    areaId = p?.id?.takeIf { p.type == PlaceType.AREA }
+                }
+                if (places.isEmpty()) Note("아직 프로젝트·반복실행이 없어요. 프로젝트 탭에서 칸 이름 옆 (+)로 만들 수 있어요.")
             }
-            if (places.isEmpty()) Note("아직 프로젝트·반복실행이 없어요. 프로젝트 탭에서 칸 이름 옆 (+)로 만들 수 있어요.")
 
             Label("담당")
             DarkSeg(OWNERS, owner) { owner = it }
@@ -191,8 +207,15 @@ fun TaskEditSheet(
                 "vague" -> Note("모호한 기한은 날짜로 바꾸지 않고 '확인 필요'로 둬요.")
             }
 
-            Label("우선순위")
-            DarkSeg(PRIOS, priority) { priority = it }
+            if (parentTitle == null) {
+                Label("우선순위")
+                DarkSeg(PRIOS, priority) { priority = it }
+            }
+            subtasks?.let { subs ->
+                Label("하위 할 일 ${subs.size}")
+                if (subs.isEmpty()) Note("이 할 일에 이어지는 일을 아래에 적어요. 기한·@담당은 빠른 입력처럼 알아봐요.")
+                SubtaskRows(subs, readOnly = false, onToggle = onToggleSub, onOpen = onOpenSub, onAdd = onAddSub)
+            }
 
             Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SecondaryButton("취소", onClick = onDismiss, modifier = Modifier.height(44.dp))
@@ -204,7 +227,8 @@ fun TaskEditSheet(
                     onSave(
                         TaskEdit(
                             title = title.trim(),
-                            priority = priority.toInt(),
+                            // 하위는 우선순위 칸이 없어 원래 값 그대로
+                            priority = if (parentTitle != null) task.priority else priority.toInt(),
                             ownerKind = owner,
                             assignee = if (owner == "other") assignee.trim() else null,
                             dueDate = if ((dueKind == "date" || dueKind == "time") && d != null) d.toString() else null,
@@ -217,6 +241,13 @@ fun TaskEditSheet(
                         ),
                     )
                 })
+            }
+            // 잘못 넣은 하위를 상위째 지우지 않고 하나만 없애는 길(DEC-101 ⑦). 서랍은 닫히고 3초 '되돌리기'가 뜬다
+            onDelete?.let { delete ->
+                TextButton(onClick = delete, enabled = !saving, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                    Icon(WbIcons.Trash, contentDescription = null, tint = Wb.colors.crit, modifier = Modifier.size(18.dp))
+                    Text("하위 할 일 삭제", color = Wb.colors.crit, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 6.dp))
+                }
             }
         }
     }

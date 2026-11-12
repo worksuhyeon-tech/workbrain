@@ -96,7 +96,10 @@ import com.workbrain.app.tasks.QuickAddDock
 import com.workbrain.app.tasks.SelectionHeader
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.tasks.TaskFocus
+import com.workbrain.app.tasks.SubtaskRows
 import com.workbrain.app.tasks.TaskLine
+import com.workbrain.app.tasks.rememberOpenSubtasks
+import com.workbrain.app.tasks.subCountOf
 import com.workbrain.app.tasks.focusFlash
 import com.workbrain.app.tasks.TaskSelection
 import com.workbrain.app.tasks.rememberTaskComparator
@@ -347,7 +350,10 @@ private fun TasksCard(title: String, d: ParaData, drag: ParaDragState, place: Pl
     var showEarlier by rememberSaveable(place.id) { mutableStateOf(false) }
     // 검색에서 고른 할 일이 접힌 '이전 완료' 안에 있으면 펼쳐서 보이게 한다
     val focusId by TaskFocus.pending.collectAsStateWithLifecycle()
-    LaunchedEffect(focusId) { if (earlierDone.any { it.id == focusId }) showEarlier = true }
+    LaunchedEffect(focusId) {
+        val top = d.topIdOf(focusId)
+        if (earlierDone.any { it.id == top }) showEarlier = true
+    }
     val order = rememberTaskComparator()
     val selection = LocalTaskPaneTools.current?.selection
     if (!readOnly && selection != null) {
@@ -426,8 +432,15 @@ private fun TaskLines(
     val selection = LocalTaskPaneTools.current?.selection?.takeIf { it.active && !readOnly }
     val focusId by TaskFocus.pending.collectAsStateWithLifecycle()
     val flash = Wb.colors.highlight
+    // 펼친 상위(FR-23a). 검색에서 찾아간 할 일이 하위면 그 상위를 펼친다
+    val open = rememberOpenSubtasks()
+    LaunchedEffect(focusId) {
+        val parent = d.tasks.firstOrNull { it.id == focusId }?.parentId ?: return@LaunchedEffect
+        if (tasks.any { it.id == parent }) open.open(parent)
+    }
     tasks.forEachIndexed { i, t ->
         if (i > 0) HorizontalDivider(color = Wb.colors.border)
+        val kids = d.subtasksOf(t.id)
         TaskLine(
             t, d.sources[t.id]?.label, layout.showPriority, readOnly,
             onToggle = { onEvent(ParaEvent.ToggleTask(t)) },
@@ -438,10 +451,24 @@ private fun TaskLines(
             onRecipients = { onEvent(ParaEvent.EditRecipients(t)) },
             selected = selection?.let { t.id in it.ids },
             onSelect = { selection?.toggle(t.id) },
-            // 길게 눌러 다른 프로젝트·반복실행으로 끈다(펼친 화면은 왼쪽 트리, 접은 화면은 아래 '옮길 곳' 띠, DEC-72). 보관된 곳·고르는 중에는 끌지 않는다
+            subtasks = subCountOf(kids),
+            subtasksOpen = t.id in open,
+            onSubtasks = { open.toggle(t.id) },
+            // 길게 눌러 다른 프로젝트·반복실행으로 끈다(펼친 화면은 왼쪽 트리, 접은 화면은 아래 '옮길 곳' 띠, DEC-72). 보관된 곳·고르는 중에는 끌지 않는다.
+            // 하위는 상위를 따라 옮겨진다(서버)
             modifier = Modifier.focusFlash(t.id, t.id == focusId, flash)
                 .dragSource(drag, if (readOnly || selection != null) null else DragItem.Task(t.id, t.title)),
         )
+        // 펼친 하위 줄(고르는 중에는 접어 둔다 — 선택·이동·삭제는 상위만)
+        if (t.id in open && kids.isNotEmpty() && selection == null) {
+            SubtaskRows(
+                kids, readOnly,
+                onToggle = { onEvent(ParaEvent.ToggleTask(it)) },
+                onOpen = { onEvent(ParaEvent.OpenTask(it)) },
+                onAdd = if (readOnly) null else { text -> onEvent(ParaEvent.AddSubtask(t, text)) },
+                focusId = focusId,
+            )
+        }
     }
 }
 
@@ -461,7 +488,7 @@ private fun ProjectPane(d: ParaData, drag: ParaDragState, p: ProjectRow, layout:
     val area = d.area(p.areaId)
     val tasks = d.tasksOf(PlaceType.PROJECT, p.id)
     val focusId by TaskFocus.pending.collectAsStateWithLifecycle()
-    PaneFrame(onBack, canSelect = !p.archived, scrollToKey = "tasks".takeIf { tasks.any { it.id == focusId } }) {
+    PaneFrame(onBack, canSelect = !p.archived, scrollToKey = "tasks".takeIf { d.topIdOf(focusId).let { top -> tasks.any { it.id == top } } }) {
         item(key = "head") {
             Head(
                 crumbOf(d, p.archived, ParaSection.PROJECTS),
@@ -502,7 +529,7 @@ private fun AreaPane(d: ParaData, drag: ParaDragState, a: AreaRow, layout: PaneL
     val resources = d.resourcesOf(PlaceType.AREA, a.id)
     val tasks = d.tasksOf(PlaceType.AREA, a.id)
     val focusId by TaskFocus.pending.collectAsStateWithLifecycle()
-    PaneFrame(onBack, canSelect = !a.archived, scrollToKey = "tasks".takeIf { tasks.any { it.id == focusId } }) {
+    PaneFrame(onBack, canSelect = !a.archived, scrollToKey = "tasks".takeIf { d.topIdOf(focusId).let { top -> tasks.any { it.id == top } } }) {
         item(key = "head") {
             Head(
                 crumbOf(d, a.archived, ParaSection.AREAS),
@@ -683,12 +710,14 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
     // 검색에서 고른 정리 안 된 할 일: 지금 탭·담당·완료 거르기에 가려 있으면 거르기를 풀어 보이게 한 뒤 그 묶음까지 내린다
     val focusId by TaskFocus.pending.collectAsStateWithLifecycle()
     LaunchedEffect(focusId) {
-        val t = d.liveTasks.firstOrNull { it.id == focusId } ?: return@LaunchedEffect
+        val top = d.topIdOf(focusId)
+        val t = d.liveTasks.firstOrNull { it.id == top } ?: return@LaunchedEffect
         if (t in noDue) showNoDue = true
         else if (groups.none { g -> t in g.rows }) { range = "all"; owner = "all"; if (t.done) showDone = true }
     }
-    val focusKey = groups.firstOrNull { g -> g.rows.any { it.id == focusId } }?.let { "g-${it.key ?: "unsorted"}" }
-        ?: "nodue".takeIf { noDue.any { it.id == focusId } }
+    val focusTop = d.topIdOf(focusId)
+    val focusKey = groups.firstOrNull { g -> g.rows.any { it.id == focusTop } }?.let { "g-${it.key ?: "unsorted"}" }
+        ?: "nodue".takeIf { noDue.any { it.id == focusTop } }
     val selection = LocalTaskPaneTools.current?.selection
     if (selection != null) {
         val visible = groups.flatMap { it.rows } + if (showNoDue) noDue else emptyList()

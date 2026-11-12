@@ -265,8 +265,13 @@ data class Transcript(val content: String, val segments: List<TranscriptSegment>
     val area: PlaceRef? = null,
     /** 받는 사람(DEC-77, 0035): 메일·공유·전달·알려 줄 상대. 없으면 빈 목록(칩이 안 보임) */
     val recipients: List<String> = emptyList(),
+    /** 하위 할 일이면 상위 할 일 ID(FR-23a, 0040). 곳은 늘 상위와 같다(서버 트리거) */
+    @SerialName("parent_id") val parentId: String? = null,
+    /** 만든 시각(하위 할 일을 만든 순서로 보인다) */
+    @SerialName("created_at") val createdAt: String? = null,
 ) {
     val done: Boolean get() = status == "done"
+    val isSubtask: Boolean get() = parentId != null
     val placeName: String? get() = project?.name ?: area?.name
 }
 
@@ -798,6 +803,15 @@ object Server {
     /** 받는 사람 고르기 칩(DEC-77): 그 기록의 참석자 + 이름 붙은 화자(서버가 번호 화자·'(나)'를 뺌) */
     suspend fun recordPeople(recordId: String): List<String> =
         db.postgrest.rpc("wb_record_people", buildJsonObject { put("p_record_id", recordId) }).decodeAs<List<String>>()
+
+    /**
+     * 하위 할 일 넣기(FR-23a, DEC-101): 곳은 서버가 상위 것을 넣고, 끝난 상위면 서버가 다시 연다.
+     * 보관된 곳의 할 일·하위 아래에는 서버가 거부한다(WB409·WB422)
+     */
+    suspend fun createSubtask(parent: TaskRow, e: TaskEdit) {
+        val fields = e.copy(projectId = null, areaId = null, priority = null).toNewTaskFields()
+        db.from("task").insert(JsonObject(fields + ("parent_id" to JsonPrimitive(parent.id))))
+    }
 
     suspend fun task(id: String): TaskRow? =
         db.from("task").select { filter { eq("id", id) } }.decodeList<TaskRow>().firstOrNull()

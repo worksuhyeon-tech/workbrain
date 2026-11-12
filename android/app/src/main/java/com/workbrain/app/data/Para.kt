@@ -161,13 +161,28 @@ data class ParaData(
     /** 보관된 프로젝트·반복실행의 할 일은 '모든 할 일'과 '오늘'에서 빠진다(목업 S07·S02, 복원하면 다시 보임, DEC-65) */
     fun inArchived(t: TaskRow): Boolean = project(t.projectId)?.archived == true || area(t.areaId)?.archived == true
 
-    /** '모든 할 일'에 올라가는 할 일(완료 포함). 보관된 곳의 것은 뺀다 */
-    val liveTasks: List<TaskRow> get() = tasks.filterNot(::inArchived)
+    /** '모든 할 일'에 올라가는 할 일(완료 포함). 보관된 곳의 것은 빼고, 하위 할 일은 상위 아래에서만 보인다(FR-23a) */
+    val liveTasks: List<TaskRow> get() = tasks.filter { !it.isSubtask && !inArchived(it) }
 
+    /** 트리 숫자·'할 일 N'은 상위만 센다(DEC-101) */
     fun openCount(type: PlaceType, id: String): Int = tasksOf(type, id).count { !it.done }
 
+    /** 그곳의 상위 할 일(하위는 subtasksOf로) */
     fun tasksOf(type: PlaceType, id: String): List<TaskRow> =
-        tasks.filter { if (type == PlaceType.PROJECT) it.projectId == id else it.areaId == id }
+        tasks.filter { !it.isSubtask && (if (type == PlaceType.PROJECT) it.projectId == id else it.areaId == id) }
+
+    /** 이 할 일의 하위 할 일(만든 순서) */
+    fun subtasksOf(parentId: String): List<TaskRow> = tasks.filter { it.parentId == parentId }.sortedBy { it.createdAt.orEmpty() }
+
+    /**
+     * 지우는 중인 할 일(TaskDeletes.hidden)을 뺀 데이터. 서버에서 지우기 전 3초 동안에도 화면에서 바로 사라지게 한다.
+     * 상위를 지우면 하위도 함께 지워지므로 그 하위도 뺀다(상위 삭제·하위 하나 삭제 공용, DEC-101 ⑦)
+     */
+    fun without(ids: Set<String>): ParaData =
+        if (ids.isEmpty()) this else copy(tasks = tasks.filter { it.id !in ids && it.parentId !in ids })
+
+    /** 하위 할 일이면 그 상위 ID, 아니면 자기 ID(검색에서 찾아간 할 일이 어느 줄에 들었는지) */
+    fun topIdOf(taskId: String?): String? = tasks.firstOrNull { it.id == taskId }?.let { it.parentId ?: it.id }
 
     /** 받는 사람 고르기 칩에 보탤 이름(DEC-77): 이 공간 할 일의 팔로업 담당·받는 사람, 자주 쓴 순 */
     val usedNames: List<String> get() = usedNamesOf(tasks)

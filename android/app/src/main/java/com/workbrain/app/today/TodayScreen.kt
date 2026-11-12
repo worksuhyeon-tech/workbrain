@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -95,7 +96,11 @@ import com.workbrain.app.tasks.rememberTaskSelection
 import com.workbrain.app.tasks.TaskEditSheet
 import com.workbrain.app.tasks.quickAddedText
 import com.workbrain.app.tasks.quickDueLabel
+import com.workbrain.app.tasks.SubtaskRows
 import com.workbrain.app.tasks.TaskLine
+import com.workbrain.app.tasks.parseSubtask
+import com.workbrain.app.tasks.rememberOpenSubtasks
+import com.workbrain.app.tasks.subCountOf
 import com.workbrain.app.tasks.UNSAVED_TEXT
 import com.workbrain.app.tasks.doneInstant
 import com.workbrain.app.tasks.dueDay
@@ -194,6 +199,8 @@ fun TodayScreen(nav: TodayNav) {
         budget = b.await()
         cost = c.await()
         sessions = RecordingStore.list(context, null)
+        // 서랍이 열려 있으면 새로 읽은 줄로 바꾼다(하위를 넣으면 서버가 끝난 상위를 다시 열어 버전이 바뀜). 지워졌으면 닫는다
+        editing = editing?.let { e -> (tasks.orEmpty() + para?.tasks.orEmpty()).firstOrNull { it.id == e.id } }
     }
     LaunchedEffect(Unit) { load() }
     // 화면을 아래로 끌어 새로고침(11/12 사용자, ⋮의 '새로고침' 항목을 대신함). 다시 읽는 동안만 위에 빙글 표시
@@ -213,6 +220,16 @@ fun TodayScreen(nav: TodayNav) {
             false -> CONFLICT_TEXT to Tone.Warn
             null -> "저장하지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit
         }
+        load()
+    }
+
+    /** 하위 할 일 한 줄 넣기(FR-23a). 끝낸 상위에 넣으면 서버가 상위를 다시 연다(DEC-101 ③) */
+    fun addSubtask(parent: TaskRow, text: String) = scope.launch {
+        val e = parseSubtask(text, LocalDate.now(SEOUL)) ?: return@launch
+        message = runCatching { Server.createSubtask(parent, e) }.fold(
+            onSuccess = { (if (parent.done) "하위 할 일을 넣었어요 · 끝낸 상위 할 일을 다시 열었어요" else "하위 할 일을 넣었어요") to Tone.Good },
+            onFailure = { saveFailText(it) to Tone.Crit },
+        )
         load()
     }
 
@@ -249,7 +266,10 @@ fun TodayScreen(nav: TodayNav) {
 
     val today = LocalDate.now(SEOUL)
     val hidden by TaskDeletes.hidden.collectAsStateWithLifecycle()
-    val all = tasks.orEmpty().filter { it.id !in hidden }
+    // 지우는 중인 상위의 하위('상위 › 하위' 줄)도 함께 숨긴다
+    val all = tasks.orEmpty().filter { it.id !in hidden && it.parentId !in hidden }
+    // 칩 숫자·펼친 하위 줄·서랍의 하위 칸도 지우는 중인 하위를 바로 뺀다(DEC-101 ⑦)
+    val shownPara = para?.without(hidden)
     // 오늘 할 일 = 오늘 마감 + 지연(목업 dueToday). 기한 없는·모호한·다음 날 이후 할 일은 '모든 할 일'에서
     val due = all.filter { !it.done && dueDay(it)?.let { d -> !d.isAfter(today) } == true }
     val mine = due.filter { it.ownerKind != "other" }
@@ -261,7 +281,8 @@ fun TodayScreen(nav: TodayNav) {
     val doneToday = all.filter { it.done }.sortedByDescending { doneInstant(it)?.toInstant() }
     // 전체 선택 대상 = 이 화면에 보이는 할 일
     val shownTasks = late + todays + follow + doneToday
-    SideEffect { selection.visible = shownTasks.map { it.id } }
+    // 하위 줄은 고르지 않는다(선택·이동·삭제는 상위만, 하위는 따라감)
+    SideEffect { selection.visible = shownTasks.filterNot { it.isSubtask }.map { it.id } }
     BackHandler(enabled = selection.active) { selection.stop() }
 
     /** 할 일을 한 곳으로 옮기고 알린다. 되돌리기는 원래 곳으로(선택 › 이동·끌어 놓기 공용) */
@@ -297,7 +318,15 @@ fun TodayScreen(nav: TodayNav) {
         if (picked.isEmpty()) return
         selection.stop()
         picked.forEach(TaskDeletes::delete)
-        announcer.show(deletedText(picked)) { picked.forEach { TaskDeletes.undo(it.id) } }
+        val subs = picked.sumOf { p -> shownPara?.subtasksOf(p.id)?.size ?: 0 }
+        announcer.show(deletedText(picked, subs)) { picked.forEach { TaskDeletes.undo(it.id) } }
+    }
+
+    /** 하위 서랍의 [하위 할 일 삭제](DEC-101 ⑦): 서랍을 닫아 '되돌리기' 알림이 보이게 하고, 3초 뒤 서버에서 지운다 */
+    fun deleteSubtask(t: TaskRow) {
+        editing = null
+        TaskDeletes.delete(t)
+        announcer.show(deletedText(listOf(t))) { TaskDeletes.undo(t.id) }
     }
 
     val pendingGroups = groupPending(pending.filter { !Snooze.isActive(it.snoozedUntil) })
@@ -313,6 +342,9 @@ fun TodayScreen(nav: TodayNav) {
             drag = drag,
             onPlace = { p -> nav.openProjects(if (p.type == PlaceType.PROJECT) "p:${p.id}" else "a:${p.id}") },
             onAll = { nav.openProjects("all") },
+            childrenOf = { id -> shownPara?.subtasksOf(id).orEmpty() },
+            parentTitleOf = { id -> shownPara?.tasks?.firstOrNull { it.id == id }?.title ?: "상위 할 일" },
+            onAddSub = ::addSubtask,
         )
     }
     val reviewCard: @Composable () -> Unit = { ReviewCard(pendingGroups, nav) }
@@ -385,10 +417,19 @@ fun TodayScreen(nav: TodayNav) {
     }
 
     editing?.let { t ->
-        TaskEditSheet(
-            t.toEdit(), places, currentPlaceName = t.placeName, error = editError, saving = saving, onDismiss = { editing = null },
-            recordId = sources[t.id]?.recordId, usedNames = usedNamesOf(all),
-        ) { e -> save(t, e) }
+        // 하위 서랍으로 넘어가면 입력 칸을 새로 채우도록 할 일마다 따로 그린다
+        key(t.id) {
+            TaskEditSheet(
+                t.toEdit(), places, currentPlaceName = t.placeName, error = editError, saving = saving, onDismiss = { editing = null },
+                recordId = sources[t.id]?.recordId, usedNames = usedNamesOf(all),
+                parentTitle = t.parentId?.let { pid -> shownPara?.tasks?.firstOrNull { it.id == pid }?.title ?: "상위 할 일" },
+                subtasks = if (t.isSubtask) null else shownPara?.subtasksOf(t.id).orEmpty(),
+                onToggleSub = { c -> setDone(c, !c.done) },
+                onOpenSub = { c -> editError = null; editing = c },
+                onAddSub = { text -> addSubtask(t, text) },
+                onDelete = if (t.isSubtask) { { deleteSubtask(t) } } else null,
+            ) { e -> save(t, e) }
+        }
     }
     recipientsEditing?.let { t ->
         RecipientsSheet(t.recipients, sources[t.id]?.recordId, usedNamesOf(all), saving, editError, onDismiss = { recipientsEditing = null }) { names ->
@@ -442,7 +483,12 @@ private fun TodayCard(
     drag: ParaDragState,
     onPlace: (Place) -> Unit,
     onAll: () -> Unit,
+    childrenOf: (String) -> List<TaskRow>,
+    parentTitleOf: (String) -> String,
+    onAddSub: (TaskRow, String) -> Unit,
 ) {
+    // 펼친 상위 할 일(FR-23a)
+    val open = rememberOpenSubtasks()
     MockCard {
         BoxWithConstraints {
             // 목업은 좁아지면(700px) 우선순위 칸을 숨긴다
@@ -452,11 +498,18 @@ private fun TodayCard(
                 val rows: @Composable ColumnScope.(List<TaskRow>) -> Unit = { list ->
                     list.forEachIndexed { i, t ->
                         if (i > 0) HorizontalDivider(color = Wb.colors.border)
-                        TaskLine(t, sources[t.id]?.label, showPriority, readOnly = false, onToggle = { onToggle(t) }, onOpen = { onOpen(t) }, place = placeOf(t), onPlace = onPlace, onRecipients = { onRecipients(t) },
-                            selected = if (selection.active) t.id in selection.ids else null, onSelect = { selection.toggle(t.id) },
+                        // 오늘 기한·지연인 하위는 '상위 › 하위' 한 줄로 따로(DEC-101 ⑤). 고르기·끌기는 상위만(하위는 따라감)
+                        val kids = if (t.isSubtask) emptyList() else childrenOf(t.id)
+                        TaskLine(t, sources[t.id]?.label, showPriority, readOnly = t.isSubtask && selection.active, onToggle = { onToggle(t) }, onOpen = { onOpen(t) }, place = placeOf(t), onPlace = onPlace, onRecipients = { onRecipients(t) },
+                            selected = if (selection.active && !t.isSubtask) t.id in selection.ids else null, onSelect = { selection.toggle(t.id) },
+                            parentTitle = t.parentId?.let(parentTitleOf),
+                            subtasks = subCountOf(kids), subtasksOpen = t.id in open, onSubtasks = { open.toggle(t.id) },
                             // 길게 눌러 다른 프로젝트·반복실행으로 끈다(DEC-93). 고르는 중에는 끌지 않는다
-                            modifier = Modifier.dragSource(drag, if (selection.active) null else DragItem.Task(t.id, t.title)),
+                            modifier = Modifier.dragSource(drag, if (selection.active || t.isSubtask) null else DragItem.Task(t.id, t.title)),
                         )
+                        if (t.id in open && kids.isNotEmpty() && !selection.active) {
+                            SubtaskRows(kids, readOnly = false, onToggle = onToggle, onOpen = onOpen, onAdd = { text -> onAddSub(t, text) })
+                        }
                     }
                 }
                 if (late.isNotEmpty()) { SubHead("지연 ${late.size}", Wb.colors.crit); rows(late) }

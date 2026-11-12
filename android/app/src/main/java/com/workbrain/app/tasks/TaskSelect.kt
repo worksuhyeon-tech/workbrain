@@ -334,5 +334,7 @@ fun movedManyText(r: MoveResult, to: Place?): String {
 }
 
 /** 지운 뒤 알림 문구: 한 개면 제목, 여러 개면 개수 */
-fun deletedText(tasks: List<TaskRow>): String =
-    if (tasks.size == 1) "${tasks.first().title} 삭제되었어요" else "할 일 ${tasks.size}개 삭제되었어요"
+fun deletedText(tasks: List<TaskRow>, subtasks: Int = 0): String =
+    (if (tasks.size == 1) "${tasks.first().title} 삭제되었어요" else "할 일 ${tasks.size}개 삭제되었어요") +
+        // 상위를 지우면 하위도 함께 지워진다(FR-23a, 서버 cascade)
+        if (subtasks > 0) " · 하위 ${subtasks}개 포함" else ""

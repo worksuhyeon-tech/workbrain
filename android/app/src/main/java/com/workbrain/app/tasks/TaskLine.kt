@@ -22,7 +22,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,6 +89,8 @@ private fun rowDue(t: TaskRow, today: LocalDate): String {
  * showPriority: 좁은 칸에서는 목업처럼 우선순위 칸을 숨긴다(목업 max-width 700)
  * selected: ⋮ › 선택 모드(DEC-92)일 때만 값이 있다. 그때는 앞 체크가 '고르기'가 되고 줄 어디를 눌러도 onSelect(완료·수정·칩은 막음)
  * modifier: 프로젝트 화면에서 길게 눌러 끌기를 붙일 때(DEC-72)
+ * 하위 할 일(FR-23a): subtasks가 있으면 제목 옆 '⤷ 1/3' 칩(onSubtasks로 펼침·접힘). parentTitle은 오늘 탭의 '상위 › 하위' 줄,
+ * compact는 상위 아래 펼친 하위 줄(들여 쓰고 출처·우선순위 칸 없이)
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -102,6 +107,11 @@ fun TaskLine(
     onRecipients: (() -> Unit)? = null,
     selected: Boolean? = null,
     onSelect: () -> Unit = {},
+    parentTitle: String? = null,
+    subtasks: SubCount? = null,
+    subtasksOpen: Boolean = false,
+    onSubtasks: (() -> Unit)? = null,
+    compact: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val today = LocalDate.now(SEOUL)
@@ -115,7 +125,7 @@ fun TaskLine(
                 onClickLabel = if (selecting) "선택" else "할 일 수정",
                 onClick = if (selecting) onSelect else onOpen,
             )
-            .padding(start = 4.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
+            .padding(start = if (compact) 32.dp else 4.dp, end = 16.dp, top = if (compact) 0.dp else 4.dp, bottom = if (compact) 0.dp else 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(
@@ -124,20 +134,27 @@ fun TaskLine(
             enabled = selecting || !readOnly,
             colors = CheckboxDefaults.colors(checkedColor = Wb.colors.primary, uncheckedColor = Wb.colors.borderStrong),
         )
-        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+        Column(Modifier.weight(1f).padding(vertical = if (compact) 4.dp else 6.dp)) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    t.title, fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                    // 오늘 탭의 하위 할 일은 '상위 › 하위'(상위는 옅게, DEC-101 ⑤)
+                    buildAnnotatedString {
+                        parentTitle?.let { withStyle(SpanStyle(color = Wb.colors.muted, fontWeight = FontWeight.Normal)) { append("$it › ") } }
+                        append(t.title)
+                    },
+                    fontSize = if (compact) 14.sp else 15.sp, fontWeight = FontWeight.Medium,
                     color = if (t.done) Wb.colors.muted else Wb.colors.ink,
                     textDecoration = if (t.done) TextDecoration.LineThrough else null,
                 )
+                subtasks?.let { SubtaskChip(it, subtasksOpen, onSubtasks?.takeIf { !selecting }) }
                 when (t.ownerKind) {
                     "other" -> OwnChip("${t.assignee.orEmpty()} · 팔로업", Wb.colors.info, WbIcons.Person)
                     "unknown" -> OwnChip("담당 확인", Wb.colors.warn, null)
                 }
                 RecipientsChip(t.recipients, if (selecting) onSelect else if (readOnly) null else onRecipients ?: onOpen)
             }
-            Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            // 펼친 하위 줄은 출처 줄 없이(상위에 이미 보임)
+            if (!compact) Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (place != null || showUnsorted) {
                     Row(
                         Modifier.clip(RoundedCornerShape(4.dp)).clickable(enabled = !selecting && place != null && onPlace != null) { place?.let { onPlace?.invoke(it) } }.padding(end = 6.dp),
@@ -153,7 +170,7 @@ fun TaskLine(
                 )
             }
         }
-        if (showPriority) {
+        if (showPriority && !compact) {
             Text(
                 priorityLabel(t.priority), fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
                 color = if (t.priority == 1) Wb.colors.crit else Wb.colors.muted,
