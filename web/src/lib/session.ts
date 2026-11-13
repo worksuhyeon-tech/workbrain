@@ -31,13 +31,24 @@ export function useAuth(): AuthState {
   return state
 }
 
-/** Google 로그인(앱과 같은 Supabase Google 공급자). 돌아올 주소는 지금 웹 주소 — Supabase 허용 목록에 있어야 한다 */
-export async function signInWithGoogle(): Promise<void> {
+/**
+ * Google 로그인(앱과 같은 Supabase Google 공급자). 돌아올 주소는 지금 웹 주소 — Supabase 허용 목록에 있어야 한다.
+ * chooseAccount: 허용 안 된 계정으로 막힌 뒤에는 Google이 같은 계정으로 바로 넘기지 않게 계정 고르기 창을 띄운다
+ */
+export async function signInWithGoogle(chooseAccount = false): Promise<void> {
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
-    options: { redirectTo: window.location.origin },
+    options: {
+      redirectTo: window.location.origin,
+      ...(chooseAccount && { queryParams: { prompt: 'select_account' } }),
+    },
   })
   if (error) throw error
+}
+
+/** 로그인 실패 표시(?error=…·#error=…)를 주소에서 지운다. 라이브러리는 지우지 않아, 두면 새로고침할 때마다 다시 뜬다 */
+export function clearLoginFailureFromUrl(): void {
+  window.history.replaceState(window.history.state, '', window.location.pathname)
 }
 
 export async function signOut(): Promise<void> {

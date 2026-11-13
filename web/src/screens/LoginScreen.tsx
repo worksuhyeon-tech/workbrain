@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { BrandLogo, GlassIcon, Icons, type Tint } from '../components/icons'
-import { signInWithGoogle } from '../lib/session'
+import { clearLoginFailureFromUrl, signInWithGoogle } from '../lib/session'
 import { useTheme } from '../lib/theme'
+import { LOGIN_FAILURE_TEXT, loginFailureOf } from '../rules/login'
 
 const STEPS: { tint: Tint; label: string; desc: string; icon: ReactNode }[] = [
   { tint: 'orange', label: '녹음', desc: '회의·통화·메모', icon: <Icons.records /> },
@@ -32,13 +33,18 @@ const STEPS: { tint: Tint; label: string; desc: string; icon: ReactNode }[] = [
 export function LoginScreen() {
   const { toggle } = useTheme()
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // Google에서 돌아왔는데 막혔으면(허용 안 된 계정 등) 그 안내로 시작한다. 읽기는 여기서, 주소 지우기는 아래 효과에서
+  const [failure] = useState(() => loginFailureOf(window.location.href))
+  const [error, setError] = useState<string | null>(failure && LOGIN_FAILURE_TEXT[failure])
+  useEffect(() => {
+    if (failure) clearLoginFailureFromUrl()
+  }, [failure])
 
   const login = async () => {
     setBusy(true)
     setError(null)
     try {
-      await signInWithGoogle()
+      await signInWithGoogle(failure === 'notAllowed')
     } catch (e) {
       console.error('Google sign-in failed', e)
       setError('로그인 창을 열지 못했어요. 잠시 뒤 다시 눌러 주세요.')
@@ -107,7 +113,11 @@ export function LoginScreen() {
           >
             {busy ? '로그인 창으로 가는 중…' : 'Google로 로그인'}
           </button>
-          {error && <p className="mt-3 text-sm text-crit">{error}</p>}
+          {error && (
+            <p role="alert" className="mt-3 text-sm text-crit">
+              {error}
+            </p>
+          )}
           <p className="mt-3 text-[13px] text-muted">
             공개 가입이 없어요. <b className="text-body">등록된 본인 Google 계정만</b> 로그인됩니다.
           </p>
