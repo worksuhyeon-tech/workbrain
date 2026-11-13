@@ -24,7 +24,7 @@
 | FR-14 | PC/모바일 동기화·처리 상태 | P1 | ProcessingJob | S02/S05 | TC-13 |
 | FR-15 | 기간별 보관·삭제·복구·내보내기 | P1 | DeletionRequest/Tombstone | S09 | TC-10/TC-11/TC-12 |
 | FR-16 | 운영 비용·사용량·예산 대기 | P1 | CostLedger/BudgetReservation | S09 | TC-14 |
-| FR-17 | 업로드 전 저장 허용·비식별화·외부 AI 전송 동의 | P1 | SourceRecord(storagePermission)/ConsentGrant/TranscriptVersion | S01/S04/S05/S09 | TC-06/TC-15 |
+| FR-17 | 비식별화·외부 AI 전송 동의(업로드 전 저장 허용은 DEC-106으로 폐지) | P1 | ConsentGrant/TranscriptVersion | S01/S04/S05/S09 | TC-06/TC-15 |
 | FR-18 | 결정·요구·이슈·일정·위험 수명 관리 | P2 | Decision/Requirement/Issue | S03/S06 확장 | TC-18 |
 | FR-19 | 의미 검색·근거·프로젝트 간 비교 | P2/P3 | KnowledgeItem/SearchChunk | S08 확장 | TC-18/TC-19 |
 | FR-20 | AI 우선순위·브리핑·업무 부담 | P2 | KnowledgeItem/Task/Issue | S02 확장 | TC-18 |

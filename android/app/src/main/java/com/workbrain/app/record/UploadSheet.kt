@@ -1,8 +1,5 @@
 package com.workbrain.app.record
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,7 +17,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.ui.text.input.ImeAction
 import com.workbrain.app.ui.MAX_TITLE
 import androidx.compose.material3.Text
@@ -35,15 +31,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.workbrain.app.ui.ControlShape
-import com.workbrain.app.ui.GlassIcon
-import com.workbrain.app.ui.GlassTint
-import com.workbrain.app.ui.WbIcons
-import androidx.compose.ui.graphics.vector.ImageVector
-import com.workbrain.app.ui.PillShape
 import com.workbrain.app.ui.SegmentPills
 import com.workbrain.app.ui.PrimaryButton
 import com.workbrain.app.ui.SecondaryButton
@@ -53,19 +43,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 private val KINDS = listOf("meeting" to "회의", "call" to "통화", "memo" to "혼자 메모")
 
-// 앱이 내용을 보고 자동으로 판단하지 않고 사용자가 고른다(M11). 금지·모름이면 올리지 않는다
-private data class PermissionOption(val value: String, val glyph: ImageVector, val tint: GlassTint, val title: String, val desc: String)
-private val PERMISSIONS = listOf(
-    PermissionOption("personal", WbIcons.Person, GlassTint.Purple, "개인 자료", "내 메모·개인 통화"),
-    PermissionOption("sample", WbIcons.Flask, GlassTint.Green, "샘플·시험용", "테스트용으로 만든 녹음"),
-    PermissionOption("company-approved", WbIcons.Building, GlassTint.Blue, "회사 자료 (외부 저장 허용 확인됨)", "허용 범위를 확인한 업무 자료"),
-    PermissionOption("deny", WbIcons.Ban, GlassTint.Red, "허용 안 됨 · 잘 모르겠음", "올리지 않고 이 기기에만 보관해요"),
-)
-
 /**
- * 올리기 전 확인(목업 .sheet): 제목(Q2), 기록 종류, 클라우드 저장 허용(M11), 처음 한 번 외부 전사·분석 동의(FR-17).
+ * 올리기 전 확인(목업 .sheet): 제목(Q2), 기록 종류, 처음 한 번 외부 전사·분석 동의(FR-17).
+ * 예전의 '클라우드에 올려도 되나요?'(M11)는 묻지 않는다(DEC-106, 2026-11-13 사용자 결정).
  * needConsent가 null이면 서버에 동의 여부를 묻는 중이라 '올리기'를 잠시 막는다.
- * onConfirm(title, kind, permission, consentGiven, attendees) — title은 앞뒤 공백을 뗀 값, 비우면 원래 제목
+ * onConfirm(title, kind, consentGiven, attendees) — title은 앞뒤 공백을 뗀 값, 비우면 원래 제목
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,14 +57,13 @@ fun UploadSheet(
     initialAttendees: List<String>,
     initialKind: String,
     onDismiss: () -> Unit,
-    onConfirm: (title: String, kind: String, permission: String, consentGiven: Boolean, attendees: List<String>) -> Unit,
+    onConfirm: (title: String, kind: String, consentGiven: Boolean, attendees: List<String>) -> Unit,
 ) {
     var titleText by remember { mutableStateOf(title) }
     var kind by remember { mutableStateOf(initialKind) }
     var attendees by remember { mutableStateOf(initialAttendees) }
-    var permission by remember { mutableStateOf<String?>(null) }
     var consent by remember { mutableStateOf(false) }
-    val canSend = permission != null && permission != "deny" && (needConsent == false || (needConsent == true && consent))
+    val canSend = needConsent == false || (needConsent == true && consent)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -126,11 +107,6 @@ fun UploadSheet(
                 AttendeesEditor(attendees, onChange = { attendees = it })
             }
 
-            Spacer(Modifier.height(8.dp))
-            Text("이 자료를 클라우드에 올려도 되나요?", style = MaterialTheme.typography.titleMedium, color = Wb.colors.ink)
-            Text("앱이 내용을 보고 자동으로 판단하지 않아요. 직접 골라 주세요.", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
-            PERMISSIONS.forEach { opt -> PermissionCard(opt, selected = permission == opt.value) { permission = opt.value } }
-
             if (needConsent == null) {
                 Text("외부 AI 처리 동의 여부를 확인하고 있어요…", style = MaterialTheme.typography.bodySmall, color = Wb.colors.muted)
             } else if (needConsent) {
@@ -151,12 +127,12 @@ fun UploadSheet(
             Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SecondaryButton("취소", onClick = onDismiss, modifier = Modifier.height(44.dp))
                 PrimaryButton(
-                    if (permission == "deny") "올리지 않아요" else "올리기",
+                    "올리기",
                     enabled = canSend,
                     modifier = Modifier.weight(1f),
                     onClick = {
                         val finalTitle = titleText.trim().ifEmpty { title }
-                        permission?.let { onConfirm(finalTitle, kind, it, consent, if (kind == "memo") emptyList() else attendees) }
+                        onConfirm(finalTitle, kind, consent, if (kind == "memo") emptyList() else attendees)
                     },
                 )
             }
@@ -187,38 +163,11 @@ fun UploadSheetHost(target: RecordingSession, initialKind: String?, onDismiss: (
         initialAttendees = target.attendees,
         initialKind = initialKind ?: defaultKind(target),
         onDismiss = onDismiss,
-        onConfirm = { title, kind, permission, consentGiven, attendees ->
+        onConfirm = { title, kind, consentGiven, attendees ->
             // 올리는 작업이 기기 메타에서 제목을 읽어 서버 기록을 만들므로, 시작 전에 먼저 적어 둔다
             if (title != target.title) RecordingStore.setTitle(RecordingStore.dir(context, target.id), title)
-            UploadManager.start(context, target, kind, permission, consentGiven, attendees)
+            UploadManager.start(context, target, kind, consentGiven, attendees)
             onStarted()
         },
     )
-}
-
-/** 목업 .sheet .opt: 아이콘 + 굵은 제목 + 설명. 고르면 파란 테두리, '허용 안 됨'은 붉은 테두리 */
-@Composable
-private fun PermissionCard(opt: PermissionOption, selected: Boolean, onClick: () -> Unit) {
-    val isDeny = opt.value == "deny"
-    val borderColor = when {
-        selected && isDeny -> Wb.colors.crit
-        selected -> Wb.colors.primary
-        isDeny -> Wb.colors.crit.copy(alpha = 0.35f)
-        else -> Wb.colors.border
-    }
-    Surface(
-        onClick = onClick,
-        shape = ControlShape,
-        color = if (selected) (if (isDeny) Wb.colors.crit else Wb.colors.primary).copy(alpha = 0.06f) else Wb.colors.card,
-        border = BorderStroke(if (selected) 2.dp else 1.dp, borderColor),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            GlassIcon(opt.glyph, opt.tint, size = 36.dp)
-            Column(Modifier.padding(start = 12.dp)) {
-                Text(opt.title, style = MaterialTheme.typography.titleSmall, color = Wb.colors.ink)
-                Text(opt.desc, style = MaterialTheme.typography.bodySmall, color = Wb.colors.body)
-            }
-        }
-    }
 }

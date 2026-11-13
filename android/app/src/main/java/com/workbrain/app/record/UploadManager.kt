@@ -42,19 +42,19 @@ object UploadManager {
 
     internal fun set(id: String, p: UploadProgress) = _progress.update { it + (id to p) }
 
-    /** kind: meeting·call·memo, permission: personal·sample·company-approved(금지·모름이면 부르지 않는다, M11) */
-    fun start(context: Context, session: RecordingSession, kind: String, permission: String, consentGiven: Boolean, attendees: List<String>) {
+    /** kind: meeting·call·memo. 예전의 저장 허용 선택(M11)은 묻지 않는다(DEC-106) — 서버 칸은 비워 둔다 */
+    fun start(context: Context, session: RecordingSession, kind: String, consentGiven: Boolean, attendees: List<String>) {
         // 참석자는 기기 메타에 먼저 적어 둔다(작업이 다시 돌아도 같은 명단으로 올림)
         RecordingStore.setAttendees(RecordingStore.dir(context, session.id), attendees)
         RecentAttendees.remember(context, attendees)
         set(session.id, UploadProgress("준비 중", busy = true))
-        enqueue(context, session.id, kind, permission, consentGiven, ExistingWorkPolicy.KEEP)
+        enqueue(context, session.id, kind, consentGiven, ExistingWorkPolicy.KEEP)
     }
 
     /** '이어서 처리': 기다리는 중이던 작업도 지금 바로 다시 돌린다(종류·허용은 이미 서버 기록에 있다) */
     fun resume(context: Context, session: RecordingSession) {
         set(session.id, UploadProgress("다시 이어서 하는 중", busy = true))
-        enqueue(context, session.id, "meeting", "personal", false, ExistingWorkPolicy.REPLACE)
+        enqueue(context, session.id, "meeting", false, ExistingWorkPolicy.REPLACE)
     }
 
     /**
@@ -64,14 +64,14 @@ object UploadManager {
     fun ensureRunning(context: Context) {
         RecordingStore.list(context, activeId = null)
             .filter { it.recordId != null && it.serverState != "ready" && it.serverState != "failed" }
-            .forEach { enqueue(context, it.id, "meeting", "personal", false, ExistingWorkPolicy.KEEP) }
+            .forEach { enqueue(context, it.id, "meeting", false, ExistingWorkPolicy.KEEP) }
     }
 
-    private fun enqueue(context: Context, sessionId: String, kind: String, permission: String, consentGiven: Boolean, policy: ExistingWorkPolicy) {
+    private fun enqueue(context: Context, sessionId: String, kind: String, consentGiven: Boolean, policy: ExistingWorkPolicy) {
         val request = OneTimeWorkRequestBuilder<ProcessWorker>()
             .setInputData(workDataOf(
                 ProcessWorker.SESSION to sessionId, ProcessWorker.KIND to kind,
-                ProcessWorker.PERMISSION to permission, ProcessWorker.CONSENT to consentGiven,
+                ProcessWorker.CONSENT to consentGiven,
             ))
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS)
@@ -80,7 +80,7 @@ object UploadManager {
     }
 
     /** ProcessWorker가 부른다. 세션 상태는 매번 기기 메타에서 다시 읽는다(앱이 꺼졌다 켜져도 같은 지점부터) */
-    internal suspend fun run(app: Context, sessionId: String, kind: String, permission: String, consentGiven: Boolean): RunOutcome {
+    internal suspend fun run(app: Context, sessionId: String, kind: String, consentGiven: Boolean): RunOutcome {
         val dir = RecordingStore.dir(app, sessionId)
         val session = RecordingStore.list(app, activeId = null).firstOrNull { it.id == sessionId } ?: return RunOutcome.STOPPED
         if (session.serverState == "ready") return RunOutcome.DONE
@@ -95,7 +95,7 @@ object UploadManager {
             val text = RecordingStore.importedFile(dir)?.readText() ?: error("가져온 글 파일이 없어요")
             if (recordId == null) {
                 recordId = UUID.randomUUID().toString()
-                Server.createRecord(newRecord(recordId, session, kind, permission))
+                Server.createRecord(newRecord(recordId, session, kind))
                 RecordingStore.setServer(dir, recordId, null)
                 linkChosenProject(dir, recordId)
             }
@@ -119,7 +119,7 @@ object UploadManager {
             }
             if (recordId == null) {
                 recordId = UUID.randomUUID().toString()
-                Server.createRecord(newRecord(recordId, session, kind, permission))
+                Server.createRecord(newRecord(recordId, session, kind))
                 RecordingStore.setServer(dir, recordId, null)
                 linkChosenProject(dir, recordId)
             }
@@ -173,13 +173,12 @@ object UploadManager {
         return RunOutcome.LATER
     }
 
-    private suspend fun newRecord(recordId: String, session: RecordingSession, kind: String, permission: String) = SourceRecordInsert(
+    private suspend fun newRecord(recordId: String, session: RecordingSession, kind: String) = SourceRecordInsert(
         id = recordId,
         workspaceId = Server.workspaceId(),
         channel = session.channel,
         title = session.title,
         occurredAt = Instant.ofEpochMilli(session.startedAt).toString(),
-        storagePermission = permission,
         recordKind = kind,
         attendees = session.attendees,
     )

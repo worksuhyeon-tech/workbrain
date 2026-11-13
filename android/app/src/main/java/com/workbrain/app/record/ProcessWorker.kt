@@ -21,7 +21,6 @@ class ProcessWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             UploadManager.run(
                 applicationContext, sessionId,
                 kind = inputData.getString(KIND) ?: "meeting",
-                permission = inputData.getString(PERMISSION) ?: "personal",
                 consentGiven = inputData.getBoolean(CONSENT, false),
             )
         }.onFailure {
@@ -53,7 +52,6 @@ class ProcessWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     companion object {
         const val SESSION = "session"
         const val KIND = "kind"
-        const val PERMISSION = "permission"
         const val CONSENT = "consent"
     }
 }

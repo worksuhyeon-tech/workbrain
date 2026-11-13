@@ -4,9 +4,11 @@ import { PageHead } from '../components/AppShell'
 import { Icons } from '../components/icons'
 import { Seg } from '../components/Seg'
 import { useToast } from '../components/Toast'
+import { UploadPanel } from '../components/UploadPanel'
 import { CARD, TONE_CHIP } from '../components/ui'
 import { loadRecords, type ProjectName, type RecordListRow } from '../data/records'
 import { cn } from '../lib/cn'
+import { ProcessRunner, useProcessing, type Progress } from '../lib/processRunner'
 import {
   CHANNEL_LABEL,
   CLASS_LABEL,
@@ -25,7 +27,6 @@ import { seoulTime } from '../rules/tasks'
 
 const byName = new Intl.Collator('ko').compare
 const LOAD_FAILED = '기록을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.'
-const UPLOAD_LATER = 'PC에서 올리기는 다음 단계(③)에서 열어요 · 지금은 휴대폰 앱에서 올려 주세요'
 
 interface Item {
   r: RecordListRow
@@ -42,7 +43,9 @@ export function RecordsScreen() {
   const [failed, setFailed] = useState(false)
   const [filter, setFilter] = useState<RecordFilter>('all')
   const [projectId, setProjectId] = useState('')
+  const [uploading, setUploading] = useState(false)
   const toast = useToast()
+  const processing = useProcessing()
 
   const reload = useCallback(() => {
     setFailed(false)
@@ -52,6 +55,11 @@ export function RecordsScreen() {
     })
   }, [])
   useEffect(reload, [reload])
+  // 이 탭에서 올린 기록이 서버에 생기거나 처리가 끝나면 목록을 다시 읽는다
+  const progressKey = [...processing].map(([id, p]) => `${id}:${p.created}:${p.busy}`).join(',')
+  useEffect(() => {
+    if (progressKey) reload()
+  }, [progressKey, reload])
 
   const items: Item[] = useMemo(() => (data?.records ?? []).map((r) => ({ r, stage: recordStage(r.job, r.proposals) })), [data])
   const names = useMemo(() => new Map((data?.projects ?? []).map((p) => [p.id, p])), [data])
@@ -69,12 +77,24 @@ export function RecordsScreen() {
       <PageHead title="기록" hand="회의·통화·메모">
         <button
           type="button"
-          onClick={() => toast.show(UPLOAD_LATER)}
+          aria-expanded={uploading}
+          onClick={() => setUploading((v) => !v)}
           className="flex h-10 items-center gap-1.5 rounded-full bg-primary px-5 text-sm font-semibold text-on-primary hover:bg-primary-hover"
         >
           <Icons.upload /> 파일 올리기
         </button>
       </PageHead>
+
+      {uploading && (
+        <UploadPanel
+          onClose={() => setUploading(false)}
+          onStarted={(title) => {
+            setUploading(false)
+            toast.show(`‘${title}’을(를) 올리고 있어요 · 이 창을 열어 두면 정리까지 이어서 해요`)
+          }}
+        />
+      )}
+      {processing.size > 0 && <ProcessingList processing={processing} />}
 
       {failed && (
         <div className="mb-4 flex items-center gap-3 rounded-lg bg-crit-soft p-3 text-sm text-crit">
@@ -185,3 +205,38 @@ function RecordRow({ item: { r, stage }, names }: { item: Item; names: Map<strin
     </Link>
   )
 }
+
+/**
+ * 이 탭에서 올리거나 처리 중인 기록(③): 제목 · 지금 단계(돌아가는 표시·실패는 빨강) · [열기] · 끝난 줄은 [닫기].
+ * 처리는 이 탭이 열려 있는 동안만 이어진다(서버가 스스로 진행하지 않음)
+ */
+function ProcessingList({ processing }: { processing: ReadonlyMap<string, Progress> }) {
+  return (
+    <section aria-label="올리는 중" className={cn(CARD, 'mb-5 divide-y divide-border overflow-hidden')}>
+      {[...processing].reverse().map(([id, p]) => (
+        <div key={id} className="flex flex-wrap items-center gap-3 px-5 py-3">
+          {p.busy ? (
+            <span className="inline-block size-4 flex-none animate-spin rounded-full border-2 border-primary border-t-transparent" aria-hidden="true" />
+          ) : (
+            <span className={cn('grid size-4 flex-none place-items-center text-sm font-bold', p.error ? 'text-crit' : 'text-good')}>{p.error ? '!' : '✓'}</span>
+          )}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[15px] font-bold text-ink">{p.title}</span>
+            <span className={cn('text-[13px]', p.error ? 'text-crit' : p.busy ? 'text-primary' : 'text-good')}>{p.message}</span>
+          </span>
+          {p.created && (
+            <Link to={`/records/${id}`} className="text-[13px] font-semibold">
+              열기 →
+            </Link>
+          )}
+          {!p.busy && (
+            <button type="button" onClick={() => ProcessRunner.dismiss(id)} className="text-[13px] font-semibold text-muted hover:text-ink">
+              닫기
+            </button>
+          )}
+        </div>
+      ))}
+    </section>
+  )
+}
+

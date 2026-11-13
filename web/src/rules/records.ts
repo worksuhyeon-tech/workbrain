@@ -41,6 +41,7 @@ export function stageChip(stage: RecordStage, job: JobBrief | null): { text: str
   if (job.stage_state === 'BUDGET_WAIT') return { text: '예산 대기', tone: 'warn' }
   if (job.stage_state === 'WAITING_KEY') return { text: '처리 대기', tone: 'info' }
   if (job.stage === 'STT') return { text: '전사 중', tone: 'info' }
+  if (job.stage === 'CORRECT') return { text: '용어 교정 중', tone: 'info' }
   if (job.stage === 'EXTRACT') return { text: '분석 중', tone: 'info' }
   return { text: '처리 중', tone: 'info' }
 }
@@ -135,11 +136,11 @@ export function snoozeLabel(iso: string | null): string | null {
   return `${m}/${d}(${WEEKDAY[dayOfWeek(day) - 1]})`
 }
 
-/** 처리 단계(목업 S05 '처리 단계'): 업로드 0 · 전사 1 · 분석 동의 2 · 분석 3 · 검토 가능 4 중 지금 단계 */
+/** 처리 단계(목업 S05 '처리 단계'): 업로드 0 · 전사 1 · 분석 동의 2 · 분석 3(용어 교정 포함) · 검토 가능 4 중 지금 단계 */
 export function processStep(job: JobBrief | null): number {
   if (!job) return 0
   if (job.stage === 'STT') return 1
-  if (job.stage === 'EXTRACT') return 3
+  if (job.stage === 'CORRECT' || job.stage === 'EXTRACT') return 3
   return job.stage === 'REVIEWABLE' ? 4 : 0
 }
 

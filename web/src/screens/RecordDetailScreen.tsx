@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { AttendeesField } from '../components/AttendeesField'
 import { CandidateEditDialog, type CandidateEditMode } from '../components/CandidateEditDialog'
 import { CandidateRow } from '../components/CandidateRow'
 import { ChangeRow } from '../components/ChangeRow'
@@ -30,6 +31,7 @@ import {
 } from '../data/records'
 import { createTask, loadPlaces } from '../data/server'
 import { cn } from '../lib/cn'
+import { ProcessRunner, useProcessing } from '../lib/processRunner'
 import type { Place } from '../rules/place'
 import {
   CHANNEL_LABEL,
@@ -198,7 +200,7 @@ export function RecordDetailScreen() {
         </button>
       </div>
 
-      <ProcessSteps d={d} pendingCount={pending.length} />
+      <ProcessSteps d={d} pendingCount={pending.length} onFinished={() => void refresh()} />
 
       <div role="tablist" aria-label="기록 보기" className="mb-4 flex gap-1 border-b border-border">
         {TABS.map((t) => (
@@ -274,8 +276,18 @@ function ProjectChip({ p, onClick }: { p: ProjectName; onClick: () => void }) {
 
 const STEP_LABELS = ['업로드', '전사', '분석 동의', '분석', '검토 가능']
 
-/** 목업 '처리 단계': 지난 단계는 초록 체크, 지금 단계는 파란 점(실패면 빨강), 남은 단계는 회색 */
-function ProcessSteps({ d, pendingCount }: { d: RecordDetail; pendingCount: number }) {
+/**
+ * 목업 '처리 단계': 지난 단계는 초록 체크, 지금 단계는 파란 점(실패면 빨강), 남은 단계는 회색.
+ * 정리가 끝나지 않았으면 [이어서 처리]/[다시 시도]: 서버는 스스로 진행하지 않아, 부른 쪽(앱·이 탭)이 있어야 단계가 넘어간다(③)
+ */
+function ProcessSteps({ d, pendingCount, onFinished }: { d: RecordDetail; pendingCount: number; onFinished: () => void }) {
+  const run = useProcessing().get(d.info.id)
+  // 이 탭의 처리가 끝나면(돌던 것이 멈춤) 상세를 다시 읽는다
+  const wasBusy = useRef(false)
+  useEffect(() => {
+    if (wasBusy.current && run && !run.busy) onFinished()
+    wasBusy.current = !!run?.busy
+  }, [run?.busy])
   const job = d.info.job
   const current = processStep(job)
   const failed = job?.stage_state === 'FAILED'
@@ -308,7 +320,25 @@ function ProcessSteps({ d, pendingCount }: { d: RecordDetail; pendingCount: numb
           )
         })}
       </ol>
-      {failed && <p className="mt-4 text-[13px] text-crit">처리하지 못했어요. 휴대폰 앱에서 이 녹음을 지우고 다시 올려 주세요.</p>}
+      {(current < 4 || failed) && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px]">
+          {run?.busy ? (
+            <span className="inline-flex items-center gap-2 font-semibold text-primary">
+              <span className="inline-block size-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" aria-hidden="true" />
+              {run.message}
+            </span>
+          ) : (
+            <>
+              <span className={cn('flex-1', run?.error || failed ? 'text-crit' : 'text-muted')}>
+                {run ? run.message : failed ? '처리하지 못했어요. 다시 시도해 보고, 그래도 안 되면 이 녹음을 지우고 다시 올려 주세요.' : '정리가 멈춰 있어요. 이 창에서 이어서 정리할 수 있어요(창을 열어 두는 동안 진행).'}
+              </span>
+              <button type="button" onClick={() => ProcessRunner.follow(d.info.id, d.info.title)} className={SECONDARY_BUTTON}>
+                {failed ? '다시 시도' : '이어서 처리'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </section>
   )
 }
@@ -1009,14 +1039,7 @@ function TitleDialog({ title, onDismiss, onSave }: { title: string; onDismiss: (
 /** 참석자 명단 고치기(DEC-59): 이름을 빼고 더한다. 30명까지(서버 제약), 고친 명단은 다음 회의록 만들기부터 */
 function AttendeesDialog({ names, onDismiss, onSave }: { names: string[]; onDismiss: () => void; onSave: (n: string[]) => Promise<void> }) {
   const [list, setList] = useState(names)
-  const [typed, setTyped] = useState('')
   const [saving, setSaving] = useState(false)
-  const add = () => {
-    // 줄바꿈·쉼표는 서버 제약·표시와 맞지 않아 이름 하나로 받는다
-    const n = typed.replace(/[\r\n,]/g, ' ').trim().slice(0, 40)
-    if (n && !list.includes(n) && list.length < 30) setList([...list, n])
-    setTyped('')
-  }
   return (
     <Dialog
       title="참석자"
@@ -1041,30 +1064,7 @@ function AttendeesDialog({ names, onDismiss, onSave }: { names: string[]; onDism
         </>
       }
     >
-      <div className="mb-3 flex flex-wrap gap-1.5">
-        {list.length === 0 && <span className="text-sm text-muted">아직 없어요</span>}
-        {list.map((n) => (
-          <span key={n} className="inline-flex items-center gap-1 rounded-full border border-border bg-surface py-1 pr-1.5 pl-3 text-[13px] font-semibold text-body">
-            {n}
-            <button type="button" aria-label={`${n} 빼기`} onClick={() => setList(list.filter((x) => x !== n))} className="grid size-5 place-items-center rounded-full text-muted hover:bg-border hover:text-ink">
-              ×
-            </button>
-          </span>
-        ))}
-      </div>
-      <div className="flex gap-2">
-        <input
-          value={typed}
-          autoFocus
-          onChange={(e) => setTyped(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && add()}
-          placeholder="이름 적고 Enter (예: 김하늘)"
-          className={INPUT}
-        />
-        <button type="button" disabled={!typed.trim() || list.length >= 30} onClick={add} className="shrink-0 px-2 text-sm font-semibold text-link disabled:text-muted">
-          추가
-        </button>
-      </div>
+      <AttendeesField value={list} onChange={setList} autoFocus />
       <p className="mt-2 text-xs text-muted">회의록 문서는 ‘다시 만들기’를 해야 새 명단이 반영돼요. 이미 뽑은 할 일 후보는 그대로예요.</p>
     </Dialog>
   )
