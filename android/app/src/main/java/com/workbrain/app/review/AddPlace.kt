@@ -46,6 +46,16 @@ fun placeKeys(place: Place?): Map<String, JsonPrimitive> {
     return mapOf(key to JsonPrimitive(place.id))
 }
 
+/** 결정 → 새 할 일에 넣는 task 표 칸(고치기 창 값 중). owner_basis 같은 후보 전용 칸은 task 표에 없다 */
+private val TASK_COLUMNS = setOf("title", "owner_kind", "assignee", "due_date", "due_time", "due_ambiguous", "due_text")
+
+/**
+ * 결정 카드 '할 일로 만들기'(DEC-48)의 task 행: 고치기 창 값에서 task 표에 있는 칸만 남기고 들어갈 곳 키를 더한다.
+ * 고치기 창은 후보 승인용 값(owner_basis, DEC-76)까지 돌려주는데, 그 칸을 task 표에 넣으면 서버가 거부해 만들기가 실패했다(11/13 사용자 제보)
+ */
+fun decisionTaskFields(fields: JsonObject, place: Place?): JsonObject =
+    JsonObject(fields.filterKeys { it in TASK_COLUMNS } + placeKeys(place))
+
 /**
  * 새 할 일 후보를 승인할 때 '추가할 곳'을 승인 함수가 읽는 위치 키로 고친 값에 더한다(approve_proposal이 project_id·area_id를 읽음).
  * 화면에 보이는 '추가할 곳'이 곧 들어갈 곳이다: '정리 안 됨'이면 두 키를 비워 보내, AI가 후보에 적어 둔 프로젝트로

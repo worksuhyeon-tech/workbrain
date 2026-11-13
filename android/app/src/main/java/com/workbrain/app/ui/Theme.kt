@@ -43,8 +43,6 @@ data class WbColors(
     val highlight: Color,
     /** 글자 강조(형광펜): 검색에서 맞은 글자 바탕. 같은 분홍 50%(11/12 사용자: 20%는 너무 옅고 70%는 너무 진함). 다크는 밝은 글자가 묻히지 않게 40% */
     val highlightText: Color,
-    /** 프로젝트 폴더 아이콘(DEC-103, 11/12 사용자 선택 베이지 — 흰 바탕에서도 보이게 조금 짙게). PC 웹 --folder와 같은 값 */
-    val folder: Color,
     /** 우선순위 높음 별(DEC-103, OneNote '중요' 태그처럼 주황). PC 웹 --star와 같은 값 */
     val star: Color,
     val isDark: Boolean,
@@ -61,7 +59,6 @@ private val LightWb = WbColors(
     purple = Color(0xFF5E46C8),
     highlight = Color(0x33FFAFD7),
     highlightText = Color(0x80FFAFD7),
-    folder = Color(0xFFB88A5E),
     star = Color(0xFFF08A24),
     isDark = false,
 )
@@ -77,7 +74,6 @@ private val DarkWb = WbColors(
     purple = Color(0xFFB9A7FF),
     highlight = Color(0x33FFAFD7),
     highlightText = Color(0x66FFAFD7),
-    folder = Color(0xFFD9B48C),
     star = Color(0xFFF5A04A),
     isDark = true,
 )

@@ -174,10 +174,10 @@ fun TaskLine(
                         Modifier.clip(RoundedCornerShape(4.dp)).clickable(enabled = !selecting && place != null && onPlace != null) { place?.let { onPlace?.invoke(it) } }.padding(end = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        // 할 일 줄의 프로젝트 폴더는 베이지(DEC-103), 나머지는 트리와 같은 색
+                        // 트리와 같은 색(11/13 사용자: 할 일 줄 폴더도 프로젝트 화면과 같은 주황으로, DEC-103 베이지를 바꿈)
                         Icon(
                             ParaGlyph.place(place?.type), contentDescription = null,
-                            tint = if (place?.type == PlaceType.PROJECT) Wb.colors.folder else ParaGlyph.tint(place?.type),
+                            tint = ParaGlyph.tint(place?.type),
                             modifier = Modifier.size(12.dp),
                         )
                         Text(place?.name ?: UNSORTED, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Wb.colors.body, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 3.dp))

@@ -759,7 +759,7 @@ fun RecordDetailScreen(recordId: String, title: String, onBack: (() -> Unit)?, o
                 val chosen = target
                 scope.launch {
                     // 오늘 탭은 오늘 마감·지연만 보여서(DEC-67) 들어간 곳을 알려 준다
-                    message = runCatching { Server.createTask(JsonObject(fields + placeKeys(chosen))) }
+                    message = runCatching { Server.createTask(decisionTaskFields(fields, chosen)) }
                         .fold({ "할 일로 만들었어요 · ‘${chosen?.name ?: UNSORTED}’에 넣었어요" to Tone.Good }, { "만들지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit })
                     load(); onChanged()
                 }
