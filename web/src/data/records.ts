@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabase'
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from '../lib/supabase'
 import { recordProjectIds, type JobBrief, type ProposalBrief, type Segment } from '../rules/records'
 
 /*
@@ -328,5 +328,53 @@ export async function requestProjectState(recordId: string, projectId: string): 
   const { data, error } = await supabase.functions.invoke('process-record', { body: { action: 'project_state', record_id: recordId, project_id: projectId } })
   if (error) throw error
   return (data as { state?: string } | null)?.state ?? 'FAILED'
+}
+
+// ── 회의록(②-4): 앱 Server.makeMinutes·minutesStatus·approveMeeting·minutesWord와 같은 함수 ──
+
+/** 회의록 만들기 응답: 다 됨 · 같은 요청을 아직 만드는 중 · 실패(보여 줄 문구) */
+export type MinutesAnswer = { kind: 'done' } | { kind: 'running' } | { kind: 'failed'; message: string }
+
+/**
+ * 회의록 만들기(FR-30, DEC-56): 처리 함수가 이 호출 안에서 문서를 만든다(짧은 회의도 1~2분, AI 비용).
+ * requestKey는 누를 때 한 번 만든 열쇠: 응답을 못 받아 다시 확인해도 같은 열쇠라 서버가 두 번 만들지 않는다(DEC-79).
+ * 응답을 못 받으면(통신·시간 초과) 예외 — 서버는 만들고 있을 수 있어 부른 쪽이 상태를 확인한다
+ */
+export async function makeMinutes(recordId: string, requestKey: string): Promise<MinutesAnswer> {
+  const { data, error } = await supabase.functions.invoke('process-record', { body: { record_id: recordId, action: 'document', request_key: requestKey } })
+  if (error) throw error
+  const body = data as { document?: string; error?: string } | null
+  if (body?.document === 'DONE') return { kind: 'done' }
+  if (body?.document === 'RUNNING') return { kind: 'running' }
+  return { kind: 'failed', message: body?.error ?? '회의록을 만들지 못했어요' }
+}
+
+/** 응답을 못 받은 회의록 요청이 서버에서 어떻게 됐는지: DONE·FAILED·RUNNING·BUSY·NONE, 내 기록이 아니면 null(DEC-79) */
+export async function minutesStatus(recordId: string, requestKey: string): Promise<string | null> {
+  return must<string | null>(await supabase.rpc('wb_document_status', { p_record_id: recordId, p_key: requestKey }), 'minutes status')
+}
+
+/**
+ * 회의록 버전 승인(FR-07). 결과: approved | already-approved | stale-version | no-document | evidence-missing.
+ * 화면에 보이는 버전 ID를 보내 다른 기기에서 새로 만든 버전을 모르고 승인하지 않게 한다(M14)
+ */
+export async function approveMeeting(meetingVersionId: string): Promise<string> {
+  return resultOf(await supabase.rpc('approve_meeting', { p_meeting_version_id: meetingVersionId }), 'approve meeting')
+}
+
+/**
+ * 회의록 Word(FR-29, DEC-60): 화면에 보이는 회의록 버전을 서버가 .docx로 만든다(외부 AI 없음·비용 없음).
+ * 파일 바이트를 그대로 받아야 해서 함수 주소를 직접 부른다(supabase-js는 이 형식을 글자로 읽어 깨뜨린다)
+ */
+export async function minutesWord(meetingVersionId: string): Promise<{ blob: Blob; meetingDate: string; draft: boolean }> {
+  const token = (await supabase.auth.getSession()).data.session?.access_token
+  if (!token) throw new Error('WB401')
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/minutes-word`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_PUBLISHABLE_KEY, 'content-type': 'application/json' },
+    body: JSON.stringify({ meeting_version_id: meetingVersionId }),
+  })
+  if (!res.ok) throw new Error(`minutes-word ${res.status}`)
+  return { blob: await res.blob(), meetingDate: res.headers.get('x-wb-meeting-date') ?? '', draft: res.headers.get('x-wb-draft') !== 'false' }
 }
 

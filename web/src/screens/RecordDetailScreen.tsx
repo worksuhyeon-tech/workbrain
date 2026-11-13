@@ -9,11 +9,14 @@ import { PlaceSelect, placeKeyOf, placeOfKey } from '../components/PlaceSelect'
 import { RecipientsField } from '../components/RecipientsField'
 import { Seg } from '../components/Seg'
 import { useToast } from '../components/Toast'
+import { useMinutesMaker } from '../components/useMinutesMaker'
 import { CARD, TONE_CHIP } from '../components/ui'
 import {
+  approveMeeting,
   approveProposal,
   linkRecord,
   loadRecordDetail,
+  minutesWord,
   rejectProposal,
   renameRecord,
   requestProjectState,
@@ -53,6 +56,7 @@ import {
   withPlace,
   type Tone,
 } from '../rules/records'
+import { approveMeetingText, minutesFileName } from '../rules/minutes'
 import { newTaskFields, UNSORTED } from '../rules/tasks'
 
 const CHIP = 'rounded-full px-2.5 py-[3px] text-xs font-bold whitespace-nowrap'
@@ -78,7 +82,7 @@ interface Act {
 /**
  * 기록 상세(웹 목업 record-detail.html, 앱 RecordDetailScreen): 머리(제목 ✏·종류 알약·분류·프로젝트 칩) · 처리 단계 ·
  * 탭(회의록·할 일 | 전사 | 관련 프로젝트). 할 일 후보를 골라 고치고 바로 추가하고(승인 기록은 검토함과 같다, DEC-23),
- * 결정 후보를 할 일로 만들고, 참석자·분류·프로젝트 연결을 고친다. 회의록 만들기·승인·Word는 ②-4
+ * 결정 후보를 할 일로 만들고, 참석자·분류·프로젝트 연결을 고친다. 회의록은 만들기·다시 만들기·승인·Word 받기(②-4)
  */
 export function RecordDetailScreen() {
   const { id = '' } = useParams()
@@ -319,9 +323,25 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-/** 회의록 · 할 일 탭: 위 줄(추출 항목 ↔ 회의록 문서 · 승인 상태 · 지침), 아래 내용 */
+const SPINNER = 'inline-block size-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent'
+
+/**
+ * 회의록 · 할 일 탭: 위 줄(추출 항목 ↔ 회의록 문서 · 승인 상태 · 지침 · Word·다시 만들기), 아래 내용.
+ * 회의록 문서는 버튼을 눌렀을 때만 만든다(DEC-56, AI 비용·1~2분). 승인은 문서를 다 읽고 누르도록 문서 맨 아래(DEC-61)
+ */
 function MinutesTab({ d, act, onEditAttendees }: { d: RecordDetail; act: Act; onEditAttendees: () => void }) {
   const [view, setView] = useState<'fields' | 'doc'>('fields')
+  const [downloading, setDownloading] = useState(false)
+  const [confirmApprove, setConfirmApprove] = useState(false)
+  const [approving, setApproving] = useState(false)
+  const maker = useMinutesMaker(
+    d.info.id,
+    async () => {
+      act.toast('회의록이 만들어졌어요')
+      await act.refresh()
+    },
+    act.toast,
+  )
   const m = d.meeting
   const madeRev = m?.guideline_rev ?? 0
   const status: { text: string; tone: Tone } | null = !m?.document
@@ -333,6 +353,33 @@ function MinutesTab({ d, act, onEditAttendees }: { d: RecordDetail; act: Act; on
         : { text: '초안 · 검토 전', tone: 'warn' }
   const madeWith = madeRev > 0 ? [mdOf(m?.guideline_imported_at ?? null), '가져온 지침 적용'].filter(Boolean).join(' ') : '기본 지침으로 만듦'
   const outdated = d.guidelineRev != null && d.guidelineRev !== madeRev
+
+  // 화면에 보이는 회의록 버전으로 Word를 만들어 받는다(FR-29, DEC-60)
+  const download = async (versionId: string) => {
+    setDownloading(true)
+    try {
+      const w = await minutesWord(versionId)
+      const url = URL.createObjectURL(w.blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = minutesFileName(w.meetingDate)
+      a.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
+      act.toast(w.draft ? 'Word를 받았어요 · 승인 전이라 ‘초안’ 표시가 있어요' : 'Word를 받았어요')
+    } catch (e) {
+      console.error('minutes word failed', e)
+      act.toast('Word를 만들지 못했어요. 인터넷 연결을 확인하고 다시 눌러 주세요')
+    }
+    setDownloading(false)
+  }
+
+  const approve = async (versionId: string) => {
+    setApproving(true)
+    const result = await approveMeeting(versionId).catch(() => null)
+    act.toast(approveMeetingText(result))
+    await act.refresh()
+    setApproving(false)
+  }
 
   return (
     <section className={cn(CARD, 'px-6 py-5')}>
@@ -348,25 +395,76 @@ function MinutesTab({ d, act, onEditAttendees }: { d: RecordDetail; act: Act; on
             onChange={setView}
           />
           {view === 'doc' && status && <span className={cn(CHIP, TONE_CHIP[status.tone])}>{status.text}</span>}
+          {view === 'doc' && m.document && <span className={cn(CHIP, TONE_CHIP.mute)}>{madeWith}</span>}
+          <div className="flex-1" />
           {view === 'doc' && m.document && (
-            <span className={cn(CHIP, TONE_CHIP.mute)}>
-              {madeWith}
-              {outdated ? ' · 그 뒤 지침이 바뀌었어요' : ''}
-            </span>
+            <>
+              {maker.making ? (
+                <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-primary">
+                  <span className={SPINNER} aria-hidden="true" /> 다시 만드는 중…
+                </span>
+              ) : (
+                // 지침이 바뀐 문서만 눈에 띄게 알리고, 평소 '다시 만들기'는 글자 단추(앱 ⋮ 메뉴 자리)
+                <button type="button" onClick={maker.start} className={cn('text-[13px] font-semibold', outdated ? 'text-link' : 'text-muted hover:text-ink')}>
+                  {outdated ? '새 지침으로 다시 만들기 ›' : '다시 만들기'}
+                </button>
+              )}
+              <button type="button" disabled={downloading} onClick={() => void download(m.id)} className={cn(SECONDARY_BUTTON, 'inline-flex items-center gap-1.5')}>
+                <Icons.download /> {downloading ? 'Word 만드는 중…' : 'Word 다운로드'}
+              </button>
+            </>
           )}
         </div>
       )}
       {view === 'doc' && m ? (
         m.document ? (
-          <MinutesDoc doc={m.document} />
+          <>
+            <MinutesDoc doc={m.document} />
+            {m.state !== 'approved' && (
+              <div className="mt-6 flex flex-wrap items-center gap-3 rounded-lg bg-surface px-4 py-3">
+                <span className="flex-1 text-[13px] text-body">다 읽었으면 승인해요. 승인하면 Word의 ‘초안’ 표시가 빠지고 3년 보관돼요. 할 일은 바뀌지 않아요.</span>
+                <button type="button" disabled={approving || maker.making} onClick={() => setConfirmApprove(true)} className={PRIMARY_BUTTON}>
+                  {approving ? '승인하는 중…' : '이 회의록 승인'}
+                </button>
+              </div>
+            )}
+          </>
         ) : (
-          <div className="py-6 text-center">
+          <div className="py-8 text-center">
             <p className="text-[15px] font-semibold text-ink">아직 회의록이 없어요</p>
-            <p className="mt-1 text-[13px] text-muted">회의록 만들기는 다음 단계에서 PC에도 열어요. 지금은 휴대폰 앱의 이 기록에서 만들 수 있어요.</p>
+            <p className="mt-1 mb-4 text-[13px] text-muted">회의록 지침대로 회의 개요·핵심 요약·결정사항·후속 조치를 정리해요. 1~2분쯤 걸려요.</p>
+            {maker.making ? (
+              <span className="inline-flex items-center gap-2 text-sm font-semibold text-primary">
+                <span className={SPINNER} aria-hidden="true" /> 회의록 만드는 중 · 다른 화면에 다녀와도 이어서 기다려요
+              </span>
+            ) : (
+              <button type="button" onClick={maker.start} className={PRIMARY_BUTTON}>
+                회의록 만들기
+              </button>
+            )}
           </div>
         )
       ) : (
         <Fields d={d} act={act} onEditAttendees={onEditAttendees} />
+      )}
+      {confirmApprove && m && (
+        <ConfirmDialog
+          title="이 회의록 승인"
+          text={
+            <>
+              승인하면 Word의 ‘초안’ 표시가 빠지고 3년 보관돼요. 할 일은 바뀌지 않아요.
+              <br />
+              <br />
+              승인은 되돌릴 수 없어요. 고칠 게 생기면 다시 만들어 새로 승인하면 돼요.
+            </>
+          }
+          confirmLabel="승인"
+          onDismiss={() => setConfirmApprove(false)}
+          onConfirm={() => {
+            setConfirmApprove(false)
+            void approve(m.id)
+          }}
+        />
       )}
     </section>
   )

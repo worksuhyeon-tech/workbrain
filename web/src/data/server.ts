@@ -148,25 +148,33 @@ export async function recordPeople(recordId: string): Promise<string[]> {
 }
 
 /**
- * 받는 사람 고르기 칩(DEC-77, 11/13 사용자): 그 프로젝트에 확정 연결된 기록(회의·통화)의 참석자만, 같은 사람은 하나로, 내 이름은 뺀다.
+ * 받는 사람 고르기 칩(DEC-77, 11/13 사용자 B안): 그 프로젝트의 기록에 나온 사람 — 프로젝트에 확정 연결된 기록 + 그 프로젝트 할 일이 나온 기록의
+ * 참석자와 이름 붙은 화자(회의록 txt의 참석자 등, wb_record_people가 '화자 1'·'(나)'는 뺌). 같은 사람은 하나로, 내 이름은 뺀다.
  * 프로젝트가 아니면(반복실행·정리 안 됨) 빈 목록 — 직접 적어 넣는다. 보조 정보라 못 읽어도 빈 목록
  */
 export async function projectPeople(projectId: string | null): Promise<string[]> {
   if (!projectId) return []
-  const [links, settings] = await Promise.all([
-    supabase.from('source_project_link').select('item_ref,source_record(attendees)').eq('project_id', projectId).eq('status', 'confirmed'),
+  const [links, sources, settings] = await Promise.all([
+    supabase.from('source_project_link').select('source_record_id,item_ref').eq('project_id', projectId).eq('status', 'confirmed'),
+    supabase
+      .from('task_revision')
+      .select('task!inner(project_id),approval_event(change_proposal(analysis_run(transcript_version(source_record_id))))')
+      .eq('actor', 'ai-approved')
+      .eq('task.project_id', projectId),
     supabase.from('settings').select('my_names'),
   ])
-  if (links.error) {
-    console.warn('load project people failed', links.error)
+  if (links.error || sources.error) {
+    console.warn('load project people failed', links.error ?? sources.error)
     return []
   }
-  const rows = links.data as unknown as { item_ref: { scope?: string } | null; source_record: { attendees: string[] | null } | null }[]
+  const linked = (links.data as { source_record_id: string; item_ref: { scope?: string } | null }[]).filter((l) => l.item_ref?.scope === 'record').map((l) => l.source_record_id)
+  const fromTasks = (
+    sources.data as unknown as { approval_event: { change_proposal: { analysis_run: { transcript_version: { source_record_id: string } | null } | null } | null } | null }[]
+  ).flatMap((r) => r.approval_event?.change_proposal?.analysis_run?.transcript_version?.source_record_id ?? [])
+  const recordIds = [...new Set([...linked, ...fromTasks])]
+  const names = await Promise.all(recordIds.map(recordPeople))
   const myNames = settings.error ? [] : ((settings.data as { my_names: string[] | null }[])[0]?.my_names ?? [])
-  return uniquePeople(
-    rows.filter((r) => r.item_ref?.scope === 'record').flatMap((r) => r.source_record?.attendees ?? []),
-    ['나', ...myNames],
-  )
+  return uniquePeople(names.flat(), ['나', ...myNames])
 }
 
 /** 완료·완료 취소. 버전이 같을 때만 바꾼다 — 다른 기기에서 먼저 바꿨으면 false(M18) */
