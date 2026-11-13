@@ -40,11 +40,15 @@ export interface StateProposal {
   status: string
   revision: number
   projectId: string
+  /** 제안을 만들 때 본 현재 상태 버전(없으면 처음 상태). 지금 버전과 다르면 반영해도 충돌로 닫힌다 */
+  baseVersion: number | null
   before: Record<string, unknown> | null
   after: Record<string, unknown>
   rationale: string
   quote: string | null
 }
+
+const STATE_COLUMNS = 'id,status,revision,target_id,base_version,before_json,after_json,rationale,evidence_link(quote)'
 
 // 후보 → 분석 → 전사 → 기록 → 음성을 한 번에 따라간다(앱 INBOX_COLUMNS)
 const INBOX_COLUMNS =
@@ -74,12 +78,13 @@ function toInbox(r: InboxRaw): InboxRow {
   }
 }
 
-function toState(r: { id: string; status: string; revision: number; target_id: string | null; before_json: Record<string, unknown> | null; after_json: Record<string, unknown>; rationale: string; evidence_link?: { quote: string | null }[] | null }): StateProposal {
+function toState(r: { id: string; status: string; revision: number; target_id: string | null; base_version?: number | null; before_json: Record<string, unknown> | null; after_json: Record<string, unknown>; rationale: string; evidence_link?: { quote: string | null }[] | null }): StateProposal {
   return {
     id: r.id,
     status: r.status,
     revision: r.revision,
     projectId: r.target_id ?? '',
+    baseVersion: r.base_version ?? null,
     before: r.before_json,
     after: r.after_json,
     rationale: r.rationale,
@@ -105,7 +110,7 @@ export async function loadInbox(): Promise<Inbox> {
     supabase.from('change_proposal').select(INBOX_COLUMNS).eq('status', 'pending').or('target_type.is.null,target_type.neq.project_state').order('created_at', { ascending: true }),
     supabase
       .from('change_proposal')
-      .select('id,status,revision,target_id,before_json,after_json,rationale,evidence_link(quote)')
+      .select(STATE_COLUMNS)
       .eq('target_type', 'project_state')
       .eq('status', 'pending')
       .order('created_at', { ascending: true }),
@@ -172,3 +177,13 @@ export async function snoozeProposals(ids: string[], until: string | null): Prom
   const data = must<{ updated?: number } | null>(await supabase.rpc('wb_snooze_proposals', { p_ids: ids, p_until: until }), 'snooze proposals')
   return data?.updated ?? 0
 }
+
+/** 이 프로젝트에서 기다리는 현재 상태 제안(대기 제안은 하나, 서버 색인). 없으면 null */
+export async function loadPendingState(projectId: string): Promise<StateProposal | null> {
+  const rows = must<Parameters<typeof toState>[0][]>(
+    await supabase.from('change_proposal').select(STATE_COLUMNS).eq('target_type', 'project_state').eq('target_id', projectId).eq('status', 'pending').limit(1),
+    'load pending state',
+  )
+  return rows[0] ? toState(rows[0]) : null
+}
+

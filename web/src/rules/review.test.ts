@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evidenceUntil, groupByRecord, lastAllowed, nextMonday, retentionNote, snoozeText, stateDecisionText } from './review'
+import { evidenceUntil, groupByRecord, initRecords, lastAllowed, nextMonday, retentionNote, snoozeText, stateDecisionText, stateStale } from './review'
 
 describe('검토 미루기(앱 Snooze·SnoozeSheet)', () => {
   it('다음 주 월요일: 월요일이어도 다음 주, 일요일이면 곧 내일', () => {
@@ -48,3 +48,30 @@ describe('기록별 묶음', () => {
     ])
   })
 })
+
+describe('프로젝트 현재 상태 제안(앱 StateCard·StateWorker)', () => {
+  it('정리할 회의: 최근 3개를 오래된 것부터, 시각 없는 기록은 가장 오래된 것으로', () => {
+    const linked = [
+      { id: 'a', at: '2026-11-01T00:00:00Z' },
+      { id: 'b', at: '2026-11-10T00:00:00Z' },
+      { id: 'c', at: null },
+      { id: 'd', at: '2026-11-12T00:00:00Z' },
+      { id: 'e', at: '2026-11-05T00:00:00Z' },
+    ]
+    expect(initRecords(linked)).toEqual(['e', 'b', 'd'])
+    expect(initRecords([])).toEqual([])
+  })
+
+  it('기준 버전이 다르면 반영해도 충돌, 기준이 없으면(처음 상태) 아님', () => {
+    expect(stateStale(2, 3)).toBe(true)
+    expect(stateStale(3, 3)).toBe(false)
+    expect(stateStale(null, 3)).toBe(false)
+  })
+
+  it('카드와 검토함 문구', () => {
+    expect(stateDecisionText('rejected', 'project')).toContain('기록을 또 연결하면')
+    expect(stateDecisionText('rejected')).toBe('현재 상태 제안을 넘겼어요')
+    expect(stateDecisionText('evidence-missing', 'project')).toContain('만료')
+  })
+})
+

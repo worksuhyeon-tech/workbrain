@@ -65,17 +65,21 @@ export function snoozeText(updated: number | null, until: LocalDate | null): str
   return `후보 ${updated}개를 ${snoozeLabel(`${until}T00:00:00+09:00`)}까지 미뤘어요 · 그날 ‘오늘’에 다시 나와요`
 }
 
-/** 프로젝트 현재 상태 제안 [반영]·[아니요] 결과(앱 decideState) */
-export function stateDecisionText(result: string | null): string {
+/**
+ * 프로젝트 현재 상태 제안 [반영]·[아니요] 결과. where: inbox(검토함, 앱 ReviewScreen.decideState) · project(프로젝트 상세 카드, 앱 StateCard.decide)
+ */
+export function stateDecisionText(result: string | null, where: 'inbox' | 'project' = 'inbox'): string {
   switch (result) {
     case null:
       return '바꾸지 못했어요. 인터넷 연결을 확인해 주세요'
     case 'approved':
     case 'already-approved':
-      return '프로젝트 현재 상태에 반영했어요'
+      return where === 'project' ? '현재 상태에 반영했어요' : '프로젝트 현재 상태에 반영했어요'
     case 'rejected':
     case 'already-rejected':
-      return '현재 상태 제안을 넘겼어요'
+      return where === 'project' ? '제안을 넘겼어요 · 기록을 또 연결하면 새로 제안해요' : '현재 상태 제안을 넘겼어요'
+    case 'evidence-missing':
+      return '근거 전사가 만료돼 반영할 수 없어요'
     case 'conflict':
       return '그사이 현재 상태가 바뀌어 반영하지 않았어요 · 이 제안은 닫혔어요'
     case 'stale-revision':
@@ -88,4 +92,21 @@ export function stateDecisionText(result: string | null): string {
 /** 처리됨 탭의 현재 상태 제안 상태 이름 */
 export function stateDoneLabel(status: string): string {
   return status === 'approved' ? '반영함' : status === 'rejected' ? '넘김' : status === 'conflict' ? '충돌로 닫힘' : status
+}
+
+/** [연결된 기록으로 정리하기]가 보는 최근 회의 수(비용: 회의 하나에 약 1~3원, 앱 StateWorker.INIT_RECORDS) */
+export const INIT_RECORDS = 3
+
+/** 최근 회의 몇 개를 골라 오래된 것부터 줄 세운다(나중 회의가 위에 쌓이게). 시각을 모르는 기록은 가장 오래된 것으로(앱 initRecords) */
+export function initRecords(linked: { id: string; at: string | null }[]): string[] {
+  return [...linked]
+    .sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
+    .slice(0, INIT_RECORDS)
+    .reverse()
+    .map((r) => r.id)
+}
+
+/** 제안을 만든 뒤 직접 고쳤거나 다른 제안을 반영해 기준 버전이 달라졌는지(반영하면 충돌로 닫힘) */
+export function stateStale(baseVersion: number | null, currentVersion: number): boolean {
+  return baseVersion != null && baseVersion !== currentVersion
 }

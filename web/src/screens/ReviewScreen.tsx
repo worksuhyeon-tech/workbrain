@@ -330,7 +330,7 @@ export function ReviewScreen() {
               r.target_type === 'project_state' ? (
                 <StateProposalCard
                   key={r.id}
-                  p={{ id: r.id, status: r.status, revision: r.revision, projectId: r.target_id ?? '', before: r.before_json, after: r.after_json, rationale: r.rationale, quote: null }}
+                  p={{ id: r.id, status: r.status, revision: r.revision, projectId: r.target_id ?? '', baseVersion: null, before: r.before_json, after: r.after_json, rationale: r.rationale, quote: null }}
                   title={`${names.get(r.target_id ?? '')?.name ?? '프로젝트'} · ${stateDoneLabel(r.status)}`}
                   busy
                 />

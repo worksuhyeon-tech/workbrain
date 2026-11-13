@@ -18,12 +18,15 @@ export function StateProposalCard({
   p,
   title,
   busy,
+  stale = false,
   onApprove,
   onReject,
 }: {
   p: StateProposal
   title: string
   busy: boolean
+  /** 제안을 만든 뒤 현재 상태가 바뀜(반영하면 충돌로 닫힘) */
+  stale?: boolean
   onApprove?: () => void
   onReject?: () => void
 }) {
@@ -62,6 +65,11 @@ export function StateProposalCard({
       </div>
       {p.rationale.trim() && <p className="mt-2 text-[13px] text-body">이유: {p.rationale}</p>}
       {p.quote && <p className="mt-1 text-xs text-muted">“{p.quote}”</p>}
+      {stale && onApprove && (
+        <p className="mt-2 rounded-md bg-warn-soft px-3 py-2 text-xs text-warn">
+          이 제안을 만든 뒤 현재 상태가 바뀌었어요. 반영하면 충돌로 닫혀요 · [아니요] 뒤 기록을 다시 연결하면 새로 만들어요
+        </p>
+      )}
       {onApprove && onReject && (
         <div className="mt-3 flex justify-end gap-2">
           <button type="button" disabled={busy} onClick={onReject} className={SECONDARY_BUTTON}>

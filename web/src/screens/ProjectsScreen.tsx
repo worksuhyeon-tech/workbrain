@@ -11,18 +11,15 @@ import { AllTasksPane } from './AllTasksPane'
 import {
   liveTasks,
   loadPara,
-  loadState,
   openCount,
   placesOf,
   placesOfResource,
   recordMeta,
   recordsOf,
   resourcesOf,
-  stateLabel,
   tasksOf,
   topIdOf,
   type ParaData,
-  type StateVersionRow,
 } from '../data/para'
 import { isDone, type TaskRow } from '../data/types'
 import { cn } from '../lib/cn'
@@ -33,6 +30,7 @@ import type { Place } from '../rules/place'
 import { without } from '../rules/subtasks'
 import { isEarlierDone, quickAddedText, taskComparator } from '../rules/tasks'
 import { SubHead } from './TodayScreen'
+import { StateCard } from '../components/StateCard'
 import { CARD } from '../components/ui'
 
 
@@ -190,10 +188,6 @@ function Detail({ k, ...props }: DetailProps & { k: string | null }) {
   )
 }
 
-function fmtDay(iso: string): string {
-  const p = new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric' }).formatToParts(new Date(iso))
-  return `${p.find((x) => x.type === 'month')?.value}/${p.find((x) => x.type === 'day')?.value}`
-}
 
 /** 프로젝트·반복실행 상세(목업 S03 상세, 앱 ParaPanes): 머리 · (프로젝트) 현재 상태·관련 기록 · 할 일 · 자료 */
 function PlaceDetail({ d, place, places, line, reload, showToast, selection, focusId }: DetailProps & { place: Place }) {
@@ -202,17 +196,8 @@ function PlaceDetail({ d, place, places, line, reload, showToast, selection, foc
   const area = isProject ? d.areas.find((x) => x.id === project?.area_id) : d.areas.find((x) => x.id === place.id)
   const archived = Boolean(isProject ? project?.archived_at : area?.archived_at)
   const [earlierOpen, setEarlierOpen] = useState(false)
-  const [state, setState] = useState<StateVersionRow | null | undefined>(undefined)
   const today = seoulToday()
   const order = useTaskOrder()
-
-  useEffect(() => {
-    if (!isProject) return
-    setState(undefined)
-    loadState(place.id)
-      .then(setState)
-      .catch(() => setState(null))
-  }, [isProject, place.id])
 
   const tasks = tasksOf(d, place.type, place.id)
   const by = taskComparator(order)
@@ -258,32 +243,7 @@ function PlaceDetail({ d, place, places, line, reload, showToast, selection, foc
 
       {isProject && (
         <div className="mb-4 grid items-start gap-4 min-[1101px]:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-          <section aria-label="현재 상태" className={cn(CARD, 'p-5')}>
-            <div className="mb-3 text-sm font-bold text-muted">현재 상태</div>
-            {state === undefined && <p className="text-sm text-muted">불러오는 중…</p>}
-            {state === null && (
-              <div className="text-center">
-                <p className="text-[15px] font-semibold text-ink">아직 확정된 상태가 없어요</p>
-                <p className="mt-1 text-[13px] text-muted">기록을 연결하면 AI가 정리해 제안해요. 직접 쓰기는 휴대폰 앱에서 할 수 있어요.</p>
-              </div>
-            )}
-            {state && (
-              <>
-                <p className="text-[15px] leading-relaxed whitespace-pre-wrap text-ink">{state.summary || '내용 없음'}</p>
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
-                  <span
-                    className={cn(
-                      'rounded-full px-2.5 py-[3px] text-xs font-bold',
-                      state.status === 'paused' ? 'bg-warn-soft text-warn' : state.status === 'done' ? 'border border-border bg-surface text-muted' : 'bg-good-soft text-good',
-                    )}
-                  >
-                    {stateLabel(state.status)}
-                  </span>
-                  마지막 반영 {fmtDay(state.created_at)} · {state.applied_by === 'user' ? '직접 수정' : 'AI 제안 승인'}
-                </div>
-              </>
-            )}
-          </section>
+          <StateCard key={place.id} projectId={place.id} archived={archived} linked={recordsOf(d, place.id)} onToast={showToast} />
           <section aria-label="관련 기록" className={cn(CARD, 'p-5')}>
             <div className="mb-2 text-sm font-bold text-muted">관련 기록</div>
             {recordsOf(d, place.id).length === 0 && <p className="text-[13px] text-muted">연결된 기록이 없어요. 기록 화면 머리의 ‘+ 프로젝트 연결’로 이어요.</p>}
