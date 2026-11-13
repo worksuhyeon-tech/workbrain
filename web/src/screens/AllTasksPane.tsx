@@ -12,8 +12,8 @@ import { addedWhereText, groupTasks, inOwner, inRange, OWNERS, RANGES, type Task
 import { seoulToday } from '../rules/dates'
 import type { Place } from '../rules/place'
 import { dueDay, quickAddedText, taskComparator, UNSORTED } from '../rules/tasks'
+import { CARD } from '../components/ui'
 
-const CARD = 'rounded-xl border border-border bg-card shadow-sm'
 const MUTE_CHIP = 'rounded-full border border-border bg-surface px-2.5 py-[3px] text-xs font-bold text-muted'
 
 // 보기 전환: 목록만 지금. 캘린더·매트릭스는 자리만 두고 P4에서 연다(FR-24/25, 앱과 같은 안내)

@@ -31,8 +31,8 @@ import {
   type SearchRow,
 } from '../rules/search'
 import { UNSORTED } from '../rules/tasks'
+import { CARD } from '../components/ui'
 
-const CARD = 'rounded-xl border border-border bg-card shadow-sm'
 const MUTE_CHIP = 'rounded-full border border-border bg-surface px-2 py-px text-[11px] font-bold whitespace-nowrap text-muted'
 // 적는 동안 요청을 줄이려고 멈춘 뒤에만 찾는다(DEC-98: 입력하면 바로)
 const TYPE_PAUSE_MS = 400

@@ -33,8 +33,8 @@ import type { Place } from '../rules/place'
 import { without } from '../rules/subtasks'
 import { isEarlierDone, quickAddedText, taskComparator } from '../rules/tasks'
 import { SubHead } from './TodayScreen'
+import { CARD } from '../components/ui'
 
-const CARD = 'rounded-xl border border-border bg-card shadow-sm'
 
 /** 할 일을 고를 수 있는 곳(보관되지 않은 프로젝트·반복실행)이면 그곳, 아니면 null */
 function editablePlace(d: ParaData, key: string | null): Place | null {

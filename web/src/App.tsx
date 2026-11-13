@@ -4,6 +4,8 @@ import { useAuth } from './lib/session'
 import { LoginScreen } from './screens/LoginScreen'
 import { Placeholder } from './screens/Placeholder'
 import { ProjectsScreen } from './screens/ProjectsScreen'
+import { RecordDetailScreen } from './screens/RecordDetailScreen'
+import { RecordsScreen } from './screens/RecordsScreen'
 import { SearchScreen } from './screens/SearchScreen'
 import { TodayScreen } from './screens/TodayScreen'
 
@@ -24,7 +26,8 @@ export function App() {
           {/* 모든 할 일은 프로젝트 화면 안(목업 S07·앱과 같음). 예전 주소로 와도 그곳으로 */}
           <Route path="/tasks" element={<Navigate to="/projects" replace />} />
           <Route path="/search" element={<SearchScreen />} />
-          <Route path="/records/*" element={<Placeholder title="기록" hand="회의·통화·메모" step="② 검토·회의록 단계" />} />
+          <Route path="/records" element={<RecordsScreen />} />
+          <Route path="/records/:id" element={<RecordDetailScreen />} />
           <Route path="/review" element={<Placeholder title="검토함" hand="꼼꼼히 살펴봐요" step="② 검토·회의록 단계" />} />
           <Route path="/settings" element={<Placeholder title="설정" hand="내 방식대로 맞추기" step="나중 단계" />} />
           <Route path="*" element={<Navigate to="/" replace />} />
