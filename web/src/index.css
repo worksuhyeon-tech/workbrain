@@ -33,6 +33,9 @@
   --hero-bg: linear-gradient(160deg, #fdf2f8 0%, #f3eefe 50%, #eaf7fb 100%);
   /* 할 일 줄의 프로젝트 폴더(사용자 선택 베이지)·반복실행(앱과 같은 파랑)·우선순위 높음 별(OneNote '중요'처럼 주황), DEC-103 */
   --folder: #b88a5e; --area-icon: #1e7fea; --star: #f08a24;
+  /* 검색(앱 WbColors와 같은 값, 11/12 사용자): 회의록 칩 보라, 맞은 글자 형광펜 분홍 50%, 찾아간 할 일 줄 깜빡임 분홍 20% */
+  --purple-fg: #5e46c8; --purple-soft: color-mix(in srgb, #5e46c8 12%, transparent);
+  --mark: rgba(255,175,215,.5); --flash: rgba(255,175,215,.2);
   --shadow-sm: none;
   --shadow-md: 0 2px 8px rgba(205,205,205,.6);
   --shadow-lg: 0 4px 16px rgba(205,205,205,.5);
@@ -54,6 +57,8 @@
     --glass-front: linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,.05)); --glass-border: rgba(255,255,255,.28); --glass-ink: #f3f7fb;
     --hero-bg: linear-gradient(160deg, #1d1720 0%, #18172a 50%, #13201f 100%);
     --folder: #d9b48c; --area-icon: #5aa8f0; --star: #f5a04a;
+    --purple-fg: #b9a7ff; --purple-soft: color-mix(in srgb, #b9a7ff 12%, transparent);
+    --mark: rgba(255,175,215,.4); --flash: rgba(255,175,215,.2);
     --shadow-sm: none; --shadow-md: 0 2px 8px rgba(0,0,0,.45); --shadow-lg: 0 4px 16px rgba(0,0,0,.5);
     color-scheme: dark;
   }
@@ -69,6 +74,8 @@
   --glass-front: linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,.05)); --glass-border: rgba(255,255,255,.28); --glass-ink: #f3f7fb;
   --hero-bg: linear-gradient(160deg, #1d1720 0%, #18172a 50%, #13201f 100%);
   --folder: #d9b48c; --area-icon: #5aa8f0; --star: #f5a04a;
+  --purple-fg: #b9a7ff; --purple-soft: color-mix(in srgb, #b9a7ff 12%, transparent);
+  --mark: rgba(255,175,215,.4); --flash: rgba(255,175,215,.2);
   --shadow-sm: none; --shadow-md: 0 2px 8px rgba(0,0,0,.45); --shadow-lg: 0 4px 16px rgba(0,0,0,.5);
   color-scheme: dark;
 }
@@ -113,6 +120,10 @@
   --color-all-tasks: #12b37f;
   --color-area-icon: var(--area-icon);
   --color-star: var(--star);
+  --color-purple: var(--purple-fg);
+  --color-purple-soft: var(--purple-soft);
+  --color-mark: var(--mark);
+  --color-flash: var(--flash);
   --font-sans: var(--font);
   --font-hand: var(--font-hand);
   /* 모서리(DEC-104): 입력칸·작은 칸 10px, 카드 24px, 버튼·칩은 rounded-full(알약) */

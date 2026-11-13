@@ -161,6 +161,11 @@ export function liveTasks(d: ParaData): TaskRow[] {
   return d.tasks.filter((t) => !isSubtask(t) && !inArchived(d, t))
 }
 
+/** 하위 할 일이면 그 상위 ID, 아니면 그대로(검색으로 찾아간 줄을 보이게 할 때 거르기·접힘은 상위 기준) */
+export function topIdOf(d: ParaData, id: string): string {
+  return d.tasks.find((t) => t.id === id)?.parent_id ?? id
+}
+
 /** 이 프로젝트의 기록, 최근 회의부터 */
 export function recordsOf(d: ParaData, projectId: string): RecordBrief[] {
   return d.recordLinks

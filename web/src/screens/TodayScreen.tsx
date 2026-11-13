@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { Link } from 'react-router-dom'
 import { PageHead } from '../components/AppShell'
 import { QuickAdd, QuickAddMemory } from '../components/QuickAdd'
+import { SelectionHeader, TaskListMenu, useTaskSelection, useVisibleForSelection } from '../components/TaskSelect'
 import { useToast } from '../components/Toast'
 import { useTaskWork } from '../components/useTaskWork'
 import { loadPlaces, loadSources, loadTasks, pendingProposalCount } from '../data/server'
 import { isDone, type TaskRow, type TaskSource } from '../data/types'
 import { useHiddenTasks } from '../lib/taskDeletes'
+import { useTaskOrder } from '../lib/taskSort'
 import { seoulToday } from '../rules/dates'
 import type { Place } from '../rules/place'
 import { without } from '../rules/subtasks'
@@ -38,6 +40,8 @@ export function TodayScreen() {
   const hidden = useHiddenTasks()
   const toast = useToast()
   const today = seoulToday()
+  const order = useTaskOrder()
+  const selection = useTaskSelection()
 
   // 할 일이 핵심이라 그것만 실패를 알리고, 출처·검토 대기 수는 못 읽으면 비워 둔다
   const load = useCallback(async () => {
@@ -62,14 +66,26 @@ export function TodayScreen() {
 
   // 지우는 중인 할 일·그 하위는 서버에서 지우기 전에도 바로 뺀다
   const tasks = useMemo(() => (data ? without(data.tasks, hidden) : NO_TASKS), [data, hidden])
-  const g = useMemo(() => (data ? groupToday(todayPool(tasks, today), today, 'priority') : null), [data, tasks, today])
-  const work = useTaskWork({ tasks, places: data?.places ?? [], sources: data?.sources ?? new Map(), reload, showToast: toast.show })
+  const g = useMemo(() => (data ? groupToday(todayPool(tasks, today), today, order) : null), [data, tasks, today, order])
+  const work = useTaskWork({ tasks, places: data?.places ?? [], sources: data?.sources ?? new Map(), reload, showToast: toast.show, selection })
   const line = (t: TaskRow) => work.line(t, { showPlace: true })
   const openCount = g ? g.late.length + g.todays.length : 0
+  // 전체 선택 대상 = 이 화면에 보이는 상위 할 일('상위 › 하위' 줄은 고르지 않음)
+  const shown = g ? [...g.late, ...g.todays, ...g.follow, ...g.doneToday] : NO_TASKS
+  useVisibleForSelection(
+    selection,
+    shown.filter((t) => !t.parent_id).map((t) => t.id),
+  )
 
   return (
     <>
-      <PageHead title="오늘" hand="오늘 챙길 것만 모았어요" sub={`${HEAD_DATE.format(new Date())} · 모든 프로젝트 · 확정 상태 기준`} />
+      {selection.active ? (
+        <SelectionHeader selection={selection} />
+      ) : (
+        <PageHead title="오늘" hand="오늘 챙길 것만 모았어요" sub={`${HEAD_DATE.format(new Date())} · 모든 프로젝트 · 확정 상태 기준`}>
+          <TaskListMenu onSelect={shown.length > 0 ? selection.start : null} />
+        </PageHead>
+      )}
       {failed && (
         <div className="mb-4 flex items-center gap-3 rounded-lg bg-crit-soft p-3 text-sm text-crit">
           <span className="flex-1">불러오지 못했어요. 인터넷 연결을 확인해 주세요.</span>
@@ -84,11 +100,11 @@ export function TodayScreen() {
           <div className="flex items-center gap-2 px-4 pt-4 pb-2">
             <h2 className="text-[17px] font-bold tracking-[-0.09px]">오늘 할 일</h2>
             <span className="text-sm font-semibold text-muted tabular-nums">{g ? `${openCount}건` : ''}</span>
-            <Link to="/tasks" className="ml-auto text-[13px] font-bold">
+            <Link to="/projects" className="ml-auto text-[13px] font-bold">
               다음 7일 · 전체 →
             </Link>
           </div>
-          {data && (
+          {data && !selection.active && (
             <QuickAdd
               places={data.places}
               defaultPlace={QuickAddMemory.last(data.places)}
@@ -115,7 +131,7 @@ export function TodayScreen() {
               {openCount === 0 && (
                 <div className="border-t border-border px-4 py-6 text-center text-sm text-muted">
                   <span className="mb-1 block font-hand text-[26px] text-good">오늘 할 일 끝!</span>
-                  다음 7일 일정은 <Link to="/tasks">모든 할 일</Link>에서 봐요.
+                  다음 7일 일정은 <Link to="/projects">모든 할 일</Link>에서 봐요.
                 </div>
               )}
               {g.doneToday.length > 0 && <SubHead>오늘 완료 {g.doneToday.length}</SubHead>}
@@ -142,6 +158,7 @@ export function TodayScreen() {
         프로젝트별 상태·요약은 <Link to="/projects">프로젝트</Link>, 비용 상세는 <Link to="/settings">설정</Link>에서 봐요.
       </footer>
       {work.drawer}
+      {work.selectionUi}
       {toast.element}
     </>
   )

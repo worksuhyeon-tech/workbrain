@@ -76,9 +76,10 @@ export function ParaTree({ d, selected }: { d: ParaData; selected: string | null
         </div>
       </div>
 
+      {/* 아무것도 안 고른 프로젝트 화면 = 모든 할 일(앱 펼친 화면과 같음) */}
       <Row
-        to="/tasks"
-        selected={false}
+        to="/projects"
+        selected={selected === null}
         icon={<span className="text-all-tasks"><Icons.allTasks /></span>}
         label="모든 할 일"
         count={liveTasks(d).filter((t) => !isDone(t)).length}

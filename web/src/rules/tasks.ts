@@ -113,10 +113,20 @@ export function quickToEdit(r: QuickTask): TaskEdit {
     due_time: r.dueDate && r.dueTime ? `${r.dueDate}T${r.dueTime}+09:00` : null,
     due_ambiguous: r.vague !== null,
     due_text: r.vague,
-    project_id: r.place?.type === 'PROJECT' ? r.place.id : null,
-    area_id: r.place?.type === 'AREA' ? r.place.id : null,
+    ...placeFields(r.place),
     recipients: [],
   }
+}
+
+/** 넣을 곳·옮길 곳 → 저장 칸. null = 정리 안 됨 */
+export function placeFields(to: Place | null): { project_id: string | null; area_id: string | null } {
+  return { project_id: to?.type === 'PROJECT' ? to.id : null, area_id: to?.type === 'AREA' ? to.id : null }
+}
+
+/** 이미 그곳에 있는 할 일은 옮기지 않는다(앱 moveTasks — 버전만 올라가고 '옮겼어요'가 거짓이 됨) */
+export function needsMove(t: TaskRow, to: Place | null): boolean {
+  const f = placeFields(to)
+  return t.project_id !== f.project_id || t.area_id !== f.area_id
 }
 
 /** 새 할 일 행(앱 TaskEdit.toNewTaskFields): 빈 값은 보내지 않아 DB 기본값을 쓴다. 소유자는 DB 기본값 auth.uid */

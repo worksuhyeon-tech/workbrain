@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { PageHead } from '../components/AppShell'
 import { Icons } from '../components/icons'
 import { ParaTree, resourceIcon } from '../components/ParaTree'
 import { QuickAdd } from '../components/QuickAdd'
+import { SelectionHeader, TaskListMenu, useTaskSelection, useVisibleForSelection, type TaskSelection } from '../components/TaskSelect'
 import { useToast } from '../components/Toast'
 import { useTaskWork } from '../components/useTaskWork'
+import { AllTasksPane } from './AllTasksPane'
 import {
+  liveTasks,
   loadPara,
   loadState,
   openCount,
@@ -17,12 +20,14 @@ import {
   resourcesOf,
   stateLabel,
   tasksOf,
+  topIdOf,
   type ParaData,
   type StateVersionRow,
 } from '../data/para'
 import { isDone, type TaskRow } from '../data/types'
 import { cn } from '../lib/cn'
 import { useHiddenTasks } from '../lib/taskDeletes'
+import { useTaskOrder } from '../lib/taskSort'
 import { seoulToday } from '../rules/dates'
 import type { Place } from '../rules/place'
 import { without } from '../rules/subtasks'
@@ -31,9 +36,24 @@ import { SubHead } from './TodayScreen'
 
 const CARD = 'rounded-xl border border-border bg-card shadow-sm'
 
+/** 할 일을 고를 수 있는 곳(보관되지 않은 프로젝트·반복실행)이면 그곳, 아니면 null */
+function editablePlace(d: ParaData, key: string | null): Place | null {
+  const id = key?.slice(2)
+  if (key?.startsWith('p:')) {
+    const p = d.projects.find((x) => x.id === id && !x.archived_at)
+    return p ? { type: 'PROJECT', id: p.id, name: p.name } : null
+  }
+  if (key?.startsWith('a:')) {
+    const a = d.areas.find((x) => x.id === id && !x.archived_at)
+    return a ? { type: 'AREA', id: a.id, name: a.name } : null
+  }
+  return null
+}
+
 /**
- * 목업 S03 프로젝트: 왼쪽 PARA 트리, 오른쪽 고른 것의 상세(프로젝트·반복실행·자료). 주소 /projects/p:ID · a:ID · r:ID.
- * 1차(DEC-102 ①): 보기 + 할 일 다루기. 만들기·수정·보관·현재 상태 쓰기·끌어 옮기기·선택 이동은 다음 차례
+ * 목업 S03 프로젝트: 왼쪽 PARA 트리, 오른쪽 고른 것의 상세(프로젝트·반복실행·자료). 주소 /projects/p:ID · a:ID · r:ID,
+ * 아무것도 안 골랐으면(/projects) 모든 할 일(목업 S07).
+ * DEC-102 ①: 보기 + 할 일 다루기 + ⋮ 선택(이동·삭제)·정렬. 프로젝트 만들기·수정·보관·현재 상태 쓰기·끌어 옮기기는 앱에서(웹은 나중)
  */
 export function ProjectsScreen() {
   const { key = null } = useParams()
@@ -41,6 +61,23 @@ export function ProjectsScreen() {
   const [failed, setFailed] = useState(false)
   const hidden = useHiddenTasks()
   const toast = useToast()
+  const selection = useTaskSelection()
+  const stopSelection = selection.stop
+  // 검색에서 찾아간 할 일(?task=ID): 그 줄로 내려 칠한 뒤 주소에서 지운다
+  const [params, setParams] = useSearchParams()
+  const focusId = params.get('task')
+  const clearFocus = useCallback(
+    () =>
+      setParams(
+        (p) => {
+          const next = new URLSearchParams(p)
+          next.delete('task')
+          return next
+        },
+        { replace: true },
+      ),
+    [setParams],
+  )
 
   const load = useCallback(async () => {
     try {
@@ -58,11 +95,30 @@ export function ProjectsScreen() {
   // 지우는 중인 할 일·그 하위는 서버에서 지우기 전에도 바로 뺀다
   const d = useMemo(() => (data ? { ...data, tasks: without(data.tasks, hidden) } : null), [data, hidden])
   const places = useMemo(() => (d ? placesOf(d) : []), [d])
-  const work = useTaskWork({ tasks: d?.tasks ?? [], places, sources: d?.sources ?? new Map(), reload, showToast: toast.show })
+  const work = useTaskWork({
+    tasks: d?.tasks ?? [],
+    places,
+    sources: d?.sources ?? new Map(),
+    reload,
+    showToast: toast.show,
+    selection,
+    // 목록을 다 읽은 뒤에 넘긴다(읽기 전에는 '없는 할 일'로 보고 지나쳐 버림)
+    focusId: d ? focusId : null,
+    onFocused: clearFocus,
+  })
+  // 다른 곳으로 옮겨 가면 고르던 것은 끝낸다(고른 것이 안 보이는 채로 이동·삭제되지 않게)
+  useEffect(() => stopSelection(), [key, stopSelection])
+  const canSelect = !d ? false : key === null ? liveTasks(d).length > 0 : editablePlace(d, key) !== null && tasksOfKey(d, key).length > 0
 
   return (
     <>
-      <PageHead title="프로젝트" hand="하고 있는 일 한눈에" />
+      {selection.active ? (
+        <SelectionHeader selection={selection} />
+      ) : (
+        <PageHead title="프로젝트" hand="하고 있는 일 한눈에">
+          <TaskListMenu onSelect={canSelect ? selection.start : null} />
+        </PageHead>
+      )}
       {failed && (
         <div className="mb-4 flex items-center gap-3 rounded-lg bg-crit-soft p-3 text-sm text-crit">
           <span className="flex-1">불러오지 못했어요. 인터넷 연결을 확인해 주세요.</span>
@@ -78,11 +134,12 @@ export function ProjectsScreen() {
             <ParaTree d={d} selected={key} />
           </aside>
           <div className="min-w-0">
-            <Detail d={d} k={key} places={places} line={work.line} reload={reload} showToast={toast.show} />
+            <Detail d={d} k={key} places={places} line={work.line} reload={reload} showToast={toast.show} selection={selection} focusId={focusId} />
           </div>
         </div>
       )}
       {work.drawer}
+      {work.selectionUi}
       {toast.element}
     </>
   )
@@ -90,23 +147,45 @@ export function ProjectsScreen() {
 
 type LineFn = (t: TaskRow, opts: { showPlace: boolean; readOnly?: boolean }) => ReactNode
 
-function Detail({ d, k, places, line, reload, showToast }: { d: ParaData; k: string | null; places: Place[]; line: LineFn; reload: () => void; showToast: (t: string) => void }) {
-  const id = k?.slice(2) ?? ''
-  if (k?.startsWith('p:')) {
+/** 주소의 프로젝트·반복실행에 속한 상위 할 일(없는 곳·자료면 빈 목록) */
+function tasksOfKey(d: ParaData, key: string | null): TaskRow[] {
+  const id = key?.slice(2) ?? ''
+  if (key?.startsWith('p:')) return tasksOf(d, 'PROJECT', id)
+  if (key?.startsWith('a:')) return tasksOf(d, 'AREA', id)
+  return []
+}
+
+interface DetailProps {
+  d: ParaData
+  places: Place[]
+  line: LineFn
+  reload: () => void
+  showToast: (t: string) => void
+  selection: TaskSelection
+  /** 검색에서 찾아간 할 일: 접힌 '이전 완료'·걸린 거르기를 풀어 그 줄이 보이게 한다 */
+  focusId: string | null
+}
+
+function Detail({ k, ...props }: DetailProps & { k: string | null }) {
+  const { d } = props
+  if (k === null) return <AllTasksPane {...props} />
+  const id = k.slice(2)
+  // key: 다른 곳을 열면 '이전 완료' 펼침·현재 상태를 새로 시작한다
+  if (k.startsWith('p:')) {
     const p = d.projects.find((x) => x.id === id)
-    if (p) return <PlaceDetail d={d} place={{ type: 'PROJECT', id: p.id, name: p.name }} places={places} line={line} reload={reload} showToast={showToast} />
+    if (p) return <PlaceDetail key={k} place={{ type: 'PROJECT', id: p.id, name: p.name }} {...props} />
   }
-  if (k?.startsWith('a:')) {
+  if (k.startsWith('a:')) {
     const a = d.areas.find((x) => x.id === id)
-    if (a) return <PlaceDetail d={d} place={{ type: 'AREA', id: a.id, name: a.name }} places={places} line={line} reload={reload} showToast={showToast} />
+    if (a) return <PlaceDetail key={k} place={{ type: 'AREA', id: a.id, name: a.name }} {...props} />
   }
-  if (k?.startsWith('r:')) {
+  if (k.startsWith('r:')) {
     const r = d.resources.find((x) => x.id === id)
     if (r) return <ResourceDetail d={d} id={r.id} />
   }
   return (
     <div className={cn(CARD, 'px-6 py-12 text-center text-sm text-muted')}>
-      {k ? '찾는 항목이 없어요. 다른 기기에서 지웠을 수 있어요.' : '왼쪽에서 프로젝트·반복실행·자료를 고르면 여기에 열려요.'}
+      찾는 항목이 없어요. 다른 기기에서 지웠을 수 있어요.
     </div>
   )
 }
@@ -117,7 +196,7 @@ function fmtDay(iso: string): string {
 }
 
 /** 프로젝트·반복실행 상세(목업 S03 상세, 앱 ParaPanes): 머리 · (프로젝트) 현재 상태·관련 기록 · 할 일 · 자료 */
-function PlaceDetail({ d, place, places, line, reload, showToast }: { d: ParaData; place: Place; places: Place[]; line: LineFn; reload: () => void; showToast: (t: string) => void }) {
+function PlaceDetail({ d, place, places, line, reload, showToast, selection, focusId }: DetailProps & { place: Place }) {
   const isProject = place.type === 'PROJECT'
   const project = isProject ? d.projects.find((x) => x.id === place.id) : undefined
   const area = isProject ? d.areas.find((x) => x.id === project?.area_id) : d.areas.find((x) => x.id === place.id)
@@ -125,6 +204,7 @@ function PlaceDetail({ d, place, places, line, reload, showToast }: { d: ParaDat
   const [earlierOpen, setEarlierOpen] = useState(false)
   const [state, setState] = useState<StateVersionRow | null | undefined>(undefined)
   const today = seoulToday()
+  const order = useTaskOrder()
 
   useEffect(() => {
     if (!isProject) return
@@ -135,15 +215,23 @@ function PlaceDetail({ d, place, places, line, reload, showToast }: { d: ParaDat
   }, [isProject, place.id])
 
   const tasks = tasksOf(d, place.type, place.id)
-  const by = taskComparator('priority')
+  const by = taskComparator(order)
   const open = tasks.filter((t) => !isDone(t)).sort(by)
   // 오늘 끝낸 것은 남기고, 어제 이전에 끝낸 것은 '이전 완료'로 접는다(DEC-74)
   const doneToday = tasks.filter((t) => isDone(t) && !isEarlierDone(t, today))
   const earlier = tasks.filter((t) => isEarlierDone(t, today))
   const resources = resourcesOf(d, place.type, place.id)
   const areaProjects = isProject ? [] : d.projects.filter((p) => p.area_id === place.id && !p.archived_at)
-  // 보관된 곳은 서버가 읽기 전용으로 막으니 화면도 체크·서랍·입력을 막는다(복원 후 고치기)
+  // 보관된 곳은 서버가 읽기 전용으로 막으니 화면도 체크·서랍·입력·고르기를 막는다(복원 후 고치기)
   const readOnly = archived
+  // 검색에서 찾아간 할 일이 '이전 완료'에 접혀 있으면 펼친다. 찾아간 그때 한 번만 보려고 focusTop만 지켜본다
+  // (목록이 바뀔 때마다 다시 펼치면 사용자가 접어도 도로 열림)
+  const focusTop = focusId ? topIdOf(d, focusId) : null
+  useEffect(() => {
+    if (focusTop && earlier.some((t) => t.id === focusTop)) setEarlierOpen(true)
+  }, [focusTop])
+  // 전체 선택 대상 = 지금 펼쳐 보이는 할 일
+  useVisibleForSelection(selection, readOnly ? [] : [...open, ...doneToday, ...(earlierOpen ? earlier : [])].map((t) => t.id))
 
   return (
     <>
@@ -226,7 +314,7 @@ function PlaceDetail({ d, place, places, line, reload, showToast }: { d: ParaDat
           <h3 className="text-[17px] font-bold tracking-[-0.09px]">할 일</h3>
           <span className="text-sm font-semibold text-muted tabular-nums">{openCount(d, place.type, place.id)}</span>
         </div>
-        {!readOnly && (
+        {!readOnly && !selection.active && (
           <QuickAdd
             places={places}
             defaultPlace={place}

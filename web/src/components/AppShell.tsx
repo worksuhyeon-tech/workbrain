@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { BrandLogo, Icons } from './icons'
 import { cn } from '../lib/cn'
 import { signOut } from '../lib/session'
@@ -39,6 +39,7 @@ function RailLink({ item }: { item: NavItem }) {
 /** 목업 .app: 왼쪽 레일(240px, 760px 이하는 64px 아이콘만) + 위 막대(56px) + 본문 */
 export function AppShell({ email, children }: { email: string; children: ReactNode }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const { toggle } = useTheme()
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -64,7 +65,13 @@ export function AppShell({ email, children }: { email: string; children: ReactNo
           onSubmit={(e) => {
             e.preventDefault()
             const q = new FormData(e.currentTarget).get('q')?.toString().trim() ?? ''
-            navigate(q ? `/search?q=${encodeURIComponent(q)}` : '/search')
+            // 프로젝트·반복실행 상세에서 찾으면 그곳으로 미리 거른다(앱 SearchState.reset, Design §3.14)
+            const scope = location.pathname.match(/^\/projects\/([pa]:[^/]+)/)?.[1]
+            const sp = new URLSearchParams()
+            if (q) sp.set('q', q)
+            if (scope) sp.set('in', scope)
+            const query = sp.toString()
+            navigate(query ? `/search?${query}` : '/search')
           }}
         >
           <Icons.search size={15} />

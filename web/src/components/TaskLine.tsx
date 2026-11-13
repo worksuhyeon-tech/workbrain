@@ -31,7 +31,8 @@ export function PriorityMark({ priority }: { priority: number | null }) {
 /**
  * 할 일 한 줄(목업 .trow, 앱 TaskLine): 체크 · (우선순위 표시) 제목(+팔로업) · (속한 곳) 출처 · 기한 칩.
  * 체크는 완료 ↔ 다시 열기, 제목을 누르면 수정 서랍. parentTitle이 있으면 오늘 화면의 '상위 › 하위' 줄,
- * sub가 있으면 제목 옆 '⤷ 1/3' 칩(누르면 아래로 펼침·접힘), compact는 상위 아래 펼친 하위 줄(들여 쓰고 곳·출처 줄 없이)
+ * sub가 있으면 제목 옆 '⤷ 1/3' 칩(누르면 아래로 펼침·접힘), compact는 상위 아래 펼친 하위 줄(들여 쓰고 곳·출처 줄 없이).
+ * select가 있으면 선택 모드(DEC-92): 체크·제목이 '고르기'가 되고 고른 줄은 하늘색 바탕
  */
 export function TaskLine({
   t,
@@ -45,6 +46,8 @@ export function TaskLine({
   compact,
   busy,
   readOnly,
+  select,
+  flash,
   onToggle,
   onOpen,
 }: {
@@ -60,6 +63,10 @@ export function TaskLine({
   busy?: boolean
   /** 보관된 곳의 할 일: 체크·서랍을 막는다(복원 후 고치기) */
   readOnly?: boolean
+  /** 선택 모드에서 고를 수 있는 줄(상위만). 고를 수 없는 줄은 readOnly로 막는다 */
+  select?: { selected: boolean; onSelect: () => void }
+  /** 검색에서 찾아간 줄: 잠깐 분홍으로 칠한다(앱 highlight) */
+  flash?: boolean
   onToggle: () => void
   onOpen: () => void
 }) {
@@ -69,17 +76,34 @@ export function TaskLine({
   const placeName = t.project?.name ?? t.area?.name
 
   return (
-    <div className={cn('grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 last:border-b-0', compact ? 'bg-card-2 py-2 pl-12' : 'py-[11px]')}>
-      <input
-        type="checkbox"
-        checked={done}
-        disabled={busy || readOnly}
-        onChange={onToggle}
-        aria-label={`${t.title} ${done ? '다시 열기' : '완료'}`}
-        className="size-[18px] accent-primary"
-      />
+    <div
+      data-task-id={t.id}
+      className={cn(
+        'grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 transition-colors duration-700 last:border-b-0',
+        compact ? 'bg-card-2 py-2 pl-12' : 'py-[11px]',
+        select?.selected && 'bg-sky',
+        flash && 'bg-flash',
+      )}
+    >
+      {select ? (
+        <input type="checkbox" checked={select.selected} onChange={select.onSelect} aria-label={`${t.title} 고르기`} className="size-[18px] accent-primary" />
+      ) : (
+        <input
+          type="checkbox"
+          checked={done}
+          disabled={busy || readOnly}
+          onChange={onToggle}
+          aria-label={`${t.title} ${done ? '다시 열기' : '완료'}`}
+          className="size-[18px] accent-primary"
+        />
+      )}
       <span className={cn('font-medium text-ink', compact ? 'text-sm' : 'text-[15px]', done && 'text-muted line-through')}>
-        <button type="button" onClick={onOpen} disabled={readOnly} className={cn('text-left enabled:cursor-pointer enabled:hover:underline', done && 'line-through')}>
+        <button
+          type="button"
+          onClick={select ? select.onSelect : onOpen}
+          disabled={readOnly && !select}
+          className={cn('text-left enabled:cursor-pointer', !select && 'enabled:hover:underline', done && 'line-through')}
+        >
           {!t.parent_id && <PriorityMark priority={t.priority} />}
           {parentTitle && <span className="font-normal text-muted">{parentTitle} › </span>}
           {t.title}

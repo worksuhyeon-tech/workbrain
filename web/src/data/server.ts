@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase'
 import type { Place } from '../rules/place'
+import type { SearchRow } from '../rules/search'
 import { newTaskFields } from '../rules/tasks'
 import type { AreaRow, ProjectRow, TaskEdit, TaskRow, TaskSource } from './types'
 
@@ -27,7 +28,13 @@ export async function loadTasks(): Promise<TaskRow[]> {
   return must(await supabase.from('task').select(TASK_WITH_PLACE).order('created_at', { ascending: false }), 'load tasks')
 }
 
-/** 할 일을 넣거나 옮길 곳: 보관되지 않은 프로젝트, 그다음 반복실행(각각 이름순) */
+/** 할 일 하나의 지금 모습(옮기기 되돌리기는 그 사이 바뀐 버전으로 다시 저장한다). 없어졌으면 null */
+export async function loadTask(id: string): Promise<TaskRow | null> {
+  const rows = must(await supabase.from('task').select(TASK_WITH_PLACE).eq('id', id), 'load task') as TaskRow[]
+  return rows[0] ?? null
+}
+
+/** 할 일을 넣거나 옮길 곳:보관되지 않은 프로젝트, 그다음 반복실행(각각 이름순) */
 export async function loadPlaces(): Promise<Place[]> {
   const [projects, areas] = await Promise.all([
     supabase.from('project').select('id,name').is('archived_at', null),
@@ -112,6 +119,21 @@ export async function createSubtask(parent: TaskRow, e: TaskEdit): Promise<void>
 export async function deleteTask(t: TaskRow): Promise<boolean> {
   const rows = must(await supabase.from('task').delete().eq('id', t.id).eq('version', t.version).select('id'), 'delete task')
   return rows.length > 0
+}
+
+/**
+ * 검색(FR-13, DEC-98): 서버가 내 것(RLS)에서 글자로 찾아 종류마다 최신 30건씩 준다. AI를 쓰지 않아 비용 0원.
+ * q는 두 글자 이상(미만이면 서버가 빈 결과), 곳은 프로젝트·반복실행 중 하나만, kinds가 null이면 모든 종류
+ */
+export async function searchRows(q: string, place: Place | null, since: Date | null, kinds: string[] | null): Promise<SearchRow[]> {
+  const r = await supabase.rpc('wb_search', {
+    p_q: q,
+    p_project: place?.type === 'PROJECT' ? place.id : null,
+    p_area: place?.type === 'AREA' ? place.id : null,
+    p_since: since?.toISOString() ?? null,
+    p_kinds: kinds,
+  })
+  return must(r as { data: SearchRow[] | null; error: { message: string } | null }, 'search')
 }
 
 /** 받는 사람 고르기 칩(DEC-77): 그 기록의 참석자 + 이름 붙은 화자. 보조 정보라 못 읽으면 빈 목록 */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskRow } from '../data/types'
-import { deletedText, dueChipText, groupToday, isEarlierDone, movedManyText, quickToEdit, taskComparator } from './tasks'
+import { deletedText, dueChipText, groupToday, isEarlierDone, movedManyText, needsMove, placeFields, quickToEdit, taskComparator } from './tasks'
 import { parseQuick } from './quickParse'
 
 /** 앱 TaskSelectTest·EarlierDoneTest 예시를 그대로 옮기고, 오늘 묶기·기한 칩을 더했다(DEC-102) */
@@ -48,6 +48,18 @@ describe('정렬(TaskSelectTest)', () => {
     expect(deletedText([urgentLate])).toBe('할 일 a 삭제되었어요')
     expect(deletedText([urgentLate, normalSoon])).toBe('할 일 2개 삭제되었어요')
     expect(deletedText([urgentLate], 2)).toBe('할 일 a 삭제되었어요 · 하위 2개 포함')
+  })
+
+  it('이동: 이미 그곳에 있는 할 일은 건너뛰고, 정리 안 됨으로도 옮긴다', () => {
+    const project = { type: 'PROJECT' as const, id: 'p1', name: '가상 프로젝트' }
+    const area = { type: 'AREA' as const, id: 'a1', name: '가상 반복실행' }
+    const inProject = row('x', { project_id: 'p1' })
+    expect(needsMove(inProject, project)).toBe(false)
+    expect(needsMove(inProject, area)).toBe(true)
+    expect(needsMove(inProject, null)).toBe(true)
+    expect(needsMove(row('y'), null)).toBe(false)
+    expect(placeFields(area)).toEqual({ project_id: null, area_id: 'a1' })
+    expect(placeFields(null)).toEqual({ project_id: null, area_id: null })
   })
 })
 

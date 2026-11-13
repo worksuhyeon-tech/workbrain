@@ -37,3 +37,4 @@ supabase/.temp/
 # Claude Code 이 PC 설정(허용 규칙 등). 저장소에 올리지 않는다 — git만 안 볼 뿐, Claude Code는 그대로 읽는다
 .claude/
 web/dist/
+web/*.tsbuildinfo
