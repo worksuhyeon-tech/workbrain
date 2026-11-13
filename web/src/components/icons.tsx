@@ -32,6 +32,20 @@ export const Icons = {
       <path fill="currentColor" d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.4l-5.8 3.1 1.1-6.5L2.6 9.4l6.5-.9z" />
     </svg>
   ),
+  // PARA 트리·상세(앱 ParaGlyph·WbIcons와 같은 그림)
+  folderBig: ({ size = 16 }: { size?: number } = {}) => <Stroke size={size}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></Stroke>,
+  repeatBig: ({ size = 16 }: { size?: number } = {}) => <Stroke size={size}><path d="M17 2l4 4-4 4" /><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4" /><path d="M21 13v2a3 3 0 0 1-3 3H3" /></Stroke>,
+  allTasks: () => <Stroke size={16}><rect x="3" y="3" width="18" height="18" rx="3" /><path d="m8 12 3 3 5-6" /></Stroke>,
+  building: () => <Stroke size={17}><rect x="5" y="3" width="14" height="18" rx="1" /><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2M10 21v-3h4v3" /></Stroke>,
+  chevron: ({ open }: { open: boolean }) => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ transform: open ? 'rotate(90deg)' : undefined, transition: 'transform .15s' }}>
+      <path d="m9 6 6 6-6 6" />
+    </svg>
+  ),
+  mic: () => <Stroke size={14}><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></Stroke>,
+  doc: () => <Stroke size={14}><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4M9 12h6M9 16h6" /></Stroke>,
+  link: () => <Stroke size={14}><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1" /><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" /></Stroke>,
+  target: () => <Stroke size={15}><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4" /><circle cx="12" cy="12" r="1" /></Stroke>,
   trash: () => <Stroke size={16}><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3" /></Stroke>,
   /** 우선순위 낮음: 아래 화살표(Outlook '중요도 낮음'과 같은 모양) */
   low: () => <Stroke size={14}><path d="M12 5v14M6 13l6 6 6-6" /></Stroke>,

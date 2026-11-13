@@ -3,6 +3,7 @@ import { AppShell } from './components/AppShell'
 import { useAuth } from './lib/session'
 import { LoginScreen } from './screens/LoginScreen'
 import { Placeholder } from './screens/Placeholder'
+import { ProjectsScreen } from './screens/ProjectsScreen'
 import { TodayScreen } from './screens/TodayScreen'
 
 export function App() {
@@ -17,7 +18,8 @@ export function App() {
       <AppShell email={auth.session.user.email ?? ''}>
         <Routes>
           <Route path="/" element={<TodayScreen />} />
-          <Route path="/projects/*" element={<Placeholder title="프로젝트" hand="하고 있는 일 한눈에" step="① 할 일 단계" />} />
+          {/* 고른 항목이 바뀌어도 화면을 새로 열지 않게(트리 접힘 유지) 주소 하나로 */}
+          <Route path="/projects/:key?" element={<ProjectsScreen />} />
           <Route path="/tasks" element={<Placeholder title="모든 할 일" hand="하고 있는 일 한눈에" step="① 할 일 단계" />} />
           <Route path="/search" element={<Placeholder title="검색" hand="그때 뭐라고 했더라" step="① 할 일 단계" />} />
           <Route path="/records/*" element={<Placeholder title="기록" hand="회의·통화·메모" step="② 검토·회의록 단계" />} />

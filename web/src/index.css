@@ -108,6 +108,9 @@
   --color-butter: var(--butter);
   --color-sky: var(--sky);
   --color-folder: var(--folder);
+  /* 프로젝트 트리·상세의 폴더(주황)·모든 할 일(초록) — 할 일 줄 폴더(베이지)와 다름(DESIGN.md 아이콘 색, 11/13 사용자) */
+  --color-tree-folder: #ff7a2e;
+  --color-all-tasks: #12b37f;
   --color-area-icon: var(--area-icon);
   --color-star: var(--star);
   --font-sans: var(--font);

@@ -44,6 +44,7 @@ export function TaskLine({
   onSubtasks,
   compact,
   busy,
+  readOnly,
   onToggle,
   onOpen,
 }: {
@@ -57,6 +58,8 @@ export function TaskLine({
   onSubtasks?: () => void
   compact?: boolean
   busy?: boolean
+  /** 보관된 곳의 할 일: 체크·서랍을 막는다(복원 후 고치기) */
+  readOnly?: boolean
   onToggle: () => void
   onOpen: () => void
 }) {
@@ -70,13 +73,13 @@ export function TaskLine({
       <input
         type="checkbox"
         checked={done}
-        disabled={busy}
+        disabled={busy || readOnly}
         onChange={onToggle}
         aria-label={`${t.title} ${done ? '다시 열기' : '완료'}`}
         className="size-[18px] accent-primary"
       />
       <span className={cn('font-medium text-ink', compact ? 'text-sm' : 'text-[15px]', done && 'text-muted line-through')}>
-        <button type="button" onClick={onOpen} className={cn('cursor-pointer text-left hover:underline', done && 'line-through')}>
+        <button type="button" onClick={onOpen} disabled={readOnly} className={cn('text-left enabled:cursor-pointer enabled:hover:underline', done && 'line-through')}>
           {!t.parent_id && <PriorityMark priority={t.priority} />}
           {parentTitle && <span className="font-normal text-muted">{parentTitle} › </span>}
           {t.title}
