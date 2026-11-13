@@ -33,7 +33,8 @@ export function Dialog({
         className="flex max-h-[80vh] w-full max-w-[440px] flex-col rounded-xl border border-border bg-card py-4 shadow-lg"
       >
         <h2 className="px-5 pb-2 text-[17px] font-bold">{title}</h2>
-        <div className={cn('overflow-y-auto', bodyClassName)}>{children}</div>
+        {/* 위아래 여백(py-1): 스크롤 칸이 맨 위·아래 입력 칸의 파란 포커스 테두리를 자르지 않게(11/13 사용자 제보) */}
+        <div className={cn('overflow-y-auto py-1', bodyClassName)}>{children}</div>
         {actions && <div className="mt-3 flex items-center justify-end gap-2 border-t border-border px-4 pt-3">{actions}</div>}
       </div>
     </div>

@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { CandidateEditDialog, type CandidateEditMode } from '../components/CandidateEditDialog'
 import { CandidateRow } from '../components/CandidateRow'
+import { ChangeRow } from '../components/ChangeRow'
 import { ConfirmDialog, Dialog, PRIMARY_BUTTON, SECONDARY_BUTTON } from '../components/Dialog'
 import { Icons } from '../components/icons'
 import { MinutesDoc } from '../components/MinutesDoc'
 import { PlaceSelect, placeKeyOf, placeOfKey } from '../components/PlaceSelect'
-import { RecipientsField } from '../components/RecipientsField'
+import { RecipientsDialog } from '../components/RecipientsDialog'
 import { Seg } from '../components/Seg'
 import { useToast } from '../components/Toast'
 import { useMinutesMaker } from '../components/useMinutesMaker'
@@ -27,13 +28,12 @@ import {
   type RecordDetail,
   type Transcript,
 } from '../data/records'
-import { createTask, loadPlaces, recordPeople } from '../data/server'
+import { createTask, loadPlaces } from '../data/server'
 import { cn } from '../lib/cn'
 import type { Place } from '../rules/place'
 import {
   CHANNEL_LABEL,
   CLASS_LABEL,
-  changeLines,
   checkedAtFirst,
   clockText,
   decisionTaskEdit,
@@ -803,30 +803,6 @@ function Fields({ d, act, onEditAttendees }: { d: RecordDetail; act: Act; onEdit
   )
 }
 
-/** 기존 할 일 변경 한 줄: 대상 제목 + 바뀐 칸 '전 → 후' + 근거(앱 CandidateCard before) */
-function ChangeRow({ p }: { p: ProposalRow }) {
-  const lines = changeLines(p.before_json, p.after_json)
-  const title = (typeof p.before_json?.title === 'string' && p.before_json.title) || (typeof p.after_json.title === 'string' ? p.after_json.title : '')
-  return (
-    <div className="border-b border-border px-4 py-3 last:border-b-0">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[15px] font-semibold text-ink">{title}</span>
-        {p.status === 'approved' && <span className={cn(CHIP, TONE_CHIP.good)}>반영됨</span>}
-        {p.status === 'rejected' && <span className={cn(CHIP, TONE_CHIP.mute)}>버림</span>}
-      </div>
-      {lines.map((l) => (
-        <div key={l.label} className="mt-1 flex flex-wrap items-center gap-2 text-[13px]">
-          <span className="w-10 text-muted">{l.label}</span>
-          {l.from != null && <s className="text-muted">{l.from}</s>}
-          {l.from != null && <span className="text-muted">→</span>}
-          <span className={cn(CHIP, TONE_CHIP.good)}>{l.to}</span>
-        </div>
-      ))}
-      {p.rationale.trim() && <p className="mt-1 truncate text-[13px] text-muted">“{p.rationale}”</p>}
-    </div>
-  )
-}
-
 /** 전사 탭: 교정본이 있으면 먼저, 받아쓴 원문은 따로(원문은 고치지 않음, DEC-36). 화자가 있으면 차례마다(DEC-54) */
 function TranscriptTab({ corrected, original }: { corrected: Transcript | null; original: Transcript | null }) {
   const [showOriginal, setShowOriginal] = useState(false)
@@ -1090,47 +1066,6 @@ function AttendeesDialog({ names, onDismiss, onSave }: { names: string[]; onDism
         </button>
       </div>
       <p className="mt-2 text-xs text-muted">회의록 문서는 ‘다시 만들기’를 해야 새 명단이 반영돼요. 이미 뽑은 할 일 후보는 그대로예요.</p>
-    </Dialog>
-  )
-}
-
-/** 후보 받는 사람 고르기(DEC-77): 기록 참석자·이 기록에서 쓴 이름 중에서 넣고 빼며, 없으면 적는다. 고른 값은 승인 때 덮는다 */
-function RecipientsDialog({
-  recordId,
-  value,
-  followNames,
-  onDismiss,
-  onApply,
-}: {
-  recordId: string
-  value: string[]
-  followNames: string[]
-  onDismiss: () => void
-  onApply: (names: string[]) => void
-}) {
-  const [names, setNames] = useState(value)
-  const [people, setPeople] = useState<string[]>([])
-  useEffect(() => {
-    void recordPeople(recordId).then(setPeople)
-  }, [recordId])
-  return (
-    <Dialog
-      title="받는 사람"
-      onDismiss={onDismiss}
-      actions={
-        <>
-          <button type="button" onClick={onDismiss} className={SECONDARY_BUTTON}>
-            취소
-          </button>
-          <button type="button" onClick={() => onApply(names)} className={PRIMARY_BUTTON}>
-            적용
-          </button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-2 pb-1">
-        <RecipientsField value={names} choices={[...new Set([...followNames, ...people])]} onChange={setNames} />
-      </div>
     </Dialog>
   )
 }
