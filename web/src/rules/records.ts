@@ -1,3 +1,4 @@
+import type { TaskEdit } from '../data/types'
 import { dayOfWeek, type LocalDate } from './dates'
 import { seoulDate, seoulTime } from './tasks'
 
@@ -327,6 +328,89 @@ export function changeLines(before: Json | null, after: Json): { label: string; 
     lines.push({ label, from, to })
   }
   return lines
+}
+
+// ── 후보 고치기·추가(②-3, 앱 CandidateEditSheet.edits·AddPlace.withPlace) ──
+
+export type OwnerKind = 'me' | 'other' | 'unknown'
+/** 후보 기한 고치기: 없음 · 날짜 · 모호(처음부터 모호했던 후보만 그대로 둘 수 있음) */
+export type CandidateDue = 'none' | 'date' | 'vague'
+
+export function candidateDueKind(after: Json): CandidateDue {
+  if (typeof after.due_date === 'string') return 'date'
+  return after.due_ambiguous === true ? 'vague' : 'none'
+}
+
+/** 다른 사람이면 이름, 날짜면 날짜가 있어야 적용할 수 있다(앱 taskFieldsValid) */
+export function candidateValid(title: string, owner: OwnerKind, assignee: string, due: CandidateDue, date: string): boolean {
+  return title.trim() !== '' && (owner !== 'other' || assignee.trim() !== '') && (due !== 'date' || date !== '')
+}
+
+/**
+ * 고친 값 → 승인 함수가 읽는 키 전체(앱 edits). 날짜를 바꾸면 시각은 버리고(날짜만 기한),
+ * 담당을 바꾸면 '말한 사람 기준'(DEC-76) 표시를 지운다
+ */
+export function candidateEdits(current: Json, v: { title: string; owner: OwnerKind; assignee: string; due: CandidateDue; date: string }): Json {
+  const sameDate = v.due === 'date' && v.date === current.due_date
+  const sameOwner = v.owner === current.owner_kind && (v.owner !== 'other' || v.assignee === current.assignee)
+  return {
+    title: v.title,
+    owner_kind: v.owner,
+    assignee: v.owner === 'other' ? v.assignee : null,
+    due_date: v.due === 'date' && v.date ? v.date : null,
+    due_time: sameDate ? (current.due_time ?? null) : null,
+    due_ambiguous: v.due === 'vague',
+    due_text: v.due === 'vague' ? (current.due_text ?? null) : null,
+    owner_basis: sameOwner ? (current.owner_basis ?? null) : null,
+  }
+}
+
+/** 할 일이 들어갈 곳의 키(task 표·approve_proposal 공통). 정리 안 됨이면 없음 */
+export function placeKeys(place: { type: 'PROJECT' | 'AREA'; id: string } | null): Json {
+  if (!place) return {}
+  return place.type === 'PROJECT' ? { project_id: place.id } : { area_id: place.id }
+}
+
+/**
+ * 승인할 때 '추가할 곳'을 고친 값에 더한다. 화면의 '추가할 곳'이 곧 들어갈 곳이라, 정리 안 됨이면 두 키를 비워 보내
+ * AI가 후보에 적어 둔 프로젝트로 몰래 들어가지 않게 한다(DEC-75)
+ */
+export function withPlace(edits: Json | undefined, place: { type: 'PROJECT' | 'AREA'; id: string } | null): Json {
+  return { ...edits, project_id: null, area_id: null, ...placeKeys(place) }
+}
+
+/**
+ * 결정 후보 → 새 할 일(DEC-48): 사용자가 직접 만드는 할 일이라 AI 승인을 거치지 않는다.
+ * 고치기 창 값에서 task 표에 있는 칸만 뽑는다(owner_basis 같은 후보 전용 칸은 task 표에 없다)
+ */
+export function decisionTaskEdit(edits: Json, place: { type: 'PROJECT' | 'AREA'; id: string } | null): TaskEdit {
+  const str = (k: string) => (typeof edits[k] === 'string' && (edits[k] as string) !== '' ? (edits[k] as string) : null)
+  return {
+    title: str('title') ?? '',
+    priority: null,
+    owner_kind: str('owner_kind') ?? 'me',
+    assignee: str('assignee'),
+    due_date: str('due_date'),
+    due_time: str('due_time'),
+    due_ambiguous: edits.due_ambiguous === true,
+    due_text: str('due_text'),
+    project_id: place?.type === 'PROJECT' ? place.id : null,
+    area_id: place?.type === 'AREA' ? place.id : null,
+    recipients: [],
+  }
+}
+
+/** 담당 고르기의 팔로업 목록: 기록 참석자 + AI가 짚은 사람, 내 이름은 '나'가 따로 있으니 뺀다 */
+export function followNamesOf(attendees: string[], assignees: unknown[], myNames: string[]): string[] {
+  const mine = new Set(myNames.map((n) => n.trim()))
+  return [...new Set([...attendees, ...assignees.filter((a): a is string => typeof a === 'string')].map((n) => n.trim()))].filter((n) => n && !mine.has(n))
+}
+
+/**
+ * 처음 체크: 결정과 겹치는 후보는 결정과 중복일 가능성이 커서(DEC-48), 검토함에서 미룬 후보는 모르고 추가하지 않게(DEC-63) 빼 둔다
+ */
+export function checkedAtFirst(overlaps: boolean, snoozedUntil: string | null, now: Date = new Date()): boolean {
+  return !overlaps && !snoozeActive(snoozedUntil, now)
 }
 
 /** 후보의 받는 사람(DEC-77). 배열이 아니면 빈 목록 */

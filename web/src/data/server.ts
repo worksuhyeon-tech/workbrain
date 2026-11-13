@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase'
+import { uniquePeople } from '../rules/people'
 import type { Place } from '../rules/place'
 import type { SearchRow } from '../rules/search'
 import { newTaskFields } from '../rules/tasks'
@@ -144,6 +145,28 @@ export async function recordPeople(recordId: string): Promise<string[]> {
     return []
   }
   return (r.data as string[] | null) ?? []
+}
+
+/**
+ * 받는 사람 고르기 칩(DEC-77, 11/13 사용자): 그 프로젝트에 확정 연결된 기록(회의·통화)의 참석자만, 같은 사람은 하나로, 내 이름은 뺀다.
+ * 프로젝트가 아니면(반복실행·정리 안 됨) 빈 목록 — 직접 적어 넣는다. 보조 정보라 못 읽어도 빈 목록
+ */
+export async function projectPeople(projectId: string | null): Promise<string[]> {
+  if (!projectId) return []
+  const [links, settings] = await Promise.all([
+    supabase.from('source_project_link').select('item_ref,source_record(attendees)').eq('project_id', projectId).eq('status', 'confirmed'),
+    supabase.from('settings').select('my_names'),
+  ])
+  if (links.error) {
+    console.warn('load project people failed', links.error)
+    return []
+  }
+  const rows = links.data as unknown as { item_ref: { scope?: string } | null; source_record: { attendees: string[] | null } | null }[]
+  const myNames = settings.error ? [] : ((settings.data as { my_names: string[] | null }[])[0]?.my_names ?? [])
+  return uniquePeople(
+    rows.filter((r) => r.item_ref?.scope === 'record').flatMap((r) => r.source_record?.attendees ?? []),
+    ['나', ...myNames],
+  )
 }
 
 /** 완료·완료 취소. 버전이 같을 때만 바꾼다 — 다른 기기에서 먼저 바꿨으면 false(M18) */

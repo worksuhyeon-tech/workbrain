@@ -1,12 +1,15 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { recordPeople } from '../data/server'
+import { projectPeople } from '../data/server'
 import { isDone, type TaskEdit, type TaskRow } from '../data/types'
 import { cn } from '../lib/cn'
 import { seoulToday } from '../rules/dates'
 import type { Place } from '../rules/place'
 import { toEdit } from '../rules/subtasks'
-import { dueChipText, seoulDate, seoulTime, UNSORTED } from '../rules/tasks'
+import { dueChipText, seoulDate, seoulTime } from '../rules/tasks'
+import { DuePicker } from './DuePicker'
 import { Icons } from './icons'
+import { PlaceSelect } from './PlaceSelect'
+import { RecipientsField } from './RecipientsField'
 import { Seg } from './Seg'
 
 /** 저장이 안 됐을 때 서랍 안 띠(목업 .unsaved): 입력은 그대로 둔다 */
@@ -56,8 +59,6 @@ export function TaskEditDrawer({
   places,
   error,
   saving,
-  usedNames,
-  recordId,
   parentTitle,
   subtasks,
   onToggleSub,
@@ -71,8 +72,6 @@ export function TaskEditDrawer({
   places: Place[]
   error: string | null
   saving: boolean
-  usedNames: string[]
-  recordId: string | null
   parentTitle: string | null
   subtasks: TaskRow[] | null
   onToggleSub: (t: TaskRow) => void
@@ -89,11 +88,12 @@ export function TaskEditDrawer({
   const [owner, setOwner] = useState<Owner>((['me', 'other', 'unknown'] as const).find((o) => o === start.owner_kind) ?? 'me')
   const [assignee, setAssignee] = useState(start.assignee ?? '')
   const [recipients, setRecipients] = useState<string[]>(start.recipients)
-  const [newName, setNewName] = useState('')
   const [people, setPeople] = useState<string[]>([])
+  // 하위 할 일도 곳은 상위와 같다(서버 트리거)라 같은 칸으로 본다
+  const projectId = placeKey.startsWith('PROJECT:') ? placeKey.slice('PROJECT:'.length) : null
   const [dueKind, setDueKind] = useState<DueKind>(start.due_time ? 'time' : start.due_date ? 'date' : start.due_ambiguous ? 'vague' : 'none')
   const [date, setDate] = useState(start.due_date ?? (start.due_time ? seoulDate(start.due_time) : null) ?? '')
-  const [dateTime, setDateTime] = useState(start.due_time ? `${seoulDate(start.due_time)}T${seoulTime(start.due_time)}` : '')
+  const [time, setTime] = useState(start.due_time ? (seoulTime(start.due_time) ?? '') : '')
   const [vague, setVague] = useState(start.due_text ?? '')
   const [priority, setPriority] = useState(String(start.priority ?? 2))
   const [subText, setSubText] = useState('')
@@ -107,8 +107,9 @@ export function TaskEditDrawer({
   }
 
   useEffect(() => {
-    if (recordId) void recordPeople(recordId).then(setPeople)
-  }, [recordId])
+    // 받는 사람 칩: 지금 고른 프로젝트에 연결된 회의·통화의 참석자만(11/13 사용자). 어디에를 바꾸면 따라 바뀐다
+    void projectPeople(projectId).then(setPeople)
+  }, [projectId])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -118,23 +119,22 @@ export function TaskEditDrawer({
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  const valid = title.trim() !== '' && (owner !== 'other' || assignee.trim() !== '') && (dueKind !== 'date' || date !== '') && (dueKind !== 'time' || dateTime !== '')
+  const valid = title.trim() !== '' && (owner !== 'other' || assignee.trim() !== '') && (dueKind !== 'date' || date !== '') && (dueKind !== 'time' || (date !== '' && time !== ''))
   // 지금 곳이 보관됐으면 목록에 없으니 그 이름으로 한 줄 보여 준다(그대로 두면 저장해도 곳은 안 바뀐다)
   const currentName = task.project?.name ?? task.area?.name
   const placeMissing = placeKey !== '' && !places.some((p) => `${p.type}:${p.id}` === placeKey)
-  const chipNames = [...new Set(['나', ...people, ...usedNames])]
+  const chipNames = ['나', ...people]
 
   const save = () => {
     const [type, id] = placeKey ? placeKey.split(':') : [null, null]
-    const timeDate = dateTime.slice(0, 10)
     void onSave({
       title: title.trim(),
       // 하위는 우선순위 칸이 없어 원래 값 그대로
       priority: isSub ? task.priority : Number(priority),
       owner_kind: owner,
       assignee: owner === 'other' ? assignee.trim() : null,
-      due_date: dueKind === 'date' ? date : dueKind === 'time' ? timeDate : null,
-      due_time: dueKind === 'time' ? `${dateTime}+09:00` : null,
+      due_date: dueKind === 'date' || dueKind === 'time' ? date : null,
+      due_time: dueKind === 'time' ? `${date}T${time}+09:00` : null,
       due_ambiguous: dueKind === 'vague',
       due_text: dueKind === 'vague' ? vague.trim() || '미정' : null,
       project_id: type === 'PROJECT' ? (id ?? null) : null,
@@ -144,8 +144,6 @@ export function TaskEditDrawer({
       if (ok) close(onDismiss)
     })
   }
-
-  const toggleName = (n: string) => setRecipients((r) => (r.includes(n) ? r.filter((x) => x !== n) : [...r, n]))
 
   return (
     <div
@@ -170,20 +168,7 @@ export function TaskEditDrawer({
 
         {!isSub && (
           <Field label="어디에">
-            <select value={placeKey} onChange={(e) => setPlaceKey(e.target.value)} className={INPUT}>
-              <option value="">{UNSORTED}</option>
-              {placeMissing && <option value={placeKey}>{currentName ?? '보관된 곳'}</option>}
-              <optgroup label="1. 프로젝트">
-                {places.filter((p) => p.type === 'PROJECT').map((p) => (
-                  <option key={p.id} value={`PROJECT:${p.id}`}>{p.name}</option>
-                ))}
-              </optgroup>
-              <optgroup label="2. 반복실행">
-                {places.filter((p) => p.type === 'AREA').map((p) => (
-                  <option key={p.id} value={`AREA:${p.id}`}>{p.name}</option>
-                ))}
-              </optgroup>
-            </select>
+            <PlaceSelect value={placeKey} places={places} onChange={setPlaceKey} className={INPUT} missing={placeMissing ? (currentName ?? '보관된 곳') : undefined} />
           </Field>
         )}
 
@@ -196,52 +181,24 @@ export function TaskEditDrawer({
         </Field>
 
         <Field label="받는 사람">
-          <div className="flex flex-wrap gap-1.5">
-            {[...new Set([...chipNames, ...recipients])].map((n) => (
-              <button
-                key={n}
-                type="button"
-                aria-pressed={recipients.includes(n)}
-                onClick={() => toggleName(n)}
-                className={cn('rounded-full border px-3 py-1 text-[13px] font-semibold', recipients.includes(n) ? 'border-pill bg-pill text-on-pill' : 'border-border bg-surface text-body')}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.nativeEvent.isComposing && newName.trim()) {
-                  setRecipients((r) => [...new Set([...r, newName.trim()])])
-                  setNewName('')
-                }
-              }}
-              placeholder="목록에 없으면 이름 적기 (예: IT 개발팀)"
-              className={INPUT}
-            />
-            <button
-              type="button"
-              disabled={!newName.trim()}
-              onClick={() => {
-                setRecipients((r) => [...new Set([...r, newName.trim()])])
-                setNewName('')
-              }}
-              className="shrink-0 px-2 text-sm font-semibold text-link disabled:text-muted"
-            >
-              추가
-            </button>
-          </div>
+          <RecipientsField value={recipients} choices={chipNames} onChange={setRecipients} />
         </Field>
 
         <Field label="기한">
           <div>
             <Seg label="기한" items={DUES} value={dueKind} onChange={setDueKind} />
           </div>
-          {dueKind === 'date' && <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={INPUT} />}
-          {dueKind === 'time' && <input type="datetime-local" value={dateTime} onChange={(e) => setDateTime(e.target.value)} className={INPUT} />}
+          {(dueKind === 'date' || dueKind === 'time') && (
+            <DuePicker
+              date={date}
+              time={time}
+              withTime={dueKind === 'time'}
+              onChange={(d, t) => {
+                setDate(d)
+                setTime(t)
+              }}
+            />
+          )}
           {dueKind === 'vague' && <input value={vague} onChange={(e) => setVague(e.target.value)} placeholder="예: 다음 주, 월말" className={INPUT} />}
           {DUE_NOTE[dueKind] && <span className="text-xs text-muted">{DUE_NOTE[dueKind]}</span>}
         </Field>

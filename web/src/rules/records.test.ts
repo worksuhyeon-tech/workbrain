@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  candidateDueKind,
   candidateDueLabel,
+  candidateEdits,
+  candidateValid,
+  checkedAtFirst,
+  decisionTaskEdit,
+  followNamesOf,
+  withPlace,
   changeLines,
   clockText,
   dayLabel,
@@ -173,5 +180,62 @@ describe('기록 상세', () => {
     expect(candidateDueLabel({ due_date: '2026-10-23' })).toBe('10/23(금)')
     expect(candidateDueLabel({ due_ambiguous: true, due_text: '다음 주' })).toBe('다음 주 · 확인 필요')
     expect(candidateDueLabel({})).toBeNull()
+  })
+})
+
+describe('후보 고치기·추가(앱 CandidateEditSheet·AddPlace)', () => {
+  const ai = { title: '흐름도 공유', owner_kind: 'other', assignee: '김가상', owner_basis: 'speaker', due_date: '2026-11-17', due_time: '2026-11-17T06:00:00Z' }
+
+  it('날짜를 그대로 두면 시각을 지키고, 바꾸면 버린다', () => {
+    const same = candidateEdits(ai, { title: '흐름도 공유', owner: 'other', assignee: '김가상', due: 'date', date: '2026-11-17' })
+    expect(same).toMatchObject({ due_date: '2026-11-17', due_time: '2026-11-17T06:00:00Z', owner_basis: 'speaker' })
+    const moved = candidateEdits(ai, { title: '흐름도 공유', owner: 'other', assignee: '김가상', due: 'date', date: '2026-11-18' })
+    expect(moved).toMatchObject({ due_date: '2026-11-18', due_time: null })
+  })
+
+  it('담당을 바꾸면 말한 사람 기준을 지우고, 나면 이름을 비운다', () => {
+    expect(candidateEdits(ai, { title: '흐름도 공유', owner: 'me', assignee: '김가상', due: 'none', date: '' })).toMatchObject({
+      owner_kind: 'me', assignee: null, owner_basis: null, due_date: null, due_ambiguous: false,
+    })
+  })
+
+  it('모호한 기한은 글 그대로', () => {
+    const vague = { title: '회신', owner_kind: 'me', due_ambiguous: true, due_text: '다음 주 초' }
+    expect(candidateDueKind(vague)).toBe('vague')
+    expect(candidateEdits(vague, { title: '회신', owner: 'me', assignee: '', due: 'vague', date: '' })).toMatchObject({ due_ambiguous: true, due_text: '다음 주 초' })
+  })
+
+  it('적용 가능: 제목·다른 사람 이름·날짜', () => {
+    expect(candidateValid(' ', 'me', '', 'none', '')).toBe(false)
+    expect(candidateValid('a', 'other', ' ', 'none', '')).toBe(false)
+    expect(candidateValid('a', 'me', '', 'date', '')).toBe(false)
+    expect(candidateValid('a', 'other', '김', 'date', '2026-11-17')).toBe(true)
+  })
+
+  it('추가할 곳: 정리 안 됨이면 두 키를 비워 AI가 적은 곳으로 새지 않게', () => {
+    expect(withPlace({ title: 'x', project_id: 'ai' }, null)).toEqual({ title: 'x', project_id: null, area_id: null })
+    expect(withPlace(undefined, { type: 'AREA', id: 'a1' })).toEqual({ project_id: null, area_id: 'a1' })
+  })
+
+  it('팔로업 목록: 참석자 + AI가 짚은 사람, 내 이름 뺌', () => {
+    expect(followNamesOf(['나', '김가상', ' 박예시 '], ['김가상', null, '이예시'], ['나'])).toEqual(['김가상', '박예시', '이예시'])
+  })
+
+  it('처음 체크: 결정과 겹치거나 아직 미룬 후보는 빼 둔다', () => {
+    const now = new Date('2026-11-13T12:00:00Z')
+    expect(checkedAtFirst(false, null, now)).toBe(true)
+    expect(checkedAtFirst(true, null, now)).toBe(false)
+    expect(checkedAtFirst(false, '2026-11-16T15:00:00Z', now)).toBe(false)
+    expect(checkedAtFirst(false, '2026-11-10T15:00:00Z', now)).toBe(true)
+  })
+
+  it('결정 → 새 할 일은 task 칸만(후보 전용 owner_basis는 뺌)', () => {
+    const e = candidateEdits({ title: '흐름도 공유', owner_kind: 'me' }, { title: '흐름도 공유', owner: 'other', assignee: '김가상', due: 'date', date: '2026-11-17' })
+    const t = decisionTaskEdit(e, { type: 'PROJECT', id: 'p1' })
+    expect(t).toEqual({
+      title: '흐름도 공유', priority: null, owner_kind: 'other', assignee: '김가상', due_date: '2026-11-17', due_time: null,
+      due_ambiguous: false, due_text: null, project_id: 'p1', area_id: null, recipients: [],
+    })
+    expect('owner_basis' in t).toBe(false)
   })
 })

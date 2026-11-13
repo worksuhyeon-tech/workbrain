@@ -16,6 +16,7 @@ import { basisOf, buildStateInput, cleanState, STATE_PROMPT, STATE_PROMPT_VERSIO
 import { buildHeadInput, cleanHeads, PLAN_HEAD_PROMPT, PLAN_HEAD_SCHEMA, PLAN_HEAD_VERSION } from "./plan-head.ts";
 import { loadPlanInput } from "./plan-data.ts";
 import { applyHeads, buildWorkPlan, headInputs, type PlanKind, type WorkPlan } from "../_shared/work-plan.ts";
+import { withCors } from "../_shared/cors.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -33,7 +34,7 @@ type Job = { id: string; stage: string; stage_state: string; retry_count: number
 const reply = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-Deno.serve(async (req) => {
+Deno.serve(withCors(async (req) => {
   if (req.method !== "POST") return reply(405, { error: "POST만 받아요" });
   const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
@@ -140,7 +141,7 @@ Deno.serve(async (req) => {
     }).eq("id", job.id);
     return reply(200, { stage: job.stage, state: "FAILED", error: message });
   }
-});
+}));
 
 /** 이번 달 확정 비용이 예산 대기선(기본 2만4천 원)을 넘었는지(NFR-07) */
 async function overBudget(db: SupabaseClient, uid: string, cycle: string): Promise<boolean> {

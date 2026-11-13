@@ -44,6 +44,7 @@ export const Icons = {
   ),
   mic: () => <Stroke size={14}><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></Stroke>,
   phone: () => <Stroke size={14}><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2" /></Stroke>,
+  pencil: () => <Stroke size={16}><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="m13.5 6.5 4 4" /></Stroke>,
   upload: () => <Stroke size={15}><path d="M12 16V4M7 9l5-5 5 5M5 20h14" /></Stroke>,
   doc: () => <Stroke size={14}><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4M9 12h6M9 16h6" /></Stroke>,
   link: () => <Stroke size={14}><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1" /><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" /></Stroke>,

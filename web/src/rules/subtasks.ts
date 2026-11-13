@@ -62,16 +62,3 @@ export function toEdit(t: TaskRow): TaskEdit {
     recipients: t.recipients ?? [],
   }
 }
-
-/** 받는 사람 고르기 칩에 보탤 이름(앱 usedNamesOf): 팔로업 담당·받는 사람, 자주 쓴 순 최대 12개. '나'는 칩이 따로 둔다 */
-export function usedNamesOf(tasks: TaskRow[]): string[] {
-  const count = new Map<string, number>()
-  for (const t of tasks) {
-    const names = [...(t.owner_kind === 'other' && t.assignee ? [t.assignee] : []), ...(t.recipients ?? [])]
-    for (const raw of names) {
-      const n = raw.trim()
-      if (n && n !== '나') count.set(n, (count.get(n) ?? 0) + 1)
-    }
-  }
-  return [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([n]) => n)
-}

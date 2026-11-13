@@ -169,6 +169,8 @@ export interface RecordDetail {
   openTaskTitles: Set<string>
   /** 지금 설정의 지침 번호(문서를 만들 때 쓴 번호와 다르면 '새 지침으로 다시 만들기') */
   guidelineRev: number | null
+  /** 내 이름·호칭(DEC-49): 담당 고르기의 팔로업 목록에서 뺀다 */
+  myNames: string[]
 }
 
 interface InfoRaw extends Omit<RecordInfo, 'title' | 'attendees' | 'durationSec' | 'job'> {
@@ -224,7 +226,7 @@ export async function loadRecordDetail(id: string): Promise<RecordDetail | null>
       .order('created_at', { ascending: true }),
     supabase.from('project').select('id,name,archived_at'),
     supabase.from('task').select('title').neq('status', 'done'),
-    supabase.from('settings').select('guideline_rev'),
+    supabase.from('settings').select('guideline_rev,my_names'),
   ])
   const meeting = must<MeetingRow[]>(meetings, 'load meeting')[0] ?? null
   const runIds = must<{ id: string }[]>(runs, 'load runs').map((r) => r.id)
@@ -268,5 +270,63 @@ export async function loadRecordDetail(id: string): Promise<RecordDetail | null>
     projects: projects.error ? [] : (projects.data as ProjectName[]),
     openTaskTitles: new Set(openTasks.error ? [] : (openTasks.data as { title: string }[]).map((t) => t.title.trim())),
     guidelineRev: settings.error ? null : ((settings.data as { guideline_rev: number }[])[0]?.guideline_rev ?? null),
+    myNames: settings.error ? [] : ((settings.data as { my_names: string[] | null }[])[0]?.my_names ?? []),
   }
 }
+
+// ── 손대기(②-3): 앱 Server.approve·reject·renameRecord·saveAttendees·setClassification, Para.linkRecord와 같은 서버 함수 ──
+
+/** 결과 글(approved·already-approved·stale-revision 등)을 돌려주는 승인 RPC의 { result } */
+function resultOf(r: { data: unknown; error: { message: string } | null }, what: string): string {
+  const data = must<{ result?: string } | null>(r, what)
+  return data?.result ?? ''
+}
+
+/**
+ * 후보 승인 → 할 일(FR-07). context: record(기록 상세, 새 할 일만 DEC-23) · inbox(검토함).
+ * edits는 사용자가 고친 칸(FR-10): AI 후보 원본 위에 덮어 할 일을 만든다. 보던 버전(revision)이 달라졌으면 서버가 거부한다
+ */
+export async function approveProposal(p: Pick<ProposalRow, 'id' | 'revision'>, context: 'record' | 'inbox', edits?: Record<string, unknown>): Promise<string> {
+  return resultOf(
+    await supabase.rpc('approve_proposal', { p_proposal_id: p.id, p_seen_revision: p.revision, p_context: context, ...(edits ? { p_edits: edits } : {}) }),
+    'approve proposal',
+  )
+}
+
+export async function rejectProposal(p: Pick<ProposalRow, 'id' | 'revision'>, context: 'record' | 'inbox'): Promise<string> {
+  return resultOf(await supabase.rpc('reject_proposal', { p_proposal_id: p.id, p_seen_revision: p.revision, p_context: context }), 'reject proposal')
+}
+
+/** 기록 제목(1~200자, 서버 제약). 회의록·검토함은 기록 제목을 따라 보여 준다 */
+export async function renameRecord(id: string, title: string): Promise<void> {
+  must(await supabase.from('source_record').update({ title }).eq('id', id), 'rename record')
+}
+
+/** 참석자 명단(DEC-39·59, 30명·줄바꿈 없음 서버 제약). 고친 명단은 다음 회의록 만들기부터 쓰인다 */
+export async function saveAttendees(id: string, names: string[]): Promise<void> {
+  must(await supabase.from('source_record').update({ attendees: names }).eq('id', id), 'save attendees')
+}
+
+/** 분류(FR-06): work · personal · uncertain. 개인으로 바꾸면 그 기록에는 새 연결 제안을 만들지 않는다 */
+export async function setClassification(id: string, value: 'work' | 'personal' | 'uncertain'): Promise<void> {
+  must(await supabase.from('source_record').update({ classification: value }).eq('id', id), 'set classification')
+}
+
+/**
+ * 기록 전체를 프로젝트에 연결(linked) 또는 해제. 결과: linked · unlinked · unchanged.
+ * AI 제안 [아니요]도 해제와 같다(제안이 'rejected'로 남아 다시 제안하지 않음). 아카이브·남의 것은 서버가 WB409·WB404로 거부
+ */
+export async function linkRecord(recordId: string, projectId: string, linked: boolean): Promise<string> {
+  return must<string>(await supabase.rpc('wb_link_record_project', { p_record_id: recordId, p_project_id: projectId, p_linked: linked }), 'link record')
+}
+
+/**
+ * 연결을 확정한 기록으로 그 프로젝트의 현재 상태 제안을 만들거나 고쳐 쓴다(FR-09, DEC-86 — 앱 StateWorker와 같은 호출, 회의 하나에 약 1~3원).
+ * 결과: PROPOSED · NO_CHANGE · ALREADY · NOT_LINKED · NO_TRANSCRIPT · BUDGET_WAIT · FAILED 등
+ */
+export async function requestProjectState(recordId: string, projectId: string): Promise<string> {
+  const { data, error } = await supabase.functions.invoke('process-record', { body: { action: 'project_state', record_id: recordId, project_id: projectId } })
+  if (error) throw error
+  return (data as { state?: string } | null)?.state ?? 'FAILED'
+}
+

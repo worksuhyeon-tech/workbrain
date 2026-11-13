@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskRow } from '../data/types'
-import { parseSubtask, subCountOf, subtaskOrder, subtasksOf, usedNamesOf, without } from './subtasks'
+import { parseSubtask, subCountOf, subtaskOrder, subtasksOf, without } from './subtasks'
 import { deletedText } from './tasks'
 
 /** 앱 SubtaskTest 예시를 그대로 옮겼다(DEC-102). 예시는 모두 지어낸 것 */
@@ -66,14 +66,5 @@ describe('하위 할 일(SubtaskTest)', () => {
   it('상위를 지우면 알림에 하위 수', () => {
     expect(deletedText([parent], 2)).toBe('할 일 t1 삭제되었어요 · 하위 2개 포함')
     expect(deletedText([other])).toBe('할 일 t4 삭제되었어요')
-  })
-
-  it('받는 사람 칩 이름 - 팔로업 담당·받는 사람, 자주 쓴 순, 나는 뺌', () => {
-    const tasks = [
-      task('a1', { owner_kind: 'other', assignee: '박서연' }),
-      task('a2', { recipients: ['이도윤', '나', '박서연'] }),
-      task('a3', { recipients: ['이도윤', ' 박서연 '] }),
-    ]
-    expect(usedNamesOf(tasks)).toEqual(['박서연', '이도윤'])
   })
 })

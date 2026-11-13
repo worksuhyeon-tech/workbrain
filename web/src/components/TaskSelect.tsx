@@ -13,6 +13,7 @@ import {
   withVisible,
 } from '../rules/selection'
 import { UNSORTED, type TaskOrder } from '../rules/tasks'
+import { Dialog, TEXT_BUTTON } from './Dialog'
 import { Icons } from './icons'
 
 /*
@@ -217,49 +218,34 @@ export function MoveDialog({ count, places, onDismiss, onPick }: { count: number
   ]
   const row = 'flex h-11 w-full items-center gap-3 px-5 text-left text-[15px] text-ink hover:bg-surface'
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[rgba(9,20,30,.4)] p-4" onMouseDown={(e) => e.target === e.currentTarget && onDismiss()}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="move-title"
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') {
-            // 선택 모드까지 끝내지 않고 이 창만 닫는다
-            e.stopPropagation()
-            onDismiss()
-          }
-        }}
-        className="flex max-h-[75vh] w-full max-w-[420px] flex-col rounded-xl border border-border bg-card py-4 shadow-lg"
-      >
-        <h2 id="move-title" className="px-5 pb-2 text-[17px] font-bold">
-          할 일 {count}개를 어디로 옮길까요?
-        </h2>
-        <div className="overflow-y-auto">
-          <button type="button" autoFocus onClick={() => onPick(null)} className={row}>
-            <span className="text-muted"><Icons.review /></span>
-            {UNSORTED}
-          </button>
-          {groups.map(
-            (g) =>
-              g.items.length > 0 && (
-                <div key={g.heading} className="border-t border-border">
-                  <div className="px-5 pt-2.5 pb-1 text-xs font-bold text-muted">{g.heading}</div>
-                  {g.items.map((p) => (
-                    <button key={p.id} type="button" onClick={() => onPick(p)} className={row}>
-                      <span className="text-muted">{p.type === 'PROJECT' ? <Icons.folderBig /> : <Icons.repeatBig />}</span>
-                      <span className="truncate">{p.name}</span>
-                    </button>
-                  ))}
-                </div>
-              ),
-          )}
-        </div>
-        <div className="flex justify-end border-t border-border px-4 pt-3">
-          <button type="button" onClick={onDismiss} className="rounded-full px-4 py-2 text-[15px] font-semibold text-link hover:bg-surface">
-            취소
-          </button>
-        </div>
-      </div>
-    </div>
+    <Dialog
+      title={`할 일 ${count}개를 어디로 옮길까요?`}
+      onDismiss={onDismiss}
+      bodyClassName=""
+      actions={
+        <button type="button" onClick={onDismiss} className={TEXT_BUTTON}>
+          취소
+        </button>
+      }
+    >
+      <button type="button" autoFocus onClick={() => onPick(null)} className={row}>
+        <span className="text-muted"><Icons.review /></span>
+        {UNSORTED}
+      </button>
+      {groups.map(
+        (g) =>
+          g.items.length > 0 && (
+            <div key={g.heading} className="border-t border-border">
+              <div className="px-5 pt-2.5 pb-1 text-xs font-bold text-muted">{g.heading}</div>
+              {g.items.map((p) => (
+                <button key={p.id} type="button" onClick={() => onPick(p)} className={row}>
+                  <span className="text-muted">{p.type === 'PROJECT' ? <Icons.folderBig /> : <Icons.repeatBig />}</span>
+                  <span className="truncate">{p.name}</span>
+                </button>
+              ))}
+            </div>
+          ),
+      )}
+    </Dialog>
   )
 }

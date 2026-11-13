@@ -50,3 +50,11 @@ export function timeOf(hour: number, minute: number): LocalTime {
 export function seoulToday(now: Date = new Date()): LocalDate {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
 }
+
+/** 달력 한 달 칸(6주 × 7일 = 42일). 한 주는 월요일부터(DEC-31), 앞뒤 달 날짜로 빈칸을 채운다 */
+export function monthGrid(year: number, month: number): LocalDate[] {
+  const first = dateOf(year, month, 1)
+  if (!first) return []
+  const start = plusDays(first, -(dayOfWeek(first) - 1))
+  return Array.from({ length: 42 }, (_, i) => plusDays(start, i))
+}

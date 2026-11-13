@@ -138,7 +138,8 @@ export function TaskLine({
           {showPlace && placeId && placeName && (
             <Link to={`/projects/${placeId}`} className="mr-1.5 inline-flex items-center gap-1 text-xs font-bold text-body hover:text-primary">
               {t.project_id ? (
-                <span className="text-folder">
+                // 폴더 색은 프로젝트 화면 트리와 같게(11/13 사용자: 오늘 화면 폴더가 프로젝트 화면과 달라 보임)
+                <span className="text-tree-folder">
                   <Icons.folder />
                 </span>
               ) : (

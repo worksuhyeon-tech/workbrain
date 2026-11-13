@@ -4,7 +4,7 @@ import { isDone, type TaskEdit, type TaskRow, type TaskSource } from '../data/ty
 import { TaskDeletes, useDeleteFailure } from '../lib/taskDeletes'
 import { seoulToday } from '../rules/dates'
 import type { Place } from '../rules/place'
-import { parseSubtask, subCountOf, subtaskOrder, subtasksOf, toEdit, usedNamesOf } from '../rules/subtasks'
+import { parseSubtask, subCountOf, subtaskOrder, subtasksOf, toEdit } from '../rules/subtasks'
 import { deletedText, movedManyText, needsMove, placeFields, UNSORTED } from '../rules/tasks'
 import { QuickAddMemory } from './QuickAdd'
 import { TaskEditDrawer, UNSAVED_TEXT } from './TaskEditDrawer'
@@ -247,8 +247,6 @@ export function useTaskWork({
       places={places}
       error={editError}
       saving={saving}
-      usedNames={usedNamesOf(tasks)}
-      recordId={sources.get(editing.id)?.recordId ?? null}
       parentTitle={editing.parent_id ? (byId.get(editing.parent_id)?.title ?? '상위 할 일') : null}
       subtasks={editing.parent_id ? null : subtasksOf(tasks, editing.id)}
       onToggleSub={(c) => void toggle(c)}

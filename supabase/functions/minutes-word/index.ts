@@ -5,6 +5,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { type MinutesDoc, renderMinutesDocx } from "../_shared/minutes-docx.ts";
 import { renderPlanDocx } from "../_shared/plan-docx.ts";
 import { checkPlan } from "../_shared/work-plan.ts";
+import { withCors } from "../_shared/cors.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -13,7 +14,7 @@ const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingm
 const reply = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-Deno.serve(async (req) => {
+Deno.serve(withCors(async (req) => {
   if (req.method !== "POST") return reply(405, { error: "POST만 받아요" });
   const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
@@ -64,4 +65,4 @@ Deno.serve(async (req) => {
     console.error("docx render failed", String(e));
     return reply(500, { error: "Word 파일을 만들지 못했어요" });
   }
-});
+}));
