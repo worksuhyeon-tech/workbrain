@@ -245,7 +245,7 @@ async function events(db: SupabaseClient, uid: string, from: unknown, days: unkn
     singleEvents: "true",
     orderBy: "startTime",
     maxResults: "250",
-    fields: "items(id,status,summary,htmlLink,start,end,attendees(self,responseStatus),extendedProperties/private)",
+    fields: "items(id,status,summary,location,htmlLink,start,end,attendees(self,responseStatus),extendedProperties/private)",
   });
   const res = await google(db, uid, `?${q}`);
   if (!res.ok) throw await googleError(res);

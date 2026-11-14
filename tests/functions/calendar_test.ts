@@ -77,18 +77,21 @@ Deno.test("고칠 때 알림·설명은 보내지 않음 — 종일 일정은 Go
 
 Deno.test("보여 줄 일정: 취소·내가 거절·WB가 넣은 일정은 뺌, 제목 없으면 '(제목 없음)'", () => {
   const items: GoogleEvent[] = [
-    { id: "a", summary: "주간 회의", start: { dateTime: "2026-11-14T10:00:00+09:00" }, end: { dateTime: "2026-11-14T11:00:00+09:00" }, htmlLink: "https://cal/a" },
+    { id: "a", summary: "주간 회의", location: " 본사 3층\n 대회의실 ", start: { dateTime: "2026-11-14T10:00:00+09:00" }, end: { dateTime: "2026-11-14T11:00:00+09:00" }, htmlLink: "https://cal/a" },
     { id: "b", status: "cancelled", summary: "취소됨", start: { dateTime: "2026-11-14T12:00:00+09:00" }, end: { dateTime: "2026-11-14T13:00:00+09:00" } },
     { id: "c", summary: "거절함", attendees: [{ self: true, responseStatus: "declined" }], start: { dateTime: "2026-11-14T13:00:00+09:00" }, end: { dateTime: "2026-11-14T14:00:00+09:00" } },
     { id: "d", summary: "WB 할 일", extendedProperties: { private: { wbTaskId: "t1", wbOwner: OWNER } }, start: { date: "2026-11-14" }, end: { date: "2026-11-15" } },
-    { id: "e", start: { date: "2026-11-14" }, end: { date: "2026-11-15" } },
+    { id: "e", location: "   ", start: { date: "2026-11-14" }, end: { date: "2026-11-15" } },
     { id: "f", summary: "다른 사람 거절은 그대로", attendees: [{ responseStatus: "declined" }, { self: true, responseStatus: "accepted" }], start: { dateTime: "2026-11-14T15:00:00+09:00" }, end: { dateTime: "2026-11-14T16:00:00+09:00" } },
   ];
   const v = visibleEvents(items);
   assertEquals(v.map((e) => e.id), ["a", "e", "f"]);
-  assertEquals(v[0], { id: "a", title: "주간 회의", start: "2026-11-14T10:00:00+09:00", end: "2026-11-14T11:00:00+09:00", allDay: false, link: "https://cal/a" });
+  assertEquals(v[0], { id: "a", title: "주간 회의", start: "2026-11-14T10:00:00+09:00", end: "2026-11-14T11:00:00+09:00", allDay: false, link: "https://cal/a", location: "본사 3층 대회의실" });
   assertEquals(v[1].title, "(제목 없음)");
   assertEquals(v[1].allDay, true);
+  // 장소가 비었거나 공백뿐이면 null(두 번째 줄을 그리지 않게)
+  assertEquals(v[1].location, null);
+  assertEquals(v[2].location, null);
 });
 
 Deno.test("WB 일정 표식: 지울 때는 이 사람이 넣은 것만", () => {

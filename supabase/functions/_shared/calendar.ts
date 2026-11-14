@@ -118,6 +118,7 @@ export interface GoogleEvent {
   id: string;
   status?: string;
   summary?: string;
+  location?: string;
   htmlLink?: string;
   start?: { date?: string; dateTime?: string };
   end?: { date?: string; dateTime?: string };
@@ -227,6 +228,8 @@ export interface CalEvent {
   end: string;
   allDay: boolean;
   link: string | null;
+  /** 장소(없으면 null). 줄바꿈은 한 줄로 — 화면에서 제목 아래 한 줄로 보여서(11/15 사용자) */
+  location: string | null;
 }
 
 /**
@@ -246,7 +249,14 @@ export function visibleEvents(items: GoogleEvent[]): CalEvent[] {
       end: (e.end!.dateTime ?? e.end!.date)!,
       allDay: !e.start!.dateTime,
       link: e.htmlLink ?? null,
+      location: oneLine(e.location),
     }));
+}
+
+/** 장소는 사람이 친 글이라 줄바꿈·긴 주소가 올 수 있다 → 공백 하나로 합치고 300자까지 */
+function oneLine(v: string | undefined): string | null {
+  const s = (v ?? "").replace(/\s+/g, " ").trim();
+  return s ? s.slice(0, 300) : null;
 }
 
 /** 서울 날짜 from부터 days일(그날 0시 ~ 마지막 날 다음 0시). 형식이 틀리거나 days가 범위 밖이면 null */
