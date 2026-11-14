@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<title>WorkBrain 개인정보 처리 방침</title>
+<!-- Google OAuth 동의 화면(브랜딩)의 '개인정보처리방침 링크'용 공개 페이지. 로그인 없이 열려야 해서 앱(React)이 아닌 정적 파일로 둔다 -->
+<style>
+  :root { --bg: #f7f6f3; --card: #ffffff; --ink: #22201c; --sub: #6b665e; --line: #e4e0d8; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1b1a18; --card: #24221f; --ink: #ece8e1; --sub: #a7a197; --line: #3a3732; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.7 -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 16px 48px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 24px 22px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .date { color: var(--sub); font-size: 13px; margin: 0 0 20px; }
+  h2 { font-size: 16px; margin: 22px 0 6px; }
+  p, li { margin: 4px 0; }
+  ul { padding-left: 20px; margin: 4px 0; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>WorkBrain 개인정보 처리 방침</h1>
+    <p class="date">시행일 2026-11-14</p>
+
+    <p>WorkBrain은 한 사람이 자기 업무를 정리하려고 쓰는 개인용 앱입니다. 허용 목록에 등록된 계정만 로그인할 수 있고, 다른 사람은 가입할 수 없습니다.</p>
+
+    <h2>1. 받는 정보와 쓰는 곳</h2>
+    <ul>
+      <li><b>Google 로그인</b>: 이메일 주소로 허용된 계정인지 확인합니다.</li>
+      <li><b>사용자가 넣은 내용</b>: 할 일, 프로젝트, 녹음·회의 기록과 그 정리 결과를 저장해 앱과 웹에서 보여 줍니다.</li>
+      <li><b>Google 캘린더(사용자가 연결했을 때만)</b>
+        <ul>
+          <li>기본 캘린더의 오늘·다음 7일 일정을 읽어 화면에 보여 줍니다. 일정 내용은 서버에 저장하지 않습니다.</li>
+          <li>사용자가 고른 할 일만 일정으로 넣고, 그 할 일의 제목·기한이 바뀌면 일정도 고치고, 사용자가 원하면 지웁니다. WorkBrain이 넣은 일정이 아닌 다른 일정은 고치거나 지우지 않습니다.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h2>2. 저장과 보호</h2>
+    <ul>
+      <li>정보는 Supabase(서울 지역) 데이터베이스에 저장되며, 각 사용자는 자기 정보만 읽고 쓸 수 있습니다.</li>
+      <li>Google 캘린더 연결 열쇠는 데이터베이스 안에 암호화해 두고, 서버의 처리 함수만 꺼내 씁니다. 앱·웹 화면에는 보이지 않습니다.</li>
+    </ul>
+
+    <h2>3. 다른 곳에 주지 않음</h2>
+    <p>정보를 팔거나 광고에 쓰거나 다른 회사·사람에게 넘기지 않습니다. Google API에서 받은 정보의 사용과 전송은 <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API 서비스 사용자 데이터 정책</a>(제한적 사용 요건 포함)을 따릅니다.</p>
+
+    <h2>4. 연결 끊기와 지우기</h2>
+    <ul>
+      <li>설정의 [구글 캘린더 연결 끊기]를 누르면 Google에 접근 철회를 요청하고 저장된 연결 열쇠를 지웁니다.</li>
+      <li>Google 계정 → 보안 → 타사 앱 및 서비스 연결에서도 언제든 끊을 수 있습니다.</li>
+    </ul>
+
+    <h2>5. 문의</h2>
+    <p>Google 동의 화면에 표시된 지원 이메일로 문의해 주세요.</p>
+  </div>
+</main>
+</body>
+</html>
