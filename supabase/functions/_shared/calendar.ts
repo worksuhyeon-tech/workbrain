@@ -87,13 +87,30 @@ export interface TaskForEvent {
 }
 
 type EventTime = { date: string } | { dateTime: string; timeZone: string };
+type WbMark = { private: { wbTaskId: string; wbOwner: string } };
+/** 넣을 때(POST) 본문 */
 export interface GoogleEventBody {
   summary: string;
   description: string;
   start: EventTime;
   end: EventTime;
   reminders: { useDefault: true };
-  extendedProperties: { private: { wbTaskId: string; wbOwner: string } };
+  extendedProperties: WbMark;
+}
+/**
+ * 고칠 때(PATCH) 본문. Google의 PATCH는 보낸 칸을 지금 일정에 합친다(안 보낸 칸은 그대로). 그래서
+ * - 알림(reminders)은 보내지 않는다: 종일 일정은 Google이 '기본 알림'을 바로 '직접 정한 알림'으로 바꿔 두는데,
+ *   여기에 useDefault: true를 합치면 둘이 함께 있게 되어 400으로 거절된다(11/14 기한을 바꾼 할 일이 반영 안 됨).
+ *   캘린더에서 사용자가 바꾼 알림도 지킨다.
+ * - 시각 칸은 반대 종류를 null로 지운다: 종일 ↔ 시각 있음으로 바뀔 때 date와 dateTime이 함께 남지 않게.
+ * - 설명은 보내지 않는다(캘린더에서 적은 메모를 지키려고).
+ */
+type PatchTime = { date: string; dateTime: null; timeZone: null } | { dateTime: string; timeZone: string; date: null };
+export interface GoogleEventPatch {
+  summary: string;
+  start: PatchTime;
+  end: PatchTime;
+  extendedProperties: WbMark;
 }
 
 /** Google이 돌려주는 일정 중 쓰는 칸 */
@@ -152,34 +169,45 @@ function durationMinutes(e: GoogleEvent): number | null {
 }
 
 /**
- * 할 일 → 일정 본문. 기한 날짜가 없으면 null(넣을 수 없음).
+ * 할 일의 기한 → 일정 시작·끝. 기한 날짜가 없으면 null(넣을 수 없음).
  * 날짜만 = 종일 일정, 날짜+시각 = 그 시각부터 1시간(11/14 결정 ③). current(이미 있는 일정)가 같은 종류면 그 길이를 그대로 둔다
  * — 캘린더에서 늘리거나 줄인 길이를 WB에서 제목·기한을 고칠 때 되돌리지 않으려는 것.
  */
-export function eventBody(task: TaskForEvent, owner: string, current?: GoogleEvent): GoogleEventBody | null {
+function eventTimes(task: TaskForEvent, current?: GoogleEvent): { start: EventTime; end: EventTime } | null {
   const wall = task.due_time ? seoulWall(task.due_time) : null;
   if (!wall && !isDate(task.due_date)) return null;
   const kept = current ? durationMinutes(current) : null;
-  let start: EventTime, end: EventTime;
   if (wall) {
     const minutes = current?.start?.dateTime && kept ? kept : TIMED_EVENT_MINUTES;
     const e = addMinutes(wall.date, wall.hhmm, minutes);
-    start = timed(wall.date, wall.hhmm);
-    end = timed(e.date, e.hhmm);
-  } else {
-    const date = task.due_date!;
-    const days = current?.start?.date && kept ? Math.max(1, Math.round(kept / 1440)) : 1;
-    start = { date };
-    end = { date: addDays(date, days) };
+    return { start: timed(wall.date, wall.hhmm), end: timed(e.date, e.hhmm) };
   }
+  const date = task.due_date!;
+  const days = current?.start?.date && kept ? Math.max(1, Math.round(kept / 1440)) : 1;
+  return { start: { date }, end: { date: addDays(date, days) } };
+}
+
+const wbMark = (task: TaskForEvent, owner: string): WbMark => ({ private: { wbTaskId: task.id, wbOwner: owner } });
+
+/** 할 일 → 넣을 일정 본문(캘린더 기본 알림). 기한 날짜가 없으면 null */
+export function eventBody(task: TaskForEvent, owner: string): GoogleEventBody | null {
+  const t = eventTimes(task);
+  if (!t) return null;
   return {
     summary: task.title.slice(0, 1000),
     description: "WorkBrain에서 넣은 할 일",
-    start,
-    end,
+    ...t,
     reminders: { useDefault: true },
-    extendedProperties: { private: { wbTaskId: task.id, wbOwner: owner } },
+    extendedProperties: wbMark(task, owner),
   };
+}
+
+/** 제목·기한을 고친 할 일 → 지금 일정(current)에 합칠 고치기 본문(GoogleEventPatch 설명 참고). 기한 날짜가 없으면 null */
+export function eventPatch(task: TaskForEvent, owner: string, current: GoogleEvent): GoogleEventPatch | null {
+  const t = eventTimes(task, current);
+  if (!t) return null;
+  const only = (x: EventTime): PatchTime => "date" in x ? { date: x.date, dateTime: null, timeZone: null } : { ...x, date: null };
+  return { summary: task.title.slice(0, 1000), start: only(t.start), end: only(t.end), extendedProperties: wbMark(task, owner) };
 }
 
 /** WB가 넣은 일정인지(남의 일정은 지우지 않는다). owner를 주면 그 사람이 넣은 것만 */

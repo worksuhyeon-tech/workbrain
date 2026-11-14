@@ -11,6 +11,7 @@ import {
   dayRange,
   emailFromIdToken,
   eventBody,
+  eventPatch,
   type GoogleEvent,
   hasCalendarScope,
   isWbEvent,
@@ -80,14 +81,21 @@ Deno.serve(withCors(async (req) => {
   } catch (e) {
     if (e instanceof Expected) return reply(200, { reason: e.reason });
     if (e instanceof BadInput) return reply(400, { error: e.message });
-    console.error("calendar failed", body.action, e instanceof GoogleError ? `google ${e.status}` : String(e));
+    console.error("calendar failed", body.action, e instanceof GoogleError ? e.message : String(e));
     return reply(502, { error: "캘린더와 주고받지 못했어요. 잠시 뒤 다시 해 주세요" });
   }
 }));
 
 class BadInput extends Error {}
 class GoogleError extends Error {
-  constructor(readonly status: number) { super(`google ${status}`); }
+  constructor(readonly status: number, reason = "") { super(`google ${status}${reason ? ` ${reason}` : ""}`); }
+}
+
+/** Google 오류 답에서 이유 낱말만 꺼낸다(예: badRequest). 메시지 문장은 일정 내용이 섞일 수 있어 남기지 않는다 */
+async function googleError(res: Response): Promise<GoogleError> {
+  const j = await res.json().catch(() => null);
+  const reason = j?.error?.errors?.[0]?.reason;
+  return new GoogleError(res.status, typeof reason === "string" ? reason.slice(0, 80) : "");
 }
 
 // ── 연결 ──
@@ -211,7 +219,7 @@ async function accessToken(db: SupabaseClient, uid: string): Promise<string> {
       await db.from("calendar_link").update({ broken_at: new Date().toISOString() }).eq("owner_id", uid);
       throw new Expected("broken");
     }
-    throw new GoogleError(res.status);
+    throw new GoogleError(res.status, typeof tok?.error === "string" ? tok.error.slice(0, 80) : "");
   }
   const token = String(tok.access_token);
   const seconds = Number(tok.expires_in) || 3600;
@@ -240,7 +248,7 @@ async function events(db: SupabaseClient, uid: string, from: unknown, days: unkn
     fields: "items(id,status,summary,htmlLink,start,end,attendees(self,responseStatus),extendedProperties/private)",
   });
   const res = await google(db, uid, `?${q}`);
-  if (!res.ok) throw new GoogleError(res.status);
+  if (!res.ok) throw await googleError(res);
   const json = await res.json();
   return { events: visibleEvents((json.items ?? []) as GoogleEvent[]) };
 }
@@ -258,7 +266,7 @@ async function myTask(db: SupabaseClient, uid: string, taskId: unknown): Promise
 async function currentEvent(db: SupabaseClient, uid: string, eventId: string): Promise<GoogleEvent | null> {
   const res = await google(db, uid, `/${encodeURIComponent(eventId)}`);
   if (res.status === 404 || res.status === 410) return null;
-  if (!res.ok) throw new GoogleError(res.status);
+  if (!res.ok) throw await googleError(res);
   const e = await res.json() as GoogleEvent;
   return e.status === "cancelled" ? null : e;
 }
@@ -273,7 +281,7 @@ async function insert(db: SupabaseClient, uid: string, taskId: unknown) {
     if (kept) return { event_id: link.event_id };
   }
   const res = await google(db, uid, "", { method: "POST", body: JSON.stringify(eventBody(task, uid)) });
-  if (!res.ok) throw new GoogleError(res.status);
+  if (!res.ok) throw await googleError(res);
   const created = await res.json() as GoogleEvent;
   const { error } = await db.from("task_calendar").insert({ task_id: task.id, owner_id: uid, event_id: created.id });
   if (error) {
@@ -291,14 +299,14 @@ async function patchOrForget(db: SupabaseClient, uid: string, task: TaskForEvent
     await db.from("task_calendar").delete().eq("task_id", task.id).eq("owner_id", uid);
     return false;
   }
-  const body = eventBody(task, uid, current);
+  const body = eventPatch(task, uid, current);
   if (body) {
     const res = await google(db, uid, `/${encodeURIComponent(eventId)}`, { method: "PATCH", body: JSON.stringify(body) });
     if (res.status === 404 || res.status === 410) {
       await db.from("task_calendar").delete().eq("task_id", task.id).eq("owner_id", uid);
       return false;
     }
-    if (!res.ok) throw new GoogleError(res.status);
+    if (!res.ok) throw await googleError(res);
   }
   // 기한을 지운 할 일(body 없음)은 일정을 건드리지 않는다 — 지울지는 앱·웹이 먼저 물어 remove로 처리(11/14 결정 ④)
   await db.from("task_calendar").update({ dirty: false, updated_at: new Date().toISOString() }).eq("task_id", task.id).eq("owner_id", uid);
@@ -321,7 +329,7 @@ async function sync(db: SupabaseClient, uid: string) {
     } catch (e) {
       if (e instanceof Expected) throw e; // 연결 끊김 등은 전체 답으로
       failed++;
-      console.error("calendar sync item failed", e instanceof GoogleError ? `google ${e.status}` : String(e));
+      console.error("calendar sync item failed", e instanceof GoogleError ? e.message : String(e));
     }
   }
   return { synced, failed };
@@ -343,7 +351,7 @@ async function remove(db: SupabaseClient, uid: string, rawIds: unknown, deleteEv
       if (!current || !isWbEvent(current, uid)) continue;
       const res = await google(db, uid, `/${encodeURIComponent(row.event_id)}`, { method: "DELETE" });
       if (res.ok || res.status === 404 || res.status === 410) deleted++;
-      else throw new GoogleError(res.status);
+      else throw await googleError(res);
     }
   }
   if ((data ?? []).length) await db.from("task_calendar").delete().eq("owner_id", uid).in("task_id", ids);

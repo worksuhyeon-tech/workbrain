@@ -6,6 +6,7 @@ import {
   dayRange,
   emailFromIdToken,
   eventBody,
+  eventPatch,
   type GoogleEvent,
   hasCalendarScope,
   isWbEvent,
@@ -49,16 +50,29 @@ Deno.test("기한 날짜가 없거나 이상하면 넣을 수 없음", () => {
   assertEquals(eventBody(task(null, "언젠가"), OWNER), null);
 });
 
-Deno.test("고칠 때: 캘린더에서 늘린 길이는 그대로, 종류가 바뀌면 기본 길이", () => {
+Deno.test("고칠 때: 캘린더에서 늘린 길이는 그대로, 종류가 바뀌면 기본 길이(반대 종류 칸은 null로 지움)", () => {
   const timed90: GoogleEvent = { id: "e", start: { dateTime: "2026-11-20T15:00:00+09:00" }, end: { dateTime: "2026-11-20T16:30:00+09:00" } };
-  assertEquals(eventBody(task("2026-11-21", "2026-11-21T10:00:00+09:00"), OWNER, timed90)!.end, { dateTime: "2026-11-21T11:30:00", timeZone: "Asia/Seoul" });
+  assertEquals(eventPatch(task("2026-11-21", "2026-11-21T10:00:00+09:00"), OWNER, timed90)!.end, { dateTime: "2026-11-21T11:30:00", timeZone: "Asia/Seoul", date: null });
   // 시각 있음 → 날짜만: 종일 하루
-  assertEquals(eventBody(task("2026-11-21"), OWNER, timed90)!.end, { date: "2026-11-22" });
+  assertEquals(eventPatch(task("2026-11-21"), OWNER, timed90)!.end, { date: "2026-11-22", dateTime: null, timeZone: null });
   // 이틀짜리 종일 일정은 이틀 그대로
   const allDay2: GoogleEvent = { id: "e", start: { date: "2026-11-20" }, end: { date: "2026-11-22" } };
-  assertEquals(eventBody(task("2026-11-25"), OWNER, allDay2)!.end, { date: "2026-11-27" });
+  assertEquals(eventPatch(task("2026-11-25"), OWNER, allDay2)!.end, { date: "2026-11-27", dateTime: null, timeZone: null });
   // 종일 → 시각 있음: 1시간
-  assertEquals(eventBody(task("2026-11-25", "2026-11-25T00:00:00Z"), OWNER, allDay2)!.end, { dateTime: "2026-11-25T10:00:00", timeZone: "Asia/Seoul" });
+  assertEquals(eventPatch(task("2026-11-25", "2026-11-25T00:00:00Z"), OWNER, allDay2)!.start, { dateTime: "2026-11-25T09:00:00", timeZone: "Asia/Seoul", date: null });
+  assertEquals(eventPatch(task("2026-11-25", "2026-11-25T00:00:00Z"), OWNER, allDay2)!.end, { dateTime: "2026-11-25T10:00:00", timeZone: "Asia/Seoul", date: null });
+  // 기한을 지웠으면 고칠 것 없음
+  assertEquals(eventPatch(task(null), OWNER, allDay2), null);
+});
+
+Deno.test("고칠 때 알림·설명은 보내지 않음 — 종일 일정은 Google이 알림을 '직접 정한 알림'으로 바꿔 두어 기본 알림을 합치면 400(11/14)", () => {
+  // 11/14 실제로 넣은 종일 일정 모양(기본 알림으로 넣었는데 직접 정한 알림 30분으로 저장됨)
+  const saved = { id: "e", start: { date: "2026-11-15" }, end: { date: "2026-11-16" }, reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 30 }] } } as GoogleEvent;
+  const p = eventPatch({ id: "t1", title: "매뉴얼 작성", due_date: "2026-11-14", due_time: null }, OWNER, saved)!;
+  assertEquals(Object.keys(p).sort(), ["end", "extendedProperties", "start", "summary"]);
+  assertEquals(p.start, { date: "2026-11-14", dateTime: null, timeZone: null });
+  assertEquals(p.end, { date: "2026-11-15", dateTime: null, timeZone: null });
+  assertEquals(p.extendedProperties.private, { wbTaskId: "t1", wbOwner: OWNER });
 });
 
 Deno.test("보여 줄 일정: 취소·내가 거절·WB가 넣은 일정은 뺌, 제목 없으면 '(제목 없음)'", () => {
