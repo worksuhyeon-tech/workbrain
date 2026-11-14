@@ -1,3 +1,4 @@
+import type { MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { isDone, type TaskRow } from '../data/types'
 import { cn } from '../lib/cn'
@@ -30,7 +31,8 @@ export function PriorityMark({ priority }: { priority: number | null }) {
 
 /**
  * 할 일 한 줄(목업 .trow, 앱 TaskLine): 체크 · (우선순위 표시) 제목(+팔로업) · (속한 곳) 출처 · 기한 칩.
- * 체크는 완료 ↔ 다시 열기, 제목을 누르면 수정 서랍. parentTitle이 있으면 오늘 화면의 '상위 › 하위' 줄,
+ * 체크는 완료 ↔ 다시 열기, 줄을 누르면 수정 서랍 — 체크·하위 칩·폴더 이름은 각자 동작(앱 TaskLine과 같게, 11/14 사용자.
+ * 목업은 제목만 링크였음). 키보드는 제목 버튼으로 연다. parentTitle이 있으면 오늘 화면의 '상위 › 하위' 줄,
  * sub가 있으면 제목 옆 '⤷ 1/3' 칩(누르면 아래로 펼침·접힘), compact는 상위 아래 펼친 하위 줄(들여 쓰고 곳·출처 줄 없이).
  * select가 있으면 선택 모드(DEC-92): 체크·제목이 '고르기'가 되고 고른 줄은 하늘색 바탕
  */
@@ -77,13 +79,27 @@ export function TaskLine({
   const late = isLate(t, today)
   const placeId = t.project_id ? `p:${t.project_id}` : t.area_id ? `a:${t.area_id}` : null
   const placeName = t.project?.name ?? t.area?.name
+  const canOpen = select !== undefined || !readOnly
+
+  const openFromRow = (e: MouseEvent<HTMLDivElement>) => {
+    if (!canOpen) return
+    // 체크칸·제목·하위 칩·폴더 이름은 각자 누른 것으로 처리된다(두 번 열지 않게)
+    if ((e.target as HTMLElement).closest('a, button, input, label')) return
+    // 글자를 끌어 고른 뒤 손을 뗀 것(복사하려는 것)은 누른 것으로 보지 않는다
+    if (window.getSelection()?.toString()) return
+    if (select) select.onSelect()
+    else onOpen()
+  }
 
   return (
     <div
       data-task-id={t.id}
+      onClick={openFromRow}
       className={cn(
         'grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 transition-colors duration-700 last:border-b-0',
         compact ? 'bg-card-2 py-2 pl-12' : 'py-[11px]',
+        canOpen && 'cursor-pointer',
+        canOpen && !select?.selected && !flash && 'hover:bg-surface hover:duration-150',
         select?.selected && 'bg-sky',
         flash && 'bg-flash',
       )}
@@ -105,7 +121,7 @@ export function TaskLine({
           type="button"
           onClick={select ? select.onSelect : onOpen}
           disabled={readOnly && !select}
-          className={cn('text-left enabled:cursor-pointer', !select && 'enabled:hover:underline', done && 'line-through')}
+          className={cn('text-left enabled:cursor-pointer', done && 'line-through')}
         >
           {!t.parent_id && <PriorityMark priority={t.priority} />}
           {parentTitle && <span className="font-normal text-muted">{parentTitle} › </span>}
