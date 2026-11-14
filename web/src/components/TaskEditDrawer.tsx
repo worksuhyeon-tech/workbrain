@@ -2,10 +2,12 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { projectPeople } from '../data/server'
 import { isDone, type TaskEdit, type TaskRow } from '../data/types'
 import { cn } from '../lib/cn'
+import { askText, calendarNote, calendarPlan, type CalendarIntent } from '../rules/calendar'
 import { seoulToday } from '../rules/dates'
 import type { Place } from '../rules/place'
 import { toEdit } from '../rules/subtasks'
 import { dueChipText, seoulDate, seoulTime } from '../rules/tasks'
+import { CalendarAskDialog } from './CalendarCards'
 import { DuePicker } from './DuePicker'
 import { Icons } from './icons'
 import { PlaceSelect } from './PlaceSelect'
@@ -52,11 +54,14 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
  * 하위의 서랍(parentTitle)은 곳·우선순위 칸 없이(상위를 따름) 맨 아래 [하위 할 일 삭제], 상위·보통 할 일은 아래 '하위 할 일' 칸.
  * 저장이 안 되면 서랍을 닫지 않고 입력을 그대로 둔 채 띠를 보여 준다.
  * 열 때 오른쪽에서 밀려 들어오고, 닫힐 때(취소·바깥·Esc·저장 성공·하위 삭제) 다시 오른쪽으로 빠진 뒤에 화면에서 없어진다(11/13 사용자).
- * onSave는 저장했으면 true(서랍을 닫음), 실패하면 false(띠를 보여 주고 그대로 둠)
+ * 기한 아래 '캘린더' 줄(FR-24a, Design §3.16): [캘린더에도 넣기] 켜기/끄기. 이미 넣은 할 일을 끄거나 기한을 지우고 저장하면
+ * 저장 전에 '캘린더 일정도 지울까요?'를 묻는다(닫으면 저장하지 않고 서랍으로). calendar가 null이면(연결 상태를 아직 못 읽음) 줄을 숨긴다.
+ * onSave는 저장했으면 true(서랍을 닫음), 실패하면 false(띠를 보여 주고 그대로 둠). cal은 저장 뒤 캘린더에 할 일
  */
 export function TaskEditDrawer({
   task,
   places,
+  calendar,
   error,
   saving,
   parentTitle,
@@ -70,6 +75,8 @@ export function TaskEditDrawer({
 }: {
   task: TaskRow
   places: Place[]
+  /** connected = 구글 캘린더 연결됨, linked = 이 할 일을 이미 캘린더에 넣음 */
+  calendar: { connected: boolean; linked: boolean } | null
   error: string | null
   saving: boolean
   parentTitle: string | null
@@ -79,7 +86,7 @@ export function TaskEditDrawer({
   onAddSub: (text: string) => void
   onDelete: (() => void) | null
   onDismiss: () => void
-  onSave: (e: TaskEdit) => Promise<boolean>
+  onSave: (e: TaskEdit, cal: CalendarIntent) => Promise<boolean>
 }) {
   const start = toEdit(task)
   const today = seoulToday()
@@ -96,6 +103,11 @@ export function TaskEditDrawer({
   const [time, setTime] = useState(start.due_time ? (seoulTime(start.due_time) ?? '') : '')
   const [vague, setVague] = useState(start.due_text ?? '')
   const [priority, setPriority] = useState(String(start.priority ?? 2))
+  // 이미 넣은 할 일은 켜진 채로 열린다. 사용자가 누르기 전(null)에는 연결 상태를 따른다 —
+  // 연결 상태를 다 읽기 전에 서랍을 열었다가 그대로 저장해도 '꺼서 지울까요?'로 잘못 묻지 않게
+  const [calPicked, setCalOn] = useState<boolean | null>(null)
+  const calOn = calPicked ?? calendar?.linked ?? false
+  const [asking, setAsking] = useState(false)
   const [subText, setSubText] = useState('')
   const isSub = parentTitle !== null
   // 닫히는 중: 빠지는 움직임(0.2초)이 끝난 뒤에 실제로 닫는다. 두 번 눌러도 한 번만
@@ -124,8 +136,17 @@ export function TaskEditDrawer({
   const currentName = task.project?.name ?? task.area?.name
   const placeMissing = placeKey !== '' && !places.some((p) => `${p.type}:${p.id}` === placeKey)
   const chipNames = ['나', ...people]
+  const hasDate = dueKind === 'date' || dueKind === 'time'
+  const calState = calendar && { ...calendar, on: calOn, hasDate }
+  const calNote = calState ? calendarNote({ ...calState, withTime: dueKind === 'time' }) : ''
 
   const save = () => {
+    const plan = calState ? calendarPlan(calState) : 'none'
+    if (plan === 'ask') setAsking(true)
+    else submit(plan)
+  }
+
+  const submit = (cal: CalendarIntent) => {
     const [type, id] = placeKey ? placeKey.split(':') : [null, null]
     void onSave({
       title: title.trim(),
@@ -140,7 +161,7 @@ export function TaskEditDrawer({
       project_id: type === 'PROJECT' ? (id ?? null) : null,
       area_id: type === 'AREA' ? (id ?? null) : null,
       recipients,
-    }).then((ok) => {
+    }, cal).then((ok) => {
       if (ok) close(onDismiss)
     })
   }
@@ -202,6 +223,13 @@ export function TaskEditDrawer({
           {dueKind === 'vague' && <input value={vague} onChange={(e) => setVague(e.target.value)} placeholder="예: 다음 주, 월말" className={INPUT} />}
           {DUE_NOTE[dueKind] && <span className="text-xs text-muted">{DUE_NOTE[dueKind]}</span>}
         </Field>
+
+        {calendar && (
+          <Field label="캘린더">
+            <CalendarSwitch on={calOn} disabled={!calendar.connected || !hasDate} onChange={setCalOn} />
+            {calNote && <span className="text-xs text-muted">{calNote}</span>}
+          </Field>
+        )}
 
         {!isSub && (
           <Field label="우선순위">
@@ -277,6 +305,35 @@ export function TaskEditDrawer({
           </button>
         )}
       </div>
+      {asking && (
+        <CalendarAskDialog
+          text={askText({ kind: 'save', title: title.trim(), hasDate })}
+          onDismiss={() => setAsking(false)}
+          onAnswer={(deleteEvent) => {
+            setAsking(false)
+            submit(deleteEvent ? 'delete' : 'unlink')
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+/** 켜기/끄기(목업 .cal-sw). 흐릴 때(연결 전·기한 날짜 없음)는 누를 수 없고 이유는 아래 안내 줄이 말한다 */
+function CalendarSwitch({ on, disabled, onChange }: { on: boolean; disabled: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      disabled={disabled}
+      onClick={() => onChange(!on)}
+      className="inline-flex w-max items-center gap-2.5 text-sm font-semibold text-ink disabled:cursor-default disabled:opacity-50"
+    >
+      <span className={cn('relative h-[22px] w-[38px] flex-none rounded-full transition-colors', on ? 'bg-primary' : 'bg-border-strong')}>
+        <span className={cn('absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-[left]', on ? 'left-[19px]' : 'left-[3px]')} />
+      </span>
+      캘린더에도 넣기
+    </button>
   )
 }

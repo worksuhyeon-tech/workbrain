@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { PageHead } from '../components/AppShell'
+import { TodayEventsCard } from '../components/CalendarCards'
 import { QuickAdd, QuickAddMemory } from '../components/QuickAdd'
 import { SelectionHeader, TaskListMenu, useTaskSelection, useVisibleForSelection } from '../components/TaskSelect'
 import { useToast } from '../components/Toast'
 import { useTaskWork } from '../components/useTaskWork'
 import { loadPlaces, loadSources, loadTasks, pendingProposalCount } from '../data/server'
 import { isDone, type TaskRow, type TaskSource } from '../data/types'
+import { CalendarStore } from '../lib/calendarStore'
 import { useHiddenTasks } from '../lib/taskDeletes'
 import { useTaskOrder } from '../lib/taskSort'
 import { seoulToday } from '../rules/dates'
@@ -45,6 +47,8 @@ export function TodayScreen() {
 
   // 할 일이 핵심이라 그것만 실패를 알리고, 출처·검토 대기 수는 못 읽으면 비워 둔다
   const load = useCallback(async () => {
+    // 캘린더 연결 상태·넣은 할 일도 함께 다시 읽는다(고친 할 일이 있으면 그때 캘린더에 반영, Design §3.16)
+    void CalendarStore.refresh()
     try {
       const [tasks, places, sources, pending] = await Promise.all([
         loadTasks(),
@@ -96,49 +100,53 @@ export function TodayScreen() {
       )}
 
       <div className="grid items-start gap-4 min-[1041px]:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-        <section aria-label="오늘 할 일" className="rounded-xl border border-border bg-card shadow-sm">
-          <div className="flex items-center gap-2 px-4 pt-4 pb-2">
-            <h2 className="text-[17px] font-bold tracking-[-0.09px]">오늘 할 일</h2>
-            <span className="text-sm font-semibold text-muted tabular-nums">{g ? `${openCount}건` : ''}</span>
-            <Link to="/projects" className="ml-auto text-[13px] font-bold">
-              다음 7일 · 전체 →
-            </Link>
-          </div>
-          {data && !selection.active && (
-            <QuickAdd
-              places={data.places}
-              defaultPlace={QuickAddMemory.last(data.places)}
-              noDueMeansToday
-              onMessage={toast.show}
-              onAdded={(r) => {
-                // 오늘 화면에 안 보이는 것(내일 이후·모호)은 알림에 기한을 함께 쓴다
-                const shownHere = r.dueDate !== null && r.dueDate <= today
-                const due = r.dueDate ? `${Number(r.dueDate.slice(5, 7))}/${Number(r.dueDate.slice(8))}` : `${r.vague} · 확인 필요`
-                toast.show(quickAddedText(r) + (shownHere ? '' : ` · ${due} · ‘모든 할 일’에서 보여요`))
-                reload()
-              }}
-            />
-          )}
-          {!g && !failed && <div className="px-4 py-8 text-center text-sm text-muted">불러오는 중…</div>}
-          {g && (
-            <>
-              {g.late.length > 0 && <SubHead crit>지연 {g.late.length}</SubHead>}
-              {g.late.map(line)}
-              {g.todays.length > 0 && <SubHead>오늘 {g.todays.length}</SubHead>}
-              {g.todays.map(line)}
-              {g.follow.length > 0 && <SubHead>챙길 팔로업 {g.follow.length} · 남이 맡은 일</SubHead>}
-              {g.follow.map(line)}
-              {openCount === 0 && (
-                <div className="border-t border-border px-4 py-6 text-center text-sm text-muted">
-                  <span className="mb-1 block font-hand text-[26px] text-good">오늘 할 일 끝!</span>
-                  다음 7일 일정은 <Link to="/projects">모든 할 일</Link>에서 봐요.
-                </div>
-              )}
-              {g.doneToday.length > 0 && <SubHead>오늘 완료 {g.doneToday.length}</SubHead>}
-              {g.doneToday.map(line)}
-            </>
-          )}
-        </section>
+        <div className="flex min-w-0 flex-col gap-4">
+          {/* 오늘 일정: 왼쪽 맨 위, 지연보다 위(11/14 결정 ①). 구글 캘린더를 연결했을 때만 보인다 */}
+          <TodayEventsCard />
+          <section aria-label="오늘 할 일" className="rounded-xl border border-border bg-card shadow-sm">
+            <div className="flex items-center gap-2 px-4 pt-4 pb-2">
+              <h2 className="text-[17px] font-bold tracking-[-0.09px]">오늘 할 일</h2>
+              <span className="text-sm font-semibold text-muted tabular-nums">{g ? `${openCount}건` : ''}</span>
+              <Link to="/projects" className="ml-auto text-[13px] font-bold">
+                다음 7일 · 전체 →
+              </Link>
+            </div>
+            {data && !selection.active && (
+              <QuickAdd
+                places={data.places}
+                defaultPlace={QuickAddMemory.last(data.places)}
+                noDueMeansToday
+                onMessage={toast.show}
+                onAdded={(r, calendarText) => {
+                  // 오늘 화면에 안 보이는 것(내일 이후·모호)은 알림에 기한을 함께 쓴다
+                  const shownHere = r.dueDate !== null && r.dueDate <= today
+                  const due = r.dueDate ? `${Number(r.dueDate.slice(5, 7))}/${Number(r.dueDate.slice(8))}` : `${r.vague} · 확인 필요`
+                  toast.show(quickAddedText(r) + (shownHere ? '' : ` · ${due} · ‘모든 할 일’에서 보여요`) + calendarText)
+                  reload()
+                }}
+              />
+            )}
+            {!g && !failed && <div className="px-4 py-8 text-center text-sm text-muted">불러오는 중…</div>}
+            {g && (
+              <>
+                {g.late.length > 0 && <SubHead crit>지연 {g.late.length}</SubHead>}
+                {g.late.map(line)}
+                {g.todays.length > 0 && <SubHead>오늘 {g.todays.length}</SubHead>}
+                {g.todays.map(line)}
+                {g.follow.length > 0 && <SubHead>챙길 팔로업 {g.follow.length} · 남이 맡은 일</SubHead>}
+                {g.follow.map(line)}
+                {openCount === 0 && (
+                  <div className="border-t border-border px-4 py-6 text-center text-sm text-muted">
+                    <span className="mb-1 block font-hand text-[26px] text-good">오늘 할 일 끝!</span>
+                    다음 7일 일정은 <Link to="/projects">모든 할 일</Link>에서 봐요.
+                  </div>
+                )}
+                {g.doneToday.length > 0 && <SubHead>오늘 완료 {g.doneToday.length}</SubHead>}
+                {g.doneToday.map(line)}
+              </>
+            )}
+          </section>
+        </div>
 
         <section aria-label="검토 대기" className="rounded-xl border border-border bg-card shadow-sm">
           <div className="flex items-center gap-2 px-4 pt-4 pb-2">

@@ -2,12 +2,12 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
 import { useAuth } from './lib/session'
 import { LoginScreen } from './screens/LoginScreen'
-import { Placeholder } from './screens/Placeholder'
 import { ProjectsScreen } from './screens/ProjectsScreen'
 import { RecordDetailScreen } from './screens/RecordDetailScreen'
 import { RecordsScreen } from './screens/RecordsScreen'
 import { ReviewScreen } from './screens/ReviewScreen'
 import { SearchScreen } from './screens/SearchScreen'
+import { SettingsScreen } from './screens/SettingsScreen'
 import { TodayScreen } from './screens/TodayScreen'
 
 export function App() {
@@ -30,7 +30,8 @@ export function App() {
           <Route path="/records" element={<RecordsScreen />} />
           <Route path="/records/:id" element={<RecordDetailScreen />} />
           <Route path="/review" element={<ReviewScreen />} />
-          <Route path="/settings" element={<Placeholder title="설정" hand="내 방식대로 맞추기" step="나중 단계" />} />
+          {/* 허락 뒤 서버가 /settings?calendar=결과 로 돌려보낸다(구글 캘린더 연결) */}
+          <Route path="/settings" element={<SettingsScreen email={auth.session.user.email ?? ''} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>

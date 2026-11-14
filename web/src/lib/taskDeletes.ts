@@ -35,13 +35,18 @@ function fail(t: TaskRow, text: string) {
 }
 
 export const TaskDeletes = {
-  delete(t: TaskRow) {
+  /**
+   * beforeCommit: 되돌리기가 지나 서버에서 지우기 직전에 할 일(캘린더 일정 지우기 — 할 일을 지우면 일정 연결도 함께 지워져
+   * 그 뒤에는 어느 일정인지 알 수 없다, DEC-105). 실패해도 할 일은 지운다(일정만 캘린더에 남음)
+   */
+  delete(t: TaskRow, beforeCommit?: () => Promise<void>) {
     if (waiting.has(t.id)) return
     setHidden(new Set([...hidden, t.id]))
     waiting.set(
       t.id,
       window.setTimeout(async () => {
         waiting.delete(t.id)
+        if (beforeCommit) await beforeCommit().catch((e: unknown) => console.warn('before delete failed', e))
         try {
           if (!(await deleteTask(t))) fail(t, `‘${t.title}’은(는) 다른 기기에서 먼저 바뀌어 지우지 않았어요. 새로 불러왔어요`)
         } catch {

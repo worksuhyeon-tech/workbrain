@@ -48,6 +48,7 @@ export function TaskLine({
   readOnly,
   select,
   flash,
+  onCalendar,
   onToggle,
   onOpen,
 }: {
@@ -67,6 +68,8 @@ export function TaskLine({
   select?: { selected: boolean; onSelect: () => void }
   /** 검색에서 찾아간 줄: 잠깐 분홍으로 칠한다(앱 highlight) */
   flash?: boolean
+  /** 구글 캘린더에 넣은 할 일: 기한 칩 옆 작은 캘린더 아이콘(오늘 일정 카드에서는 빼는 대신, 11/14 결정 ②) */
+  onCalendar?: boolean
   onToggle: () => void
   onOpen: () => void
 }) {
@@ -154,14 +157,22 @@ export function TaskLine({
         </span>
         )}
       </span>
-      <span
-        className={cn(
-          'rounded-full border border-border bg-surface px-2.5 py-[3px] text-xs font-bold whitespace-nowrap text-muted tabular-nums',
-          late && 'border-transparent bg-crit-soft text-crit',
-          t.due_ambiguous && !t.due_date && !t.due_time && 'border-transparent bg-warn-soft text-warn',
+      <span className="inline-flex items-center gap-1.5">
+        {onCalendar && (
+          <span title="캘린더에 넣은 할 일" className="text-info">
+            <Icons.calendar size={13} />
+            <span className="sr-only">캘린더에 넣은 할 일</span>
+          </span>
         )}
-      >
-        {dueChipText(t, today)}
+        <span
+          className={cn(
+            'rounded-full border border-border bg-surface px-2.5 py-[3px] text-xs font-bold whitespace-nowrap text-muted tabular-nums',
+            late && 'border-transparent bg-crit-soft text-crit',
+            t.due_ambiguous && !t.due_date && !t.due_time && 'border-transparent bg-warn-soft text-warn',
+          )}
+        >
+          {dueChipText(t, today)}
+        </span>
       </span>
     </div>
   )

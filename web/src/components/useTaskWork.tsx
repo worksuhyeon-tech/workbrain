@@ -1,17 +1,41 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { CalendarError, insertEvent, removeEvents } from '../data/calendar'
 import { createSubtask, loadTask, saveFailText, setTaskDone, updateTask } from '../data/server'
 import { isDone, type TaskEdit, type TaskRow, type TaskSource } from '../data/types'
+import { CalendarStore, useCalendar } from '../lib/calendarStore'
 import { TaskDeletes, useDeleteFailure } from '../lib/taskDeletes'
+import { askText, calendarFailText, type CalendarIntent } from '../rules/calendar'
 import { seoulToday } from '../rules/dates'
 import type { Place } from '../rules/place'
 import { parseSubtask, subCountOf, subtaskOrder, subtasksOf, toEdit } from '../rules/subtasks'
 import { deletedText, movedManyText, needsMove, placeFields, UNSORTED } from '../rules/tasks'
+import { CalendarAskDialog } from './CalendarCards'
 import { QuickAddMemory } from './QuickAdd'
 import { TaskEditDrawer, UNSAVED_TEXT } from './TaskEditDrawer'
 import { TaskLine } from './TaskLine'
 import { MoveDialog, SelectionBar, type TaskSelection } from './TaskSelect'
 
 const CONFLICT_TEXT = '다른 기기에서 먼저 바뀌었어요. 새로 불러왔어요'
+
+/**
+ * 서랍 저장 뒤 캘린더에 할 일(Design §3.16)을 하고 알림 꼬리를 돌려준다. keep은 여기서 하지 않는다 —
+ * 제목·기한을 고쳤으면 서버가 '반영 필요'로 표시하고, 목록을 다시 읽을 때 CalendarStore가 sync로 반영한다
+ */
+async function applyCalendar(taskId: string, intent: CalendarIntent): Promise<string> {
+  if (intent === 'none' || intent === 'keep') return ''
+  try {
+    if (intent === 'add') {
+      await insertEvent(taskId)
+      return ' · 캘린더에도 넣었어요'
+    }
+    await removeEvents([taskId], intent === 'delete')
+    return intent === 'delete' ? ' · 캘린더 일정도 지웠어요' : ' · 캘린더 일정은 남겨 뒀어요'
+  } catch (e) {
+    const reason = e instanceof CalendarError ? e.reason : 'failed'
+    if (reason === 'broken') CalendarStore.markBroken()
+    return ` · ${calendarFailText(reason)}`
+  }
+}
 
 /**
  * 할 일 목록 화면들(오늘·프로젝트 상세·모든 할 일)이 같이 쓰는 할 일 다루기: 완료 체크, 수정 서랍, 하위 펼치기·넣기·지우기,
@@ -55,6 +79,10 @@ export function useTaskWork({
   const today = seoulToday()
   const byId = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks])
   const [flashId, setFlashId] = useState<string | null>(null)
+  // 구글 캘린더(FR-24a): 넣은 할 일 줄 아이콘·서랍 '캘린더' 줄·지울 때 묻기
+  const cal = useCalendar()
+  const calConnected = cal.status === 'on'
+  const [ask, setAsk] = useState<{ text: string; onAnswer: (deleteEvents: boolean) => void } | null>(null)
 
   // 검색에서 찾아간 할 일: 하위면 상위를 펼치고 칠한다. 그 사이 지워졌으면 조용히 넘어간다
   useEffect(() => {
@@ -105,8 +133,11 @@ export function useTaskWork({
     setEditingId(t.id)
   }
 
-  /** 서랍 저장. 성공하면 true(서랍이 빠지는 움직임 뒤에 닫힘), 실패하면 서랍을 닫지 않고 입력을 그대로 둔 채 띠(목업 '미저장 표시') */
-  const save = async (t: TaskRow, e: TaskEdit): Promise<boolean> => {
+  /**
+   * 서랍 저장. 성공하면 true(서랍이 빠지는 움직임 뒤에 닫힘), 실패하면 서랍을 닫지 않고 입력을 그대로 둔 채 띠(목업 '미저장 표시').
+   * 저장된 뒤에만 캘린더에 넣기·연결 끊기·일정 지우기를 한다(다른 기기와 부딪쳐 저장이 안 됐으면 하지 않음)
+   */
+  const save = async (t: TaskRow, e: TaskEdit, intent: CalendarIntent): Promise<boolean> => {
     setSaving(true)
     try {
       const row = await updateTask(t, e)
@@ -114,7 +145,8 @@ export function useTaskWork({
       const to = places.find((p) => p.id === (e.project_id ?? e.area_id)) ?? null
       // 옮긴 곳을 다음 빠른 입력의 넣을 곳으로 기억한다(DEC-91)
       if (row && moved) QuickAddMemory.save(to)
-      showToast(!row ? CONFLICT_TEXT : moved ? (to ? `‘${to.name}’에 넣었어요` : `‘${UNSORTED}’으로 옮겼어요`) : '수정했어요 · 변경 이력에 남아요')
+      const calText = row ? await applyCalendar(t.id, intent) : ''
+      showToast((!row ? CONFLICT_TEXT : moved ? (to ? `‘${to.name}’에 넣었어요` : `‘${UNSORTED}’으로 옮겼어요`) : '수정했어요 · 변경 이력에 남아요') + calText)
       reload()
       return true
     } catch (err) {
@@ -139,11 +171,35 @@ export function useTaskWork({
     reload()
   }
 
+  /**
+   * 지우기 전에 캘린더에 넣은 할 일(하위 포함)이 섞여 있으면 '캘린더 일정도 지울까요?'를 묻는다(DEC-105).
+   * run에는 일정까지 지울 할 일 ID(남기기면 null — 할 일을 지우면 연결은 서버에서 함께 지워지고 일정은 남는다). 창을 닫으면 지우지 않는다
+   */
+  const confirmDelete = (picked: TaskRow[], run: (eventIds: ReadonlySet<string> | null) => void) => {
+    const linked = calConnected ? picked.flatMap((p) => [p, ...subtasksOf(tasks, p.id)]).filter((x) => cal.links.has(x.id)) : []
+    if (linked.length === 0) {
+      run(null)
+      return
+    }
+    setAsk({
+      text: askText({ kind: 'delete', titles: linked.map((x) => x.title), total: picked.length }),
+      onAnswer: (del) => run(del ? new Set(linked.map((x) => x.id)) : null),
+    })
+  }
+
+  /** 지울 할 일 하나: 일정까지 지울 것이 있으면 되돌리기가 지나 서버에서 지우기 직전에 일정을 먼저 지운다 */
+  const deleteOne = (t: TaskRow, eventIds: ReadonlySet<string> | null) => {
+    const ids = eventIds ? [t, ...subtasksOf(tasks, t.id)].map((x) => x.id).filter((id) => eventIds.has(id)) : []
+    TaskDeletes.delete(t, ids.length > 0 ? () => removeEvents(ids, true) : undefined)
+  }
+
   /** 하위 서랍의 [하위 할 일 삭제](DEC-101 ⑦): 서랍이 빠진 뒤 줄을 빼고 '되돌리기'를 띄우며, 알림이 끝나면 서버에서 지운다 */
   const deleteSubtask = (t: TaskRow) => {
     setEditingId(null)
-    TaskDeletes.delete(t)
-    showToast(deletedText([t]), () => TaskDeletes.undo(t.id))
+    confirmDelete([t], (eventIds) => {
+      deleteOne(t, eventIds)
+      showToast(deletedText([t]) + (eventIds ? ' · 캘린더 일정도 함께 지워요' : ''), () => TaskDeletes.undo(t.id))
+    })
   }
 
   /**
@@ -180,11 +236,11 @@ export function useTaskWork({
   }
 
   /** 고른 할 일을 지운다: 줄은 바로 빠지고, 3초 '되돌리기'가 지나면 서버에서 지운다(DEC-90). 하위는 서버가 함께 지운다 */
-  const deleteMany = (picked: TaskRow[]) => {
+  const deleteMany = (picked: TaskRow[], eventIds: ReadonlySet<string> | null) => {
     if (picked.length === 0) return
-    picked.forEach((t) => TaskDeletes.delete(t))
+    picked.forEach((t) => deleteOne(t, eventIds))
     const subs = picked.reduce((n, p) => n + subtasksOf(tasks, p.id).length, 0)
-    showToast(deletedText(picked, subs), () => picked.forEach((t) => TaskDeletes.undo(t.id)))
+    showToast(deletedText(picked, subs) + (eventIds ? ' · 캘린더 일정도 함께 지워요' : ''), () => picked.forEach((t) => TaskDeletes.undo(t.id)))
   }
 
   // 고른 것 중 지금 목록에 있는 것(보이는 순서대로)
@@ -211,6 +267,7 @@ export function useTaskWork({
       busy: busyId === x.id,
       readOnly: opts.readOnly || selecting,
       flash: flashId === x.id,
+      onCalendar: cal.links.has(x.id),
       onToggle: () => void toggle(x),
       onOpen: () => openEditor(x),
     })
@@ -240,23 +297,38 @@ export function useTaskWork({
     )
   }
 
-  const drawer = editing ? (
-    <TaskEditDrawer
-      key={editing.id}
-      task={editing}
-      places={places}
-      error={editError}
-      saving={saving}
-      parentTitle={editing.parent_id ? (byId.get(editing.parent_id)?.title ?? '상위 할 일') : null}
-      subtasks={editing.parent_id ? null : subtasksOf(tasks, editing.id)}
-      onToggleSub={(c) => void toggle(c)}
-      onOpenSub={openEditor}
-      onAddSub={(text) => void addSubtask(editing, text)}
-      onDelete={editing.parent_id ? () => deleteSubtask(editing) : null}
-      onDismiss={() => setEditingId(null)}
-      onSave={(e) => save(editing, e)}
-    />
-  ) : null
+  const drawer = (
+    <>
+      {editing && (
+        <TaskEditDrawer
+          key={editing.id}
+          task={editing}
+          places={places}
+          calendar={cal.status === 'unknown' ? null : { connected: calConnected, linked: cal.links.has(editing.id) }}
+          error={editError}
+          saving={saving}
+          parentTitle={editing.parent_id ? (byId.get(editing.parent_id)?.title ?? '상위 할 일') : null}
+          subtasks={editing.parent_id ? null : subtasksOf(tasks, editing.id)}
+          onToggleSub={(c) => void toggle(c)}
+          onOpenSub={openEditor}
+          onAddSub={(text) => void addSubtask(editing, text)}
+          onDelete={editing.parent_id ? () => deleteSubtask(editing) : null}
+          onDismiss={() => setEditingId(null)}
+          onSave={(e, intent) => save(editing, e, intent)}
+        />
+      )}
+      {ask && (
+        <CalendarAskDialog
+          text={ask.text}
+          onDismiss={() => setAsk(null)}
+          onAnswer={(del) => {
+            setAsk(null)
+            ask.onAnswer(del)
+          }}
+        />
+      )}
+    </>
+  )
 
   // 선택 모드 아래 [이동][삭제]와 옮길 곳 창. 누르면 선택 모드를 끝내고 알림(되돌리기)을 띄운다
   const selectionUi = selection.active ? (
@@ -268,8 +340,11 @@ export function useTaskWork({
         onMove={() => setMoving(true)}
         onDelete={() => {
           const picked = pickedTasks()
-          selection.stop()
-          deleteMany(picked)
+          // 캘린더에 넣은 할 일이 섞여 있으면 먼저 묻는다. 창을 닫으면 고른 채로 둔다
+          confirmDelete(picked, (eventIds) => {
+            selection.stop()
+            deleteMany(picked, eventIds)
+          })
         }}
       />
       {moving && (

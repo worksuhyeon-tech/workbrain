@@ -117,6 +117,10 @@
   .pill.good{color:var(--good-fg);background:color-mix(in srgb,var(--good-fg) 12%,transparent);}
   .pill.info{color:var(--info-fg);background:color-mix(in srgb,var(--info-fg) 12%,transparent);}
   .pill.mute{color:var(--muted);background:var(--surface);border:1px solid var(--border);}
+  .pill.crit{color:var(--crit-fg);background:color-mix(in srgb,var(--crit-fg) 12%,transparent);}
+  .status-row.off{border-color:var(--border);background:var(--surface);}
+  .status-row .grow{flex:1;min-width:200px;}
+  .mock-row{display:flex;gap:var(--s-sm);align-items:center;flex-wrap:wrap;margin-top:var(--s-base);font-size:13px;color:var(--muted);}
   .btn:disabled{opacity:.55;cursor:not-allowed;}
 
   /* 회의록 지침 */
@@ -209,6 +213,7 @@
         <a href="#retention">보관 기간</a>
         <a href="#guideline" class="on">회의록 지침 <span class="new">NEW</span></a>
         <a href="#mail">메일 발송 <span class="new">NEW</span></a>
+        <a href="#calendar">구글 캘린더 <span class="new">NEW</span></a>
         <a href="#trash">휴지통</a>
       </nav>
 
@@ -334,6 +339,26 @@
             <li>같은 버튼을 여러 번 눌러도 한 번만 보내요. 일시 오류는 최대 3번 다시 시도하고, 인증 오류는 다시 연결을 안내해요.</li>
             <li>발송 기록에는 시각·받은 곳 개수·결과만 남기고, 본문과 비밀번호는 남기지 않아요.</li>
           </ul>
+        </div></section>
+
+        <!-- 구글 캘린더 (FR-24a, DEC-105, Design §3.16): 앱은 더보기, 웹은 설정. 연결은 앱·웹이 같이 쓴다 -->
+        <section class="card" id="calendar" aria-labelledby="calTitle"><div class="card-b">
+          <div class="sec-title"><h2 id="calTitle">구글 캘린더</h2></div>
+          <p class="sec-desc">오늘 화면에 <b>오늘 일정</b>을 보여 주고, 고른 할 일을 <b>캘린더에도 넣어요</b>. 로그인한 Google 계정의 기본 캘린더 하나만 써요.</p>
+
+          <div class="status-row" id="calStatus"></div>
+
+          <ul class="note">
+            <li>[연결]을 누르면 Google 허락 화면이 한 번 열려요. 로그인은 다시 하지 않아요. <b>로그인한 계정과 같은 계정</b>으로 허락해야 연결돼요.</li>
+            <li>일정은 볼 때마다 Google에서 읽고, WorkBrain 서버에 저장하지 않아요.</li>
+            <li>WorkBrain이 넣은 일정만 고치거나 지워요. 다른 일정은 건드리지 않아요.</li>
+            <li>연결 열쇠는 서버에 암호화해 두고, 화면에는 보이지 않아요. 앱과 웹이 같은 연결을 함께 써요.</li>
+          </ul>
+          <div class="mock-row">목업: 허락하고 돌아왔을 때
+            <button class="btn ghost" data-calret="denied">허락 안 함</button>
+            <button class="btn ghost" data-calret="wrong_account">다른 계정으로 허락</button>
+            <button class="btn ghost" data-calret="broken">Google에서 권한 취소됨</button>
+          </div>
         </div></section>
 
         <div class="card" id="trash"><div class="card-b">
@@ -495,6 +520,28 @@
   document.getElementById("reconnectBtn").addEventListener("click", function(){ toast('앱 비밀번호를 다시 입력해 연결합니다 (서버에만 저장)'); });
   document.getElementById("pwBtn").addEventListener("click", function(){ toast('새 앱 비밀번호 입력 → 서버 비밀 저장소에 저장 · 화면·로그에 남지 않아요'); });
 
+  // ── 구글 캘린더 연결(FR-24a) — 목업 상태: off(연결 안 함) · on(연결됨) · broken(Google이 열쇠를 거절) ──
+  var calState="on";
+  function renderCalStatus(){
+    var el=document.getElementById("calStatus");
+    el.className="status-row"+(calState==="off"?" off":calState==="broken"?" bad":"");
+    el.innerHTML = calState==="on"
+      ? '<span class="pill good">연결됨</span><span class="grow">you@gmail.com · 기본 캘린더 · 11/14 연결</span><button class="btn ghost" data-cal="disconnect">연결 끊기</button>'
+      : calState==="broken"
+      ? '<span class="pill crit">연결이 끊겼어요</span><span class="grow">Google 쪽에서 권한이 취소됐어요. 다시 연결해 주세요.</span><button class="btn primary" data-cal="connect">다시 연결</button>'
+      : '<span class="pill mute">연결 안 됨</span><span class="grow">연결하면 오늘 일정 카드와 할 일의 [캘린더에도 넣기]가 켜져요.</span><button class="btn primary" data-cal="connect">연결</button>';
+  }
+  document.getElementById("calendar").addEventListener("click", function(e){
+    var b=e.target.closest("[data-cal]"), r=e.target.closest("[data-calret]");
+    if(b && b.dataset.cal==="connect"){ calState="on"; renderCalStatus(); toast('Google 허락 화면에서 돌아왔어요 · <span class="u">구글 캘린더를 연결했어요</span>'); return; }
+    if(b && b.dataset.cal==="disconnect"){ calState="off"; renderCalStatus(); toast('연결을 끊었어요 · 캘린더에 넣은 일정은 그대로 있어요'); return; }
+    if(!r) return;
+    var k=r.dataset.calret;
+    if(k==="broken"){ calState="broken"; renderCalStatus(); return; }
+    calState="off"; renderCalStatus();
+    toast(k==="denied"?'캘린더 허락을 하지 않아 연결하지 않았어요':'로그인한 계정과 다른 Google 계정이에요 · 같은 계정으로 다시 연결해 주세요');
+  });
+
   // ── 하위 탐색 강조 ──
   var links=[].slice.call(document.querySelectorAll("#subnav a"));
   function markNav(){
@@ -509,6 +556,6 @@
     root.setAttribute("data-theme", cur==="dark"?"light":"dark");
   });
 
-  updateCount(); renderRefs(); renderRecipients(); markNav();
+  updateCount(); renderRefs(); renderRecipients(); renderCalStatus(); markNav();
   if(location.hash){ var t=document.querySelector(location.hash); if(t) t.scrollIntoView(); }
 </script>

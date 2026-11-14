@@ -76,9 +76,9 @@ export async function loadSources(): Promise<Map<string, TaskSource>> {
   return out
 }
 
-/** 사용자가 직접 만드는 새 할 일. 아카이브된 곳은 서버가 WB409로 막는다 */
-export async function createTask(fields: Record<string, unknown>): Promise<void> {
-  must(await supabase.from('task').insert(fields), 'create task')
+/** 사용자가 직접 만드는 새 할 일. 만든 할 일 ID를 돌려준다(캘린더에도 넣을 때). 아카이브된 곳은 서버가 WB409로 막는다 */
+export async function createTask(fields: Record<string, unknown>): Promise<string> {
+  return must<{ id: string }>(await supabase.from('task').insert(fields).select('id').single(), 'create task').id
 }
 
 /**

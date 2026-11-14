@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { WeekEventsCard } from '../components/CalendarCards'
 import { Icons } from '../components/icons'
 import { QuickAdd, QuickAddMemory } from '../components/QuickAdd'
 import { Seg } from '../components/Seg'
@@ -115,8 +116,8 @@ export function AllTasksPane({
             defaultPlace={QuickAddMemory.last(places)}
             noDueMeansToday={false}
             onMessage={showToast}
-            onAdded={(r) => {
-              showToast(quickAddedText(r) + addedWhereText(r, range, owner, today))
+            onAdded={(r, calendarText) => {
+              showToast(quickAddedText(r) + addedWhereText(r, range, owner, today) + calendarText)
               reload()
             }}
           />
@@ -141,6 +142,9 @@ export function AllTasksPane({
           완료 포함
         </label>
       </div>
+
+      {/* 다음 7일 탭만: 프로젝트 묶음 위에 같은 기간의 구글 캘린더 일정(Design §3.16, 지연·전체 탭에는 없음) */}
+      {range === 'next7' && !selection.active && <WeekEventsCard />}
 
       {groups.length === 0 && (
         <div className={cn(CARD, 'mb-4 px-6 py-10 text-center')}>

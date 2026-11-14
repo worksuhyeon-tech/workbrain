@@ -1,4 +1,7 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "rewrites": [
+    { "source": "/calendar-callback", "destination": "https://xupzzlpmysnljxlmygjy.supabase.co/functions/v1/calendar" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
   "ignoreCommand": "[ -n \"$VERCEL_GIT_PREVIOUS_SHA\" ] && git diff --quiet \"$VERCEL_GIT_PREVIOUS_SHA\" HEAD -- ."
 }

@@ -175,6 +175,29 @@
   @media (max-width:1040px){ .dash{grid-template-columns:1fr;} }
 
 
+
+  /* FR-24a 구글 캘린더(DEC-105, Design §3.16) */
+  .due-w{display:inline-flex;align-items:center;gap:5px;}
+  .calmark{color:var(--info-fg);flex:none;}
+  .qc.cal-q{cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-family:inherit;border-style:dashed;color:var(--info-fg);}
+  .qc.cal-q.on{border-style:solid;border-color:var(--info-fg);background:color-mix(in srgb,var(--info-fg) 12%,transparent);}
+  .ev{display:grid;grid-template-columns:58px minmax(0,1fr) auto;gap:var(--s-md);align-items:center;width:100%;padding:9px var(--s-base);border:0;border-top:1px solid var(--border);background:transparent;text-align:left;font:inherit;color:inherit;cursor:pointer;}
+  .ev:hover{background:var(--surface);}
+  .ev .tm{font-size:13px;font-weight:700;color:var(--ink);line-height:1.3;}
+  .ev .tm small{display:block;font-size:11px;font-weight:500;color:var(--muted);}
+  .ev .et{font-size:15px;color:var(--ink);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .ev .go{color:var(--muted);opacity:0;transition:opacity .12s;display:inline-flex;}
+  .ev:hover .go,.ev:focus-visible .go{opacity:1;}
+  .ev.now{background:color-mix(in srgb,var(--primary) 8%,transparent);box-shadow:inset 3px 0 0 var(--primary);}
+  .ev .nowtag{font-size:12px;font-weight:700;color:var(--primary);white-space:nowrap;}
+  .ev.past .tm,.ev.past .et{color:var(--muted);font-weight:500;}
+  .ev-fold{display:block;width:100%;padding:8px var(--s-base);border:0;border-top:1px solid var(--border);background:transparent;text-align:left;font-size:13px;font-weight:700;color:var(--muted);}
+  .ev-fold:hover{color:var(--primary);}
+  .ev-day{font-size:12px;font-weight:700;color:var(--muted);padding:10px var(--s-base) 4px;border-top:1px solid var(--border);}
+  .ev-msg{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px var(--s-base) 14px;border-top:1px solid var(--border);font-size:14px;color:var(--muted);}
+  .ev-msg.crit{color:var(--crit-fg);}
+  .ev-msg button{border:0;background:transparent;padding:0;color:var(--link);font-size:14px;font-weight:700;}
+
   /* DEC-104 Aboard: 버튼은 알약 */
   .btn{border-radius:var(--r-pill);}
 </style>
@@ -207,6 +230,10 @@
 
     <div class="dash">
       <div class="col">
+        <section class="card" id="calCard" aria-label="오늘 일정">
+          <div class="card-h"><h2>오늘 일정</h2><span class="n num" id="calN"></span><a href="#" data-calopen>Google 캘린더 ↗</a></div>
+          <div id="calBody"></div>
+        </section>
         <section class="card" aria-label="오늘 할 일">
           <div class="card-h"><h2>오늘 할 일</h2><span class="n num" id="todayN"></span><a href="workbrain-tasks.html#all">다음 7일 · 전체 →</a></div>
           <div class="qa-wrap"><div class="qa"><input class="inp" id="dInp" placeholder="+ 빠르게 추가 · 예: 내일 3시 판독 업체 미팅 !높음 #사고접수 @박지훈" aria-label="할 일 빠르게 추가" autocomplete="off"><button class="btn primary" id="dBtn">추가</button></div><div class="qa-prev" id="dPrev" aria-live="polite"></div></div>
@@ -231,7 +258,10 @@
 
     <footer class="page-foot">
       <span>프로젝트별 상태·요약은 <a href="workbrain-project.html">프로젝트</a>, 비용 상세는 <a href="workbrain-settings.html">설정</a>에서 봐요.</span>
-      <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="costDemo"> 목업: 비용 경고선 넘은 상태</label>
+      <span style="display:flex;gap:var(--s-base);align-items:center;flex-wrap:wrap">
+        <label style="display:flex;gap:6px;align-items:center">목업: 캘린더 <select class="statesel" id="calDemo"><option value="ok">연결됨</option><option value="empty">오늘 일정 없음</option><option value="fail">불러오지 못함</option><option value="broken">연결 끊김</option><option value="off">연결 안 함(카드 숨김)</option></select></label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="costDemo"> 목업: 비용 경고선 넘은 상태</label>
+      </span>
     </footer>
   </main>
 </div>
@@ -279,17 +309,27 @@
   // owner: me(내 할 일) · other(팔로업, who = 맡은 사람) · unknown(음성에 담당자가 없어 확인 필요, 내 할 일 목록에 함께 보임)
   var tasks=[
     {id:1,t:"접수 화면 1차 피드백 반영",p:"claim",kind:"date",date:"2026-10-20",prio:2,done:false,owner:"me",src:"AI 제안 승인 · IT 개발팀 통화 10/14"},
-    {id:2,t:"판독 솔루션 업체 미팅",p:"claim",kind:"time",date:"2026-10-19",time:"10:00",prio:1,done:false,owner:"me",src:"직접 추가"},
+    {id:2,t:"판독 솔루션 업체 미팅",p:"claim",kind:"time",date:"2026-10-19",time:"10:00",prio:1,done:false,owner:"me",src:"직접 추가",cal:true},
     {id:3,t:"사고 사진 업로드 요건 정리",p:"claim",kind:"vague",vague:"다음 주",prio:2,done:false,owner:"unknown",src:"AI 제안 승인 · IT 개발팀 통화 10/14"},
     {id:4,t:"화면 개발 일정표 공유",p:"claim",kind:"date",date:"2026-10-21",prio:2,done:false,owner:"other",who:"박지훈",src:"AI 제안 승인 · IT 개발팀 통화 10/14"},
     {id:5,t:"심사 규칙 데이터 정비",p:"review",kind:"date",date:"2026-10-15",prio:1,done:false,owner:"me",src:"직접 추가"},
-    {id:6,t:"자동심사 대상 기준표 작성",p:"review",kind:"date",date:"2026-10-17",prio:2,done:false,owner:"me",src:"직접 추가"},
+    {id:6,t:"자동심사 대상 기준표 작성",p:"review",kind:"date",date:"2026-10-17",prio:2,done:false,owner:"me",src:"직접 추가",cal:true},
     {id:7,t:"심사 규칙 검토 의견 회신",p:"review",kind:"date",date:"2026-10-16",prio:2,done:false,owner:"other",who:"이도윤",src:"직접 추가"},
     {id:8,t:"10월 지급 현황 보고서 제출",p:"monthly",kind:"date",date:"2026-10-31",prio:2,done:false,owner:"me",src:"직접 추가"},
     {id:9,t:"접수 프로세스 v1 공유",p:"claim",kind:"date",date:"2026-10-12",prio:2,done:true,owner:"me",src:"직접 추가"},
     {id:10,t:"청구 서류 목록 정리",p:"silson",kind:"date",date:"2026-09-26",prio:2,done:true,owner:"me",src:"직접 추가"}
   ];
   var prioName={1:"높음",2:"보통",3:"낮음"};
+
+  // 캘린더 아이콘(선 글리프). 할 일 줄에서는 '캘린더에 넣은 할 일' 표시(11/14 결정 ②)
+  var CAL_ICON='<svg class="calmark" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" role="img" aria-label="캘린더에 넣은 할 일"><title>캘린더에 넣은 할 일</title><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>';
+  var EXT_ICON='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
+  var EV_TOAST='웹은 <span class="u">Google 캘린더 새 탭</span>에서 이 일정을 열어요 · 앱은 기기 캘린더 앱의 그 시각으로';
+  function evRow(v, cls){
+    var tm=v.allDay?'종일':v.s+'<small>'+v.e+'</small>';
+    var tail=cls==="now"?'<span class="nowtag">● 지금</span>':'<span class="go">'+EXT_ICON+'</span>';
+    return '<button class="ev'+(cls?' '+cls:'')+'" data-ev><span class="tm num">'+tm+'</span><span class="et">'+esc(v.t)+'</span>'+tail+'</button>';
+  }
 
   function icon(n){ return n.kind==="area"?"🔁":n.kind==="resource"?n.icon:"📁"; }
   function sectionOf(id){ return SECTIONS.filter(function(s){ return s.ids.indexOf(id)>=0; })[0]; }
@@ -311,8 +351,9 @@
     var place=showPlace&&nodes[x.p]?'<button class="place" data-goto="'+x.p+'">'+icon(nodes[x.p])+' '+esc(nodes[x.p].name)+'</button>':'';
     return '<div class="trow'+(x.done?' done':'')+(isLate(x)?' late':'')+'"><input type="checkbox" data-done="'+x.id+'" '+(x.done?'checked':'')+' aria-label="'+esc(x.t)+' 완료">'+
       '<span class="tt" data-edit="'+x.id+'">'+esc(x.t)+ownerChip(x)+'<span class="src">'+place+esc(x.src)+'</span></span>'+
-      '<span class="prio'+(x.prio===1?' p1':'')+'">'+prioName[x.prio]+'</span>'+dueChip(x)+'</div>';
+      '<span class="prio'+(x.prio===1?' p1':'')+'">'+prioName[x.prio]+'</span>'+dueCell(x)+'</div>';
   }
+  function dueCell(x){ return x.cal?'<span class="due-w">'+CAL_ICON+dueChip(x)+'</span>':dueChip(x); }
   function sortTasks(list){ return list.sort(function(a,b){ return (a.done-b.done)||(a.prio-b.prio); }); }
 
   function pad(n){ return (n<10?"0":"")+n; }
@@ -352,7 +393,7 @@
     r.t=s.replace(/\s+/g," ").trim();
     return r;
   }
-  function quickPreview(r){
+  function quickPreview(r, calOn){
     if(!r.t && r.kind==="none" && !r.warn.length) return "";
     var c=[];
     c.push('<span class="qc">📝 '+(r.t?esc(r.t):'<i>제목 없음</i>')+'</span>');
@@ -362,18 +403,25 @@
     c.push('<span class="qc">'+icon(nodes[r.p])+' '+esc(nodes[r.p].name)+'</span>');
     if(r.owner==="other") c.push('<span class="qc">👤 '+esc(r.who)+' · 팔로업</span>');
     r.warn.forEach(function(w){ c.push('<span class="qc warn">⚠ '+esc(w)+'</span>'); });
+    // 기한 날짜를 읽었고 캘린더가 연결돼 있으면 끝에 [캘린더에도] 켜기 칩(Design §3.16)
+    if(calReady() && (r.kind==="date"||r.kind==="time"))
+      c.push('<button type="button" class="qc cal-q'+(calOn?' on':'')+'" data-calq aria-pressed="'+calOn+'">'+(calOn?'✓ ':'')+'캘린더에도</button>');
     return c.join("");
   }
   // 입력창·미리보기·추가 버튼을 묶는다. onAdd는 새 할 일을 받아 화면을 다시 그린다.
   function bindQuick(inp, prev, btn, getPlace, onAdd){
+    var calOn=false;   // [캘린더에도]는 매번 꺼진 채 시작하고 기억하지 않는다(Design §3.16)
+    function paint(){ prev.innerHTML=quickPreview(parseQuick(inp.value, getPlace()), calOn); }
     function add(){
       var r=parseQuick(inp.value, getPlace());
       if(!r.t){ toast('할 일 제목을 입력해 주세요'); inp.focus(); return; }
       var x={id:Date.now(),t:r.t,p:r.p,kind:r.kind,date:r.date,time:r.time,vague:r.vague,prio:r.prio,done:false,owner:r.owner,who:r.who,src:"빠른 입력"};
-      tasks.push(x); inp.value=""; prev.innerHTML=""; onAdd(x);
-      toast('추가했어요 · '+esc(nodes[x.p].name)+(x.owner==="other"?' · 팔로업':''));
+      var withCal=calOn && calReady() && (x.kind==="date"||x.kind==="time"); if(withCal) x.cal=true;
+      tasks.push(x); inp.value=""; prev.innerHTML=""; calOn=false; onAdd(x);
+      toast('추가했어요 · '+esc(nodes[x.p].name)+(x.owner==="other"?' · 팔로업':'')+(withCal?' · 캘린더에도 넣었어요':''));
     }
-    inp.addEventListener("input", function(){ prev.innerHTML=quickPreview(parseQuick(inp.value, getPlace())); });
+    inp.addEventListener("input", paint);
+    prev.addEventListener("click", function(e){ if(!e.target.closest("[data-calq]")) return; calOn=!calOn; paint(); inp.focus(); });
     inp.addEventListener("keydown", function(e){ if(e.key==="Enter" && !e.isComposing){ e.preventDefault(); add(); } });
     btn.addEventListener("click", add);
   }
@@ -424,5 +472,55 @@
   document.getElementById("retryBtn").addEventListener("click", function(){ this.disabled=true; this.textContent="다시 시도 중…"; toast('실패한 전사 단계만 다시 시도해요 · 업로드는 다시 하지 않아요'); });
   document.getElementById("costDemo").addEventListener("change", function(){ document.getElementById("costWarn").hidden=!this.checked; });
   renderToday();
+
+  // ── 오늘 일정(FR-24a, DEC-105, Design §3.16) — 가상 일정, 지금 = 10:20 ──
+  // 종일 먼저, 끝난 일정은 '지난 일정 N'으로 접고, 남은 일정은 3개까지 + '일정 N개 더'. WB가 넣은 일정은 빼고 할 일 줄 아이콘으로(결정 ②)
+  var NOW="10:20", calState="ok", calPastOpen=false, calMoreOpen=false;
+  var events=[
+    {t:"보상팀 하반기 워크숍 주간",allDay:true},
+    {t:"데일리 스탠드업",s:"09:00",e:"09:30"},
+    {t:"IT 개발팀 주간 점검",s:"10:00",e:"11:00"},
+    {t:"심사 규칙 리뷰",s:"13:30",e:"14:30"},
+    {t:"판독 업체 통화",s:"15:00",e:"15:30"},
+    {t:"주간 정리",s:"17:00",e:"17:30"}
+  ];
+  function calReady(){ return calState==="ok"||calState==="empty"||calState==="fail"; }
+  function renderCal(){
+    var card=document.getElementById("calCard");
+    card.hidden=calState==="off";
+    if(card.hidden) return;
+    var body="", n="";
+    if(calState==="fail") body='<div class="ev-msg">일정을 불러오지 못했어요 <button data-calretry>다시 시도</button></div>';
+    else if(calState==="broken") body='<div class="ev-msg crit">캘린더 연결이 끊겼어요 <a href="workbrain-settings.html#calendar">다시 연결</a></div>';
+    else if(calState==="empty") body='<div class="ev-msg">오늘 일정 없음</div>';
+    else {
+      var allDay=events.filter(function(v){ return v.allDay; }), timed=events.filter(function(v){ return !v.allDay; });
+      var past=timed.filter(function(v){ return v.e<=NOW; });
+      var rest=allDay.map(function(v){ return [v,""]; })
+        .concat(timed.filter(function(v){ return v.s<=NOW && NOW<v.e; }).map(function(v){ return [v,"now"]; }))
+        .concat(timed.filter(function(v){ return v.s>NOW; }).map(function(v){ return [v,""]; }));
+      n=events.length+"개";
+      // 종일 → '지난 일정 N'(접힘) → 지금·남은 일정 순. 3개 제한은 종일·남은 일정에만
+      var shown=calMoreOpen?rest:rest.slice(0,3), nAll=shown.filter(function(p){ return p[0].allDay; }).length;
+      var row=function(p){ return evRow(p[0],p[1]); };
+      body+=shown.slice(0,nAll).map(row).join("");
+      if(past.length) body+='<button class="ev-fold" data-calpast aria-expanded="'+calPastOpen+'">지난 일정 '+past.length+' '+(calPastOpen?'⌃':'⌄')+'</button>'+
+        (calPastOpen?past.map(function(v){ return evRow(v,"past"); }).join(""):"");
+      body+=shown.slice(nAll).map(row).join("");
+      if(rest.length>3) body+='<button class="ev-fold" data-calmore aria-expanded="'+calMoreOpen+'">'+(calMoreOpen?'접기 ⌃':'일정 '+(rest.length-3)+'개 더 ⌄')+'</button>';
+    }
+    document.getElementById("calN").textContent=n;
+    document.getElementById("calBody").innerHTML=body;
+  }
+  document.getElementById("calCard").addEventListener("click", function(e){
+    var t=e.target;
+    if(t.closest("[data-calpast]")){ calPastOpen=!calPastOpen; renderCal(); return; }
+    if(t.closest("[data-calmore]")){ calMoreOpen=!calMoreOpen; renderCal(); return; }
+    if(t.closest("[data-calretry]")){ calState="ok"; document.getElementById("calDemo").value="ok"; renderCal(); toast('다시 불러왔어요'); return; }
+    if(t.closest("[data-ev]")){ toast(EV_TOAST); return; }
+    if(t.closest("[data-calopen]")){ e.preventDefault(); toast('Google 캘린더를 새 탭에서 열어요 · 앱은 기기 캘린더 앱'); }
+  });
+  document.getElementById("calDemo").addEventListener("change", function(){ calState=this.value; calPastOpen=calMoreOpen=false; renderCal(); document.getElementById("dPrev").innerHTML=""; });
+  renderCal();
 
 </script>

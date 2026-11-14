@@ -22,6 +22,7 @@ import {
   type ParaData,
 } from '../data/para'
 import { isDone, type TaskRow } from '../data/types'
+import { CalendarStore } from '../lib/calendarStore'
 import { cn } from '../lib/cn'
 import { useHiddenTasks } from '../lib/taskDeletes'
 import { useTaskOrder } from '../lib/taskSort'
@@ -78,6 +79,8 @@ export function ProjectsScreen() {
   )
 
   const load = useCallback(async () => {
+    // 캘린더 연결 상태·넣은 할 일도 함께 다시 읽는다(고친 할 일이 있으면 그때 캘린더에 반영, Design §3.16)
+    void CalendarStore.refresh()
     try {
       setData(await loadPara())
       setFailed(false)
@@ -280,8 +283,8 @@ function PlaceDetail({ d, place, places, line, reload, showToast, selection, foc
             defaultPlace={place}
             noDueMeansToday={false}
             onMessage={showToast}
-            onAdded={(r) => {
-              showToast(quickAddedText(r))
+            onAdded={(r, calendarText) => {
+              showToast(quickAddedText(r) + calendarText)
               reload()
             }}
           />

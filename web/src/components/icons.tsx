@@ -62,7 +62,9 @@ export const Icons = {
     </svg>
   ),
   flag: () => <Stroke size={17}><path d="M5 21V4M5 4h11l-2 4 2 4H5" /></Stroke>,
-  calendar: () => <Stroke size={17}><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></Stroke>,
+  calendar: ({ size = 17 }: { size?: number } = {}) => <Stroke size={size}><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></Stroke>,
+  /** 새 탭으로 열기(구글 캘린더 일정) */
+  external: () => <Stroke size={13}><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></Stroke>,
 }
 
 export type Tint = 'green' | 'purple' | 'orange' | 'pink'
