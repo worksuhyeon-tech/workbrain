@@ -16,6 +16,8 @@ export interface CalEvent {
   end: string
   allDay: boolean
   link: string | null
+  /** 장소(없으면 null) — 제목 아래 회색 작은 줄(11/15 사용자) */
+  location: string | null
 }
 
 /** 오늘 카드에서 처음 보이는 수(종일·지금·남은 일정, Design §3.16) */
@@ -66,12 +68,47 @@ export function todayLines(events: CalEvent[], now: Date, moreOpen: boolean): { 
 
 const DOW = '월화수목금토일'
 
-/** 날짜 묶음 이름: '오늘 · 11/14 (금)', '내일 · 11/15 (토)', '11/17 (월)' */
-export function dayLabel(day: LocalDate, today: LocalDate): string {
-  const md = `${Number(day.slice(5, 7))}/${Number(day.slice(8))} (${DOW[dayOfWeek(day) - 1]})`
-  if (day === today) return `오늘 · ${md}`
-  if (day === plusDays(today, 1)) return `내일 · ${md}`
-  return md
+// ── 다음 7일 카드 줄 모양: 삼성 캘린더 일정 목록처럼(11/15 사용자) ──
+
+const monthDay = (day: LocalDate) => `${Number(day.slice(5, 7))}월 ${Number(day.slice(8))}일`
+
+/** 날짜 머리: '11월 14일 (금)' */
+export function dayLabel(day: LocalDate): string {
+  return `${monthDay(day)} (${DOW[dayOfWeek(day) - 1]})`
+}
+
+/** 날짜 머리 옆 작은 글씨: 오늘·내일만 */
+export function dayRel(day: LocalDate, today: LocalDate): '오늘' | '내일' | null {
+  if (day === today) return '오늘'
+  return day === plusDays(today, 1) ? '내일' : null
+}
+
+/** '13:30' → '1:30'(왼쪽 칸, 삼성처럼 오전·오후 없이 — 아래 줄에 있음) */
+const h12 = (hm: string) => `${Number(hm.slice(0, 2)) % 12 || 12}:${hm.slice(3, 5)}`
+/** '13:30' → '오후 1:30' */
+const ampm = (hm: string) => `${Number(hm.slice(0, 2)) < 12 ? '오전' : '오후'} ${h12(hm)}`
+
+/** 왼쪽 칸 시작 시각('1:30'). 종일이면 null(종일은 파란 칸으로 따로 그림) */
+export function weekStart(e: CalEvent): string | null {
+  const t = e.allDay ? null : seoulTime(e.start)
+  return t ? h12(t) : null
+}
+
+/**
+ * 제목 아래 줄: 시각 일정 '오후 1:30 - 오후 2:30', 종일 '하루 종일', 여러 날 종일 '11월 13일 - 11월 15일'(끝 날은 Google이 다음 날로 줌).
+ * 장소가 있으면 ' · 장소'
+ */
+export function weekSub(e: CalEvent): string {
+  let when: string
+  if (e.allDay) {
+    const last = plusDays(e.end, -1)
+    when = last > e.start ? `${monthDay(e.start)} - ${monthDay(last)}` : '하루 종일'
+  } else {
+    const s = seoulTime(e.start)
+    const t = seoulTime(e.end)
+    when = s && t ? `${ampm(s)} - ${ampm(t)}` : ''
+  }
+  return e.location ? `${when} · ${e.location}` : when
 }
 
 /** 일정이 놓이는 날: 시작한 날(서울). 이미 시작해 오늘까지 이어지는 일정은 오늘에 */
@@ -83,6 +120,7 @@ function dayOf(e: CalEvent, today: LocalDate): LocalDate {
 export interface DayGroup {
   day: LocalDate
   label: string
+  rel: '오늘' | '내일' | null
   lines: EventLine[]
 }
 
@@ -100,7 +138,7 @@ export function weekGroups(events: CalEvent[], today: LocalDate, now: Date, more
   for (const { e, day } of shown) {
     let g = groups[groups.length - 1]
     if (!g || g.day !== day) {
-      g = { day, label: dayLabel(day, today), lines: [] }
+      g = { day, label: dayLabel(day), rel: dayRel(day, today), lines: [] }
       groups.push(g)
     }
     g.lines.push({ e, tone: toneOf(e, t) === 'past' ? 'past' : '' })

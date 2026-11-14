@@ -253,6 +253,22 @@
   .ev-msg{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px var(--s-base) 14px;border-top:1px solid var(--border);font-size:14px;color:var(--muted);}
   .ev-msg.crit{color:var(--crit-fg);}
   .ev-msg button{border:0;background:transparent;padding:0;color:var(--link);font-size:14px;font-weight:700;}
+  /* 다음 7일 일정 — 삼성 캘린더 일정 목록처럼(11/15 사용자): 날짜 머리 굵게, 왼쪽 시작 시각 + 색 막대, 제목 아래 '오전 8:00 - 오전 9:00 · 장소', 종일은 연한 파란 칸 */
+  .wk-day{display:flex;align-items:baseline;gap:6px;padding:14px var(--s-base) 4px;border-top:1px solid var(--border);font-size:14px;font-weight:700;color:var(--ink);}
+  .wk-day .rel{font-size:12px;font-weight:600;color:var(--muted);}
+  .wk-ev{display:grid;grid-template-columns:44px 3px minmax(0,1fr);gap:0 12px;align-items:center;width:100%;padding:7px var(--s-base);border:0;background:transparent;text-align:left;font:inherit;color:inherit;cursor:pointer;}
+  .wk-ev:hover{background:var(--surface);}
+  .wk-ev .tm{font-size:15px;font-weight:600;color:var(--ink);}
+  .wk-ev .bar{align-self:stretch;border-radius:2px;background:var(--info-fg);}
+  .wk-ev .et{display:block;font-size:15px;font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .wk-sub{display:block;margin-top:2px;font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .wk-ev.past .tm,.wk-ev.past .et{color:var(--muted);}
+  .wk-ev.past .bar{background:var(--border);}
+  .wk-all{display:grid;grid-template-columns:18px minmax(0,1fr);gap:0 10px;align-items:center;width:calc(100% - 2 * var(--s-md));margin:4px var(--s-md);padding:9px 12px;border:0;border-radius:12px;background:color-mix(in srgb,var(--info-fg) 13%,transparent);text-align:left;font:inherit;color:inherit;cursor:pointer;}
+  .wk-all:hover{background:color-mix(in srgb,var(--info-fg) 20%,transparent);}
+  .wk-all .ic{color:var(--info-fg);display:inline-flex;}
+  .wk-all .et{display:block;font-size:15px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .wk-fold-gap{height:6px;}
 
   .cal-sw{display:inline-flex;align-items:center;gap:10px;font-size:14px;font-weight:600;color:var(--ink);cursor:pointer;width:max-content;}
   .cal-sw input{appearance:none;-webkit-appearance:none;width:38px;height:22px;margin:0;border-radius:var(--r-pill);background:var(--border-strong);position:relative;cursor:pointer;flex:none;transition:background .15s;}
@@ -737,12 +753,13 @@
   var NOW="10:20", calConnected=true, weekMoreOpen=false;
   function calReady(){ return calConnected; }
   var weekEvents=[
-    {d:"2026-10-17",t:"보상팀 하반기 워크숍 주간",allDay:true},
+    {d:"2026-10-17",t:"보상팀 하반기 워크숍 주간",allDay:true,last:"2026-10-19"},
     {d:"2026-10-17",t:"데일리 스탠드업",s:"09:00",e:"09:30"},
-    {d:"2026-10-17",t:"IT 개발팀 주간 점검",s:"10:00",e:"11:00"},
+    {d:"2026-10-17",t:"IT 개발팀 주간 점검",s:"10:00",e:"11:00",loc:"본사 7층 소회의실"},
     {d:"2026-10-17",t:"심사 규칙 리뷰",s:"13:30",e:"14:30"},
-    {d:"2026-10-19",t:"주간 회의",s:"09:30",e:"10:30"},
+    {d:"2026-10-19",t:"주간 회의",s:"09:30",e:"10:30",loc:"본사 3층 대회의실"},
     {d:"2026-10-19",t:"보상 프로세스 운영 점검",s:"16:00",e:"17:00"},
+    {d:"2026-10-21",t:"개발 산출물 마감",allDay:true},
     {d:"2026-10-21",t:"챗봇 시나리오 리뷰",s:"14:00",e:"15:00"},
     {d:"2026-10-22",t:"현업 인터뷰",s:"11:00",e:"12:00"},
     {d:"2026-10-23",t:"월간 운영 점검 회의",s:"15:00",e:"16:00"}
@@ -750,15 +767,30 @@
   // 날짜별(오늘·내일·10/19 (월)…)로 묶는다. 일정이 없는 날은 건너뛰고, 오늘 끝난 일정은 흐리게.
   // 할 일 목록이 밀리지 않게 처음 5개만 보이고 나머지는 '일정 N개 더'(11/14 사용자 결정)
   var WEEK_SHOWN=5;
+  // '10월 17일 (토)'
+  function longDay(d){ var p=d.split("-"); return (+p[1])+"월 "+(+p[2])+"일 ("+DOW[new Date(d+"T00:00:00").getDay()]+")"; }
+  // 24시 '13:30' → 왼쪽 칸 '1:30', 둘째 줄 '오후 1:30'(삼성 캘린더처럼)
+  function h12(hm){ var h=+hm.slice(0,2), m=hm.slice(3); return (h%12||12)+":"+m; }
+  function ampm(hm){ return (+hm.slice(0,2)<12?"오전 ":"오후 ")+h12(hm); }
+  function weekRow(v, past){
+    var loc=v.loc?' · '+esc(v.loc):'';
+    if(v.allDay){
+      var span=v.last?longDay(v.d).replace(/ \(.\)$/,"")+" - "+longDay(v.last).replace(/ \(.\)$/,""):"하루 종일";
+      return '<button class="wk-all" data-ev><span class="ic">'+CAL_ICON.replace('class="calmark" width="13" height="13"','width="18" height="18"')+'</span>'+
+        '<span><span class="et">'+esc(v.t)+'</span><span class="wk-sub">'+span+loc+'</span></span></button>';
+    }
+    return '<button class="wk-ev'+(past?' past':'')+'" data-ev><span class="tm num">'+h12(v.s)+'</span><span class="bar"></span>'+
+      '<span style="min-width:0"><span class="et">'+esc(v.t)+'</span><span class="wk-sub">'+ampm(v.s)+' - '+ampm(v.e)+loc+'</span></span></button>';
+  }
   function weekCalCard(){
     if(!calConnected) return "";
     var days={}, order=[], list=weekMoreOpen?weekEvents:weekEvents.slice(0,WEEK_SHOWN);
     list.forEach(function(v){ if(!days[v.d]){ days[v.d]=[]; order.push(v.d); } days[v.d].push(v); });
     var body=order.map(function(d){
-      var lbl=(d===TODAY?"오늘 · ":d===shiftDays(1)?"내일 · ":"")+md(d)+" ("+DOW[new Date(d+"T00:00:00").getDay()]+")";
-      return '<div class="ev-day">'+lbl+'</div>'+days[d].map(function(v){
-        return evRow(v, d===TODAY&&!v.allDay&&v.e<=NOW?"past":"");
-      }).join("");
+      var rel=d===TODAY?"오늘":d===shiftDays(1)?"내일":"";
+      return '<div class="wk-day">'+longDay(d)+(rel?'<span class="rel">'+rel+'</span>':'')+'</div>'+days[d].map(function(v){
+        return weekRow(v, d===TODAY&&!v.allDay&&v.e<=NOW);
+      }).join("")+'<div class="wk-fold-gap"></div>';
     }).join("");
     var more=weekEvents.length>WEEK_SHOWN?'<button class="ev-fold" data-weekmore aria-expanded="'+weekMoreOpen+'">'+(weekMoreOpen?'접기 ⌃':'일정 '+(weekEvents.length-WEEK_SHOWN)+'개 더 ⌄')+'</button>':'';
     return '<div class="card"><div class="card-tt"><h3 class="sec-h" style="margin:0">다음 7일 일정 <span class="num">'+weekEvents.length+'</span></h3><div class="sp"></div>'+

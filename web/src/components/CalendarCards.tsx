@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { cn } from '../lib/cn'
 import { useCalendar, useCalendarEvents, useNow, type EventsState } from '../lib/calendarStore'
-import { eventTimes, todayLines, weekGroups, type EventLine } from '../rules/calendar'
+import { eventTimes, todayLines, weekGroups, weekStart, weekSub, type EventLine } from '../rules/calendar'
 import { seoulToday } from '../rules/dates'
 import { Dialog, TEXT_BUTTON } from './Dialog'
 import { Icons } from './icons'
@@ -60,7 +60,11 @@ function EventRow({ line }: { line: EventLine }) {
         {t.start}
         {t.end && <small className="block text-[11px] font-medium text-muted">{t.end}</small>}
       </span>
-      <span className={cn('truncate text-[15px] font-medium', tone === 'past' ? 'text-muted' : 'text-ink')}>{e.title}</span>
+      <span className="min-w-0">
+        <span className={cn('block truncate text-[15px] font-medium', tone === 'past' ? 'text-muted' : 'text-ink')}>{e.title}</span>
+        {/* 장소는 할 일 줄 두 번째 줄과 같은 모양(회색 작은 글씨) */}
+        {e.location && <span className="mt-0.5 block truncate text-xs text-muted">{e.location}</span>}
+      </span>
       {tone === 'now' ? (
         <span className="text-xs font-bold whitespace-nowrap text-primary">● 지금</span>
       ) : (
@@ -69,6 +73,38 @@ function EventRow({ line }: { line: EventLine }) {
           <span className="sr-only">Google 캘린더에서 열기</span>
         </span>
       )}
+    </a>
+  )
+}
+
+/**
+ * 다음 7일 일정 줄 — 삼성 캘린더 일정 목록처럼(11/15 사용자, 목업 tasks .wk-ev·.wk-all):
+ * 시각 일정 = 왼쪽 시작 시각 + 파란 막대 + 제목·'오전 8:00 - 오전 9:00 · 장소', 종일 = 연한 파란 칸 + '하루 종일'
+ */
+function WeekRow({ line }: { line: EventLine }) {
+  const { e, tone } = line
+  const past = tone === 'past'
+  const body = (titleClass: string) => (
+    <span className="min-w-0">
+      <span className={cn('block truncate text-[15px]', titleClass)}>{e.title}</span>
+      <span className="mt-0.5 block truncate text-xs text-muted">{weekSub(e)}</span>
+    </span>
+  )
+  const link = { href: e.link ?? GOOGLE_DAY, target: '_blank', rel: 'noopener noreferrer' }
+  if (e.allDay)
+    return (
+      <a {...link} className="mx-3 my-1 grid grid-cols-[18px_minmax(0,1fr)] items-center gap-x-2.5 rounded-xl bg-info-soft px-3 py-[9px] text-inherit no-underline hover:brightness-[.97]">
+        <span className="text-info">
+          <Icons.calendar size={18} />
+        </span>
+        {body('font-semibold text-ink')}
+      </a>
+    )
+  return (
+    <a {...link} className="grid grid-cols-[44px_3px_minmax(0,1fr)] items-center gap-x-3 px-4 py-[7px] text-inherit no-underline hover:bg-surface">
+      <span className={cn('text-[15px] font-semibold tabular-nums', past ? 'text-muted' : 'text-ink')}>{weekStart(e)}</span>
+      <span className={cn('self-stretch rounded-sm', past ? 'bg-border' : 'bg-info')} />
+      {body(cn('font-medium', past ? 'text-muted' : 'text-ink'))}
     </a>
   )
 }
@@ -183,9 +219,12 @@ export function WeekEventsCard() {
         ) : (
           <>
             {w.groups.map((g) => (
-              <div key={g.day}>
-                <div className="border-t border-border px-4 pt-2.5 pb-1 text-xs font-bold text-muted">{g.label}</div>
-                {g.lines.map((l) => <EventRow key={l.e.id} line={l} />)}
+              <div key={g.day} className="border-t border-border pb-1.5">
+                <div className="flex items-baseline gap-1.5 px-4 pt-3.5 pb-1 text-sm font-bold text-ink">
+                  {g.label}
+                  {g.rel && <span className="text-xs font-semibold text-muted">{g.rel}</span>}
+                </div>
+                {g.lines.map((l) => <WeekRow key={l.e.id} line={l} />)}
               </div>
             ))}
             {(w.hidden > 0 || moreOpen) && (

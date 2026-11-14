@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { askText, calendarNote, calendarPlan, connectResultText, dayLabel, eventTimes, returnTarget, todayLines, weekGroups, type CalEvent } from './calendar'
+import { askText, calendarNote, calendarPlan, connectResultText, dayLabel, dayRel, eventTimes, returnTarget, todayLines, weekGroups, weekStart, weekSub, type CalEvent } from './calendar'
 
 // 가짜 일정. 지금 = 2026-11-14(토) 10:20 서울
 const NOW = new Date('2026-11-14T10:20:00+09:00')
-const ev = (id: string, start: string, end: string, allDay = false): CalEvent => ({ id, title: id, start, end, allDay, link: null })
+const ev = (id: string, start: string, end: string, allDay = false): CalEvent => ({ id, title: id, start, end, allDay, link: null, location: null })
 const at = (day: string, hm: string) => `${day}T${hm}:00+09:00`
 
 describe('오늘 일정 카드', () => {
@@ -69,9 +69,9 @@ describe('다음 7일 일정 카드', () => {
     const r = weekGroups(events, '2026-11-14', NOW, false)
     expect(r.total).toBe(7)
     expect(r.hidden).toBe(2)
-    expect(r.groups.map((g) => [g.label, g.lines.map((l) => l.e.id)])).toEqual([
-      ['오늘 · 11/14 (토)', ['출장', '워크숍', '데일리', '점검']],
-      ['11/16 (월)', ['주간회의']],
+    expect(r.groups.map((g) => [g.label, g.rel, g.lines.map((l) => l.e.id)])).toEqual([
+      ['11월 14일 (토)', '오늘', ['출장', '워크숍', '데일리', '점검']],
+      ['11월 16일 (월)', null, ['주간회의']],
     ])
   })
 
@@ -86,9 +86,25 @@ describe('다음 7일 일정 카드', () => {
     expect(r.groups.map((g) => g.day)).toEqual(['2026-11-14', '2026-11-16', '2026-11-19', '2026-11-20'])
   })
 
-  it('날짜 이름: 오늘·내일·요일', () => {
-    expect(dayLabel('2026-11-15', '2026-11-14')).toBe('내일 · 11/15 (일)')
-    expect(dayLabel('2026-11-30', '2026-11-14')).toBe('11/30 (월)')
+  it('날짜 머리: 월·일·요일, 오늘·내일만 옆에 작게', () => {
+    expect(dayLabel('2026-11-30')).toBe('11월 30일 (월)')
+    expect(dayRel('2026-11-14', '2026-11-14')).toBe('오늘')
+    expect(dayRel('2026-11-15', '2026-11-14')).toBe('내일')
+    expect(dayRel('2026-11-30', '2026-11-14')).toBeNull()
+  })
+
+  it('줄 모양(삼성 캘린더처럼): 왼쪽 12시 시각, 아래 줄 오전·오후 범위·장소', () => {
+    expect(weekStart(ev('a', at('2026-11-14', '13:30'), at('2026-11-14', '14:30')))).toBe('1:30')
+    expect(weekStart(ev('b', at('2026-11-14', '00:05'), at('2026-11-14', '12:00')))).toBe('12:05')
+    expect(weekStart(ev('c', '2026-11-14', '2026-11-15', true))).toBeNull()
+    expect(weekSub(ev('d', at('2026-11-14', '11:30'), at('2026-11-14', '12:30')))).toBe('오전 11:30 - 오후 12:30')
+    expect(weekSub({ ...ev('e', at('2026-11-14', '08:00'), at('2026-11-14', '09:00')), location: '본사 6층 회의실' })).toBe('오전 8:00 - 오전 9:00 · 본사 6층 회의실')
+  })
+
+  it('종일: 하루면 하루 종일, 여러 날이면 첫날 - 끝날(Google 끝 날은 다음 날)', () => {
+    expect(weekSub(ev('a', '2026-11-14', '2026-11-15', true))).toBe('하루 종일')
+    expect(weekSub(ev('b', '2026-11-13', '2026-11-16', true))).toBe('11월 13일 - 11월 15일')
+    expect(weekSub({ ...ev('c', '2026-11-30', '2026-12-02', true), location: '제주' })).toBe('11월 30일 - 12월 1일 · 제주')
   })
 })
 
