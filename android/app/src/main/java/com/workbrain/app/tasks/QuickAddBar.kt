@@ -3,6 +3,9 @@ package com.workbrain.app.tasks
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import com.workbrain.app.ui.dashedPill
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -182,8 +185,8 @@ class QuickAdd(
     val error: String?,
     /** 해석한 그대로 바로 넣기 */
     val add: () -> Unit,
-    /** 새 할 일 서랍에서 고친 값으로 넣기(DEC-73 '자세히'). 실패 이유는 서랍 안에 보여 준다 */
-    val addEdited: (edit: TaskEdit, onSaved: () -> Unit, onFailed: (String) -> Unit) -> Unit,
+    /** 새 할 일 서랍에서 고친 값으로 넣기(DEC-73 '자세히'). 실패 이유는 서랍 안에 보여 준다. calendar = 서랍의 [캘린더에도 넣기] */
+    val addEdited: (edit: TaskEdit, calendar: Boolean, onSaved: () -> Unit, onFailed: (String) -> Unit) -> Unit,
     /** '#'이 여러 곳에 걸릴 때 후보 칩을 누르면 입력의 '#…'을 그 이름으로 바꾼다(DEC-80) */
     val pickPlace: (Place) -> Unit,
     /** 이 입력 줄의 이름(today·all·place:…). 말로 넣기 결과가 이 줄로 온다(DEC-89) */
@@ -194,16 +197,23 @@ class QuickAdd(
     val voiceMessage: VoiceInput.Message?,
     /** 지금 글이 말로 넣은 것이라 키보드 없이 미리보기 카드를 띄워 둘 때(사용자 선택 11/11) */
     val fromVoice: Boolean,
+    /**
+     * [캘린더에도] 칩(FR-24a): 구글 캘린더를 연결했고 기한 날짜를 읽었을 때만 보인다(calendarShown).
+     * 매번 꺼진 채 시작하고 기억하지 않는다(넣거나 입력을 비우면 다시 꺼짐)
+     */
+    val calendarShown: Boolean,
+    val calendarOn: Boolean,
+    val toggleCalendar: () -> Unit,
 )
 
 /**
  * places: 보관 안 된 프로젝트·반복실행(# 찾기·마지막에 넣은 곳 확인).
  * fixedPlace: 상세 화면이면 그곳('#'이 없을 때). null이면 이 기기에서 마지막에 넣거나 옮긴 곳(DEC-70·91).
  * noDueMeansToday: 오늘 탭(기한을 안 적으면 오늘). draftKey: 입력 줄 이름(적던 글·말로 넣기 결과를 화면 밖에 두는 열쇠).
- * onAdded: 넣은 뒤 — 화면은 다시 읽고 알림을 띄운다. 저장이 안 되면 입력을 그대로 둔다(목업 '미저장 표시')
+ * onAdded(넣은 것, 캘린더 알림 끝말): 넣은 뒤 — 화면은 다시 읽고 알림을 띄운다. 저장이 안 되면 입력을 그대로 둔다(목업 '미저장 표시')
  */
 @Composable
-fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: Boolean, draftKey: String, onAdded: (QuickTask) -> Unit): QuickAdd {
+fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: Boolean, draftKey: String, onAdded: (QuickTask, String) -> Unit): QuickAdd {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val text = QuickDrafts.get(draftKey)
@@ -226,19 +236,25 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
     val parsed = remember(text, places, fixedPlace, remembered, shownDay, noDueMeansToday) {
         QuickParse.parse(text, shownDay, places, fixedPlace ?: remembered, noDueMeansToday)
     }
+    val calendarStatus = CalendarStore.state.collectAsStateWithLifecycle().value.status
+    var calendarOn by remember { mutableStateOf(false) }
+    val calendarShown = calendarStatus == CalendarStatus.ON && parsed.dueDate != null
 
     /** 서버에 넣고, 넣은 곳을 기억하고, 입력을 비운다. 다른 기기에서 그곳을 막 보관했으면 서버가 WB409로 막는다 → 그 이유를 쓴다 */
-    fun insert(edit: TaskEdit, onSaved: () -> Unit, onFailed: (String) -> Unit) {
+    fun insert(edit: TaskEdit, calendar: Boolean, onSaved: () -> Unit, onFailed: (String) -> Unit) {
         saving = true
         scope.launch {
             runCatching { Server.createTask(edit.toNewTaskFields()) }
-                .onSuccess {
+                .onSuccess { id ->
                     val r = edit.toQuickTask(places)
                     QuickAddMemory.save(context, r.place)
                     setText("")
                     fromVoice = false
+                    calendarOn = false
                     onSaved()
-                    onAdded(r)
+                    // 할 일은 이미 들어갔으니 캘린더에 못 넣어도 알림 끝에 이유만 붙인다
+                    val calText = if (calendar) CalendarStore.apply(id, CalendarIntent.ADD) else ""
+                    onAdded(r, calText)
                 }
                 .onFailure { onFailed(if (it.message.orEmpty().contains("아카이브")) saveFailText(it) else UNSAVED_TEXT) }
             saving = false
@@ -255,11 +271,11 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
         }
         if (parsed.title.isBlank()) { error = "할 일 제목을 입력해 주세요"; return }
         error = null
-        insert(parsed.toEdit(), onSaved = {}, onFailed = { error = it })
+        insert(parsed.toEdit(), calendar = calendarShown && calendarOn, onSaved = {}, onFailed = { error = it })
     }
 
-    fun addEdited(edit: TaskEdit, onSaved: () -> Unit, onFailed: (String) -> Unit) {
-        if (!saving) insert(edit, onSaved, onFailed)
+    fun addEdited(edit: TaskEdit, calendar: Boolean, onSaved: () -> Unit, onFailed: (String) -> Unit) {
+        if (!saving) insert(edit, calendar, onSaved, onFailed)
     }
 
     fun pickPlace(place: Place) {
@@ -272,7 +288,7 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
         setText(value)
         error = null
         VoiceInput.clearMessage(draftKey)
-        if (value.isEmpty()) fromVoice = false
+        if (value.isEmpty()) { fromVoice = false; calendarOn = false }
     }
 
     return QuickAdd(
@@ -282,6 +298,9 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
         partial = if (mine) voice.partial else "",
         voiceMessage = voice.message.takeIf { mine },
         fromVoice = fromVoice && text.isNotBlank(),
+        calendarShown = calendarShown,
+        calendarOn = calendarOn,
+        toggleCalendar = { calendarOn = !calendarOn },
     )
 }
 
@@ -295,7 +314,7 @@ fun QuickAddBar(
     places: List<Place>,
     modifier: Modifier = Modifier,
     fixedPlace: Place? = null,
-    onAdded: (QuickTask) -> Unit,
+    onAdded: (QuickTask, String) -> Unit,
 ) {
     val quick = rememberQuickAdd(places, fixedPlace, noDueMeansToday = false, draftKey = "place:${fixedPlace?.type?.table}:${fixedPlace?.id}", onAdded)
     // 마이크를 길게 눌러 녹음하면 이 프로젝트를 녹음 프로젝트로 미리 고른다. 반복실행은 녹음 화면에서 고를 수 없어 '나중에'(11/11 사용자 선택)
@@ -335,7 +354,7 @@ fun QuickAddBar(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            if (quick.text.isNotBlank()) QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace)
+            if (quick.text.isNotBlank()) { QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace); CalendarChip(quick) }
         }
         quick.error?.let { Text(it, fontSize = 12.sp, color = Wb.colors.crit, modifier = Modifier.padding(top = 6.dp)) }
         Spacer(Modifier.height(10.dp))
@@ -379,6 +398,30 @@ fun QuickPreview(r: QuickTask, today: LocalDate, onPickPlace: (Place) -> Unit) {
     r.assignee?.let { QuickChip(WbIcons.Person, "$it · 팔로업") }
     r.warnings.forEach { QuickChip(WbIcons.Alert, it, warn = true) }
     r.placeChoices.forEach { PlaceChoiceChip(it) { onPickPlace(it) } }
+}
+
+/**
+ * [캘린더에도] 켜기 칩(FR-24a, 목업 .qc-cal): 미리보기 칩 줄 끝. 꺼짐 = 점선 테두리, 켜짐 = '✓ 캘린더에도'(파랑).
+ * 구글 캘린더를 연결했고 기한 날짜를 읽었을 때만 보인다
+ */
+@Composable
+fun CalendarChip(quick: QuickAdd) {
+    if (!quick.calendarShown) return
+    val on = quick.calendarOn
+    Row(
+        Modifier.heightIn(min = 32.dp).clip(PillShape)
+            .toggleable(value = on, role = Role.Switch, onValueChange = { quick.toggleCalendar() })
+            .background(if (on) Wb.colors.infoSoft else Wb.colors.card, PillShape)
+            .then(if (on) Modifier.border(1.dp, Wb.colors.info.copy(alpha = 0.35f), PillShape) else Modifier.dashedPill(Wb.colors.info.copy(alpha = 0.6f)))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(WbIcons.Calendar, contentDescription = null, tint = Wb.colors.info, modifier = Modifier.size(12.dp))
+        Text(
+            if (on) "✓ 캘린더에도" else "캘린더에도", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Wb.colors.info,
+            maxLines = 1, modifier = Modifier.padding(start = 4.dp),
+        )
+    }
 }
 
 /** '#' 후보 칩(DEC-80): 누를 수 있게 미리보기 칩보다 크게, 파란 테두리 */

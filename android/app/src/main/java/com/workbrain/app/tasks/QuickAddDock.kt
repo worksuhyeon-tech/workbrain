@@ -28,6 +28,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -76,7 +77,7 @@ fun QuickAddDock(
     draftKey: String,
     modifier: Modifier = Modifier,
     noDueMeansToday: Boolean = false,
-    onAdded: (QuickTask) -> Unit,
+    onAdded: (QuickTask, String) -> Unit,
 ) {
     val quick = rememberQuickAdd(places, fixedPlace = null, noDueMeansToday, draftKey, onAdded)
     val focusRequester = remember { FocusRequester() }
@@ -143,10 +144,14 @@ fun QuickAddDock(
     }
 
     detail?.let { e ->
+        // 새 할 일 서랍에도 '캘린더' 줄(FR-24a). 빠른 입력에서 [캘린더에도]를 켰으면 켜진 채로 연다
+        val calendarState by CalendarStore.state.collectAsStateWithLifecycle()
         TaskEditSheet(
             e, places, currentPlaceName = null, error = detailError, saving = quick.saving,
             onDismiss = { detail = null }, isNew = true,
-        ) { edited -> quick.addEdited(edited, { detail = null }, { detailError = it }) }
+            calendar = calendarFieldOf(calendarState, null),
+            calendarStartOn = quick.calendarShown && quick.calendarOn,
+        ) { edited, cal -> quick.addEdited(edited, cal == CalendarIntent.ADD, { detail = null }, { detailError = it }) }
     }
 }
 
@@ -171,7 +176,7 @@ private fun TypingCard(quick: QuickAdd, showHelp: Boolean, showDetail: Boolean, 
                     Modifier.fillMaxWidth().padding(end = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) { QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace) }
+                ) { QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace); CalendarChip(quick) }
             }
             VoiceStatus(quick, Modifier.padding(top = if (quick.text.isNotBlank()) 6.dp else 0.dp, end = 8.dp))
             if (showHelp) Box(Modifier.padding(end = 8.dp)) { QuickHint() }

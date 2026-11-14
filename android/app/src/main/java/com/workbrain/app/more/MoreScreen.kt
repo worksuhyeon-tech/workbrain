@@ -45,6 +45,7 @@ import com.workbrain.app.record.AttendeesEditor
 import com.workbrain.app.record.SharedImport
 import com.workbrain.app.record.RecStatus
 import com.workbrain.app.record.RecordingService
+import com.workbrain.app.tasks.CalendarStore
 import com.workbrain.app.ui.GlassIcon
 import com.workbrain.app.ui.GlassTint
 import com.workbrain.app.ui.PageHeader
@@ -62,7 +63,7 @@ import kotlinx.coroutines.launch
 private enum class MorePage { VOCAB, GUIDELINE, WORK_PLAN }
 
 /**
- * 더보기: 계정(로그아웃·내 이름)·이번 달 AI 비용·내 용어집·회의록 지침·업무계획·앱 정보(글꼴 라이선스).
+ * 더보기: 계정(로그아웃·내 이름)·이번 달 AI 비용·내 용어집·회의록 지침·업무계획·구글 캘린더(FR-24a)·앱 정보(글꼴 라이선스).
  * 펼친 화면은 왼쪽 메뉴 / 오른쪽 고른 항목(목업 S09).
  * startPlan: 오늘 탭(화요일 카드·⋮ 업무계획)에서 넘어오면 그 종류(주간·월간)의 업무계획을 바로 연다(FR-33). 한 번 쓰면 onStartUsed로 비운다.
  * 그렇게 연 업무계획은 '← 오늘'·뒤로 가기가 오늘 탭으로 돌아간다(DEC-94, onBackToToday)
@@ -81,6 +82,10 @@ fun MoreScreen(startPlan: PlanKind? = null, onStartUsed: () -> Unit = {}, onBack
     val shared by SharedImport.pending.collectAsStateWithLifecycle()
     val incomingZip = (shared as? SharedImport.Item.SkillZip)?.uri
     LaunchedEffect(incomingZip) { if (incomingZip != null) opened = MorePage.GUIDELINE }
+    // 구글 캘린더 허락에서 돌아오면 결과를 알리는 메뉴 화면('구글 캘린더' 칸)을 보인다(FR-24a)
+    val calendarResult by CalendarStore.connectResult.collectAsStateWithLifecycle()
+    val wide = isWideWindow()
+    LaunchedEffect(calendarResult) { if (calendarResult != null && !wide) opened = null }
 
     val page: @Composable (onBack: (() -> Unit)?) -> Unit = { onBack ->
         when (opened) {
@@ -224,6 +229,10 @@ private fun MoreMenu(openedPage: MorePage?, onOpen: (MorePage) -> Unit) {
         WbCard(padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
             InfoRow("주간·월간 업무계획", "회사 양식 표 ›") { onOpen(MorePage.WORK_PLAN) }
         }
+
+        // 구글 캘린더(FR-24a): 목업 설정 순서처럼 회의록·업무계획 다음
+        SectionLabel("구글 캘린더")
+        CalendarSection()
 
         SectionLabel("앱 정보")
         WbCard {

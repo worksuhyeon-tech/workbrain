@@ -43,6 +43,13 @@ import com.workbrain.app.data.Server
 import com.workbrain.app.data.TaskEdit
 import com.workbrain.app.data.TaskRow
 import com.workbrain.app.data.toEdit
+import com.workbrain.app.tasks.CalendarDeleteAskHost
+import com.workbrain.app.tasks.CalendarIntent
+import com.workbrain.app.tasks.CalendarStore
+import com.workbrain.app.tasks.DELETE_EVENTS_TAIL
+import com.workbrain.app.tasks.calendarFieldOf
+import com.workbrain.app.tasks.deleteTaskWithEvents
+import com.workbrain.app.tasks.rememberCalendarDeleteAsk
 import com.workbrain.app.tasks.QUICK_DOCK_SPACE
 import com.workbrain.app.tasks.QuickAddMemory
 import com.workbrain.app.tasks.RecipientsSheet
@@ -96,6 +103,8 @@ sealed interface ParaEvent {
     data class QuickAdded(val message: String) : ParaEvent
     /** 펼친 하위 줄 끝·수정 서랍의 '+ 하위 할 일' 한 줄(FR-23a) */
     data class AddSubtask(val parent: TaskRow, val text: String) : ParaEvent
+    /** '다음 7일 일정' 카드의 [다시 연결](구글 캘린더 연결이 끊김, FR-24a): 더보기로 */
+    data object OpenMore : ParaEvent
 }
 
 /** 아카이브 전에 묻기: 안 끝난 할 일이 '오늘'·'모든 할 일'에서 빠진다는 것을 알린다(DEC-65) */
@@ -117,6 +126,7 @@ fun ProjectsScreen(
     onStartUsed: () -> Unit = {},
     onOpenRecord: (recordId: String, title: String, returnKey: String?) -> Unit = { _, _, _ -> },
     onSearch: (Place?) -> Unit,
+    onOpenMore: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -154,8 +164,13 @@ fun ProjectsScreen(
     var taskError by remember { mutableStateOf<String?>(null) }
     var taskSaving by remember { mutableStateOf(false) }
     var recipientsTask by remember { mutableStateOf<TaskRow?>(null) }
+    // 구글 캘린더(FR-24a): 연결 상태·넣은 할 일, 지울 때 '캘린더 일정도 지울까요?'
+    val calendar by CalendarStore.state.collectAsStateWithLifecycle()
+    val calendarAsk = rememberCalendarDeleteAsk()
 
     suspend fun load() {
+        // 캘린더 연결 상태·넣은 할 일도 함께 다시 읽는다(고친 할 일이 있으면 그때 캘린더에 반영, Design §3.16)
+        CalendarStore.refreshLater()
         runCatching { Para.load() }
             .onSuccess { d ->
                 data = d; loadFailed = false
@@ -240,7 +255,8 @@ fun ProjectsScreen(
         Server.task(t.id)?.let { cur -> Server.updateTask(cur, cur.toEdit().copy(projectId = t.projectId, areaId = t.areaId)) }
     }
 
-    fun saveTask(t: TaskRow, e: TaskEdit) {
+    /** 서랍 저장. 저장이 된 뒤에만 캘린더를 처리한다(넣기·연결 끊기·일정 지우기, FR-24a) */
+    fun saveTask(t: TaskRow, e: TaskEdit, cal: CalendarIntent) {
         val d = data ?: return
         taskSaving = true
         scope.launch {
@@ -249,6 +265,7 @@ fun ProjectsScreen(
             result.fold(
                 onSuccess = { row ->
                     editingTask = null
+                    val calText = if (row != null) CalendarStore.apply(t.id, cal) else ""
                     load()
                     val moved = e.projectId != t.projectId || e.areaId != t.areaId
                     val to = d.places.firstOrNull { it.id == (e.projectId ?: e.areaId) }
@@ -256,10 +273,10 @@ fun ProjectsScreen(
                     if (row != null && moved) QuickAddMemory.save(context, to)
                     when {
                         row == null -> announcer.show(CONFLICT_TEXT)
-                        moved -> announcer.show(movedText(to)) {
+                        moved -> announcer.show(movedText(to) + calText) {
                             act("되돌렸어요", work = moveBack(t))
                         }
-                        else -> announcer.show("수정했어요 · 변경 이력에 남아요")
+                        else -> announcer.show("수정했어요 · 변경 이력에 남아요$calText")
                     }
                 },
                 // 서랍을 닫지 않고 입력을 그대로 둔다(목업 '미저장 표시'). 아카이브된 곳으로 옮기려 했으면 그 이유를 쓴다
@@ -286,21 +303,29 @@ fun ProjectsScreen(
         }
     }
 
-    /** 고른 할 일을 지운다: 줄은 바로 빠지고, 3초 '되돌리기'가 지나면 서버에서 지운다(DEC-90) */
+    /**
+     * 고른 할 일을 지운다: 줄은 바로 빠지고, 3초 '되돌리기'가 지나면 서버에서 지운다(DEC-90).
+     * 지우는 것(하위 포함) 가운데 캘린더에 넣은 할 일이 있으면 먼저 '캘린더 일정도 지울까요?'(닫으면 지우지 않음)
+     */
     fun deleteSelected() {
         val picked = pickedTasks()
         if (picked.isEmpty()) return
-        selection.stop()
-        picked.forEach(TaskDeletes::delete)
-        val subs = picked.sumOf { p -> data?.without(hidden)?.subtasksOf(p.id)?.size ?: 0 }
-        announcer.show(deletedText(picked, subs)) { picked.forEach { TaskDeletes.undo(it.id) } }
+        val kidsOf = { p: TaskRow -> data?.without(hidden)?.subtasksOf(p.id).orEmpty() }
+        calendarAsk.confirm(picked + picked.flatMap(kidsOf)) { deleteEvents ->
+            selection.stop()
+            picked.forEach { deleteTaskWithEvents(it, kidsOf(it), deleteEvents) }
+            val subs = picked.sumOf { kidsOf(it).size }
+            announcer.show(deletedText(picked, subs) + if (deleteEvents) DELETE_EVENTS_TAIL else "") { picked.forEach { TaskDeletes.undo(it.id) } }
+        }
     }
 
     /** 하위 서랍의 [하위 할 일 삭제](DEC-101 ⑦): 서랍을 닫아 '되돌리기' 알림이 보이게 하고, 3초 뒤 서버에서 지운다 */
     fun deleteSubtask(t: TaskRow) {
         editingTask = null
-        TaskDeletes.delete(t)
-        announcer.show(deletedText(listOf(t))) { TaskDeletes.undo(t.id) }
+        calendarAsk.confirm(listOf(t)) { deleteEvents ->
+            deleteTaskWithEvents(t, emptyList(), deleteEvents)
+            announcer.show(deletedText(listOf(t)) + if (deleteEvents) DELETE_EVENTS_TAIL else "") { TaskDeletes.undo(t.id) }
+        }
     }
 
     /** 받는 사람만 저장(다른 칸은 지금 값 그대로). 실패하면 서랍을 닫지 않고 띠를 보여 준다 */
@@ -346,6 +371,7 @@ fun ProjectsScreen(
             }
             is ParaEvent.EditLinks -> linkFor = e.resourceId
             is ParaEvent.QuickAdded -> scope.launch { load(); announcer.show(e.message) }
+            ParaEvent.OpenMore -> onOpenMore()
             is ParaEvent.AddSubtask -> {
                 val edit = parseSubtask(e.text, LocalDate.now(SEOUL)) ?: return
                 // 끝낸 상위에 넣으면 서버가 상위를 다시 연다(DEC-101 ③)
@@ -576,9 +602,11 @@ fun ProjectsScreen(
                 onAddSub = if (d.inArchived(t)) null else { text -> onEvent(ParaEvent.AddSubtask(t, text)) },
                 // 보관된 곳은 상위도 고르지 못하므로(선택 막힘) 하위 삭제도 막는다
                 onDelete = if (t.isSubtask && !d.inArchived(t)) { { deleteSubtask(t) } } else null,
-            ) { e -> saveTask(t, e) }
+                calendar = calendarFieldOf(calendar, t.id),
+            ) { e, cal -> saveTask(t, e, cal) }
         }
     }
+    CalendarDeleteAskHost(calendarAsk)
     recipientsTask?.let { t ->
         RecipientsSheet(
             t.recipients, d.sources[t.id]?.recordId, d.usedNames, saving = taskSaving, error = taskError,

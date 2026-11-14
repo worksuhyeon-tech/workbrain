@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -118,6 +119,7 @@ fun TaskLine(
     val late = isLate(t, today)
     val selecting = selected != null
     val mark = priorityMarkOf(t)
+    val calendarLinks = CalendarStore.state.collectAsStateWithLifecycle().value.links
     Row(
         modifier.fillMaxWidth()
             .background(if (selected == true) Wb.colors.primary.copy(alpha = 0.08f) else Color.Transparent)
@@ -188,6 +190,10 @@ fun TaskLine(
                     textDecoration = if (t.done) TextDecoration.LineThrough else null,
                 )
             }
+        }
+        // 구글 캘린더에 넣은 할 일: 기한 칩 앞 작은 캘린더 아이콘(오늘 일정 카드에서는 빼는 대신, 11/14 결정 ②)
+        if (t.id in calendarLinks) {
+            Icon(WbIcons.Calendar, contentDescription = "캘린더에 넣은 할 일", tint = Wb.colors.info, modifier = Modifier.padding(start = 6.dp).size(14.dp))
         }
         WbChip(
             rowDue(t, today),

@@ -70,6 +70,7 @@ import com.workbrain.app.data.PlaceType
 import com.workbrain.app.data.ProjectRow
 import com.workbrain.app.data.ResourceRow
 import com.workbrain.app.data.TaskRow
+import com.workbrain.app.tasks.WeekEventsCard
 import com.workbrain.app.tasks.UNSORTED
 import com.workbrain.app.ui.ControlShape
 import com.workbrain.app.ui.GlassTint
@@ -366,8 +367,8 @@ private fun TasksCard(title: String, d: ParaData, drag: ParaDragState, place: Pl
         }
         // 고르는 중에는 넣지 않는다(아래 [이동][삭제] 막대와 헷갈리지 않게)
         if (!readOnly && selection?.active != true) {
-            QuickAddBar(d.places, Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp), fixedPlace = place) { r ->
-                onEvent(ParaEvent.QuickAdded(quickAddedText(r)))
+            QuickAddBar(d.places, Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp), fixedPlace = place) { r, calText ->
+                onEvent(ParaEvent.QuickAdded(quickAddedText(r) + calText))
             }
         }
         if (tasks.isEmpty()) {
@@ -777,6 +778,10 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
                     ) { owner = it }
                 }
             }
+            // 다음 7일 일정(FR-24a): '다음 7일' 탭 묶음 위, 구글 캘린더를 연결했을 때만. 처음 5개 + 더(11/14 사용자)
+            if (range == "next7" && selection?.active != true) item(key = "week-events") {
+                WeekEventsCard(refreshKey = 0, onReconnect = { onEvent(ParaEvent.OpenMore) })
+            }
             if (groups.isEmpty()) item(key = "empty") {
                 MockCard {
                     EmptyNote(
@@ -821,14 +826,14 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
             }
         }
         // 고르는 중에는 같은 자리에 ProjectsScreen이 [이동][삭제] 막대를 그린다
-        if (selection?.active != true) QuickAddDock(d.places, draftKey = "all", Modifier.align(Alignment.BottomCenter)) { r ->
+        if (selection?.active != true) QuickAddDock(d.places, draftKey = "all", Modifier.align(Alignment.BottomCenter)) { r, calText ->
             val ownerHere = ownerIn(r.assignee != null, owner)
             val where = when {
                 ownerHere && dayInRange(r.dueDate, range, today) -> ""
                 ownerHere && range == "next7" && r.dueDate == null -> " · 맨 아래 ‘기한 없음’에 있어요"
                 else -> " · 지금 고른 탭 밖이라 ‘전체’에서 보여요"
             }
-            onEvent(ParaEvent.QuickAdded(quickAddedText(r) + where))
+            onEvent(ParaEvent.QuickAdded(quickAddedText(r) + where + calText))
         }
     }
 }

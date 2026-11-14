@@ -1,5 +1,6 @@
 package com.workbrain.app.tasks
 
+import android.util.Log
 import com.workbrain.app.data.Server
 import com.workbrain.app.data.TaskRow
 import com.workbrain.app.ui.TOAST_MS
@@ -36,11 +37,16 @@ object TaskDeletes {
     /** 지우지 못했을 때 알릴 문구. 화면이 받아 띄우고 consumeFailure로 비운다. 그 할 일은 목록에 다시 보인다 */
     val failed: StateFlow<String?> = _failed
 
-    fun delete(t: TaskRow) {
+    /**
+     * beforeCommit: 되돌리기가 끝나 서버에서 지우기 바로 전에 할 일(캘린더 일정 지우기, FR-24a).
+     * 할 일을 지우면 일정 연결(task_calendar)이 함께 지워져 그 뒤에는 어느 일정인지 알 수 없어서 먼저 한다. 실패해도 할 일은 지운다
+     */
+    fun delete(t: TaskRow, beforeCommit: (suspend () -> Unit)? = null) {
         if (t.id in waiting) return
         _hidden.update { it + t.id }
         waiting[t.id] = scope.launch {
             delay(COMMIT_MS)
+            beforeCommit?.let { step -> runCatching { step() }.onFailure { Log.w("WbTaskDeletes", "before delete step failed", it) } }
             val result = runCatching { Server.deleteTask(t) }
             waiting.remove(t.id)
             result

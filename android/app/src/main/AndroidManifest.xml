@@ -60,6 +60,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="workbrain" android:host="login-callback" />
             </intent-filter>
+            <!-- 구글 캘린더 허락 뒤 서버가 돌려보내는 주소: workbrain://calendar-callback?calendar=결과(FR-24a) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="workbrain" android:host="calendar-callback" />
+            </intent-filter>
         </activity>
 
         <service

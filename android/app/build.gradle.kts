@@ -70,6 +70,8 @@ dependencies {
     implementation("io.github.jan-tennert.supabase:storage-kt")
     implementation("io.github.jan-tennert.supabase:functions-kt")
     implementation("io.ktor:ktor-client-okhttp:3.1.2")
+    // 구글 캘린더 허락 화면을 Google 로그인처럼 앱 안 브라우저 탭으로 연다(FR-24a). 로그인 라이브러리가 이미 쓰는 판과 같다
+    implementation("androidx.browser:browser:1.8.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 

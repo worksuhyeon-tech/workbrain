@@ -23,6 +23,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -91,6 +93,9 @@ private val PRIOS = listOf(SegItem("1", "높음"), SegItem("2", "보통"), SegIt
  * 하위 할 일(FR-23a): parentTitle이 있으면 하위의 서랍 — 곳·우선순위 칸 없이(상위를 따름). subtasks가 있으면(상위·보통 할 일)
  * 아래 '하위 할 일' 칸: 줄을 누르면 onOpenSub(그 하위 서랍으로), 체크는 onToggleSub, 한 줄 입력은 onAddSub
  * onDelete가 있으면 맨 아래 [하위 할 일 삭제](DEC-101 ⑦). 상위는 ⋮ › 선택 › 삭제로만 지우므로 하위 서랍에만 넘긴다
+ * calendar(FR-24a, Design §3.16): 기한 아래 '캘린더' 줄 [캘린더에도 넣기]. null이면(연결 상태를 아직 못 읽음) 줄을 숨긴다.
+ * 이미 넣은 할 일을 끄거나 기한을 지우고 저장하면 저장하기 전에 '캘린더 일정도 지울까요?'를 묻고(닫으면 저장 안 함),
+ * onSave에 캘린더에 할 일(CalendarIntent)을 함께 넘긴다 — 화면은 저장이 된 뒤에만 넣기·연결 끊기·일정 지우기를 한다
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,7 +115,10 @@ fun TaskEditSheet(
     onOpenSub: (TaskRow) -> Unit = {},
     onAddSub: ((String) -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
-    onSave: (TaskEdit) -> Unit,
+    calendar: CalendarField? = null,
+    /** 새 할 일 서랍: 빠른 입력에서 [캘린더에도]를 켜고 '자세히 ›'로 왔으면 켜진 채로 연다 */
+    calendarStartOn: Boolean = false,
+    onSave: (TaskEdit, CalendarIntent) -> Unit,
 ) {
     val timed = task.dueTime?.let { runCatching { OffsetDateTime.parse(it).atZoneSameInstant(SEOUL) }.getOrNull() }
     var title by remember { mutableStateOf(task.title) }
@@ -130,6 +138,10 @@ fun TaskEditSheet(
     LaunchedEffect(recordId) { recordPeople = loadRecordPeople(recordId) }
     var pickingDate by remember { mutableStateOf(false) }
     var pickingTime by remember { mutableStateOf(false) }
+    // 고르기 전에는 '이미 넣었는지'를 따른다 — 연결 상태를 읽기 전에 연 서랍도 읽은 뒤 맞게 켜지도록(웹과 같음)
+    var calPicked by remember { mutableStateOf(if (calendarStartOn) true else null) }
+    val calOn = calPicked ?: (calendar?.linked == true)
+    var askingCalendar by remember { mutableStateOf(false) }
 
     val valid = title.isNotBlank() && (owner != "other" || assignee.isNotBlank()) &&
         (dueKind != "date" || date != null) && (dueKind != "time" || (date != null && time != null))
@@ -140,6 +152,27 @@ fun TaskEditSheet(
         else -> currentPlaceName ?: "보관된 곳"
     }
     val placeType = chosen?.type ?: when { projectId != null -> PlaceType.PROJECT; areaId != null -> PlaceType.AREA; else -> null }
+    // 캘린더에 넣으려면 기한 날짜가 있어야 한다(모호·없음은 못 넣음)
+    val hasDate = (dueKind == "date" || dueKind == "time") && date != null
+
+    fun edit(): TaskEdit {
+        val d = date
+        val t = time
+        return TaskEdit(
+            title = title.trim(),
+            // 하위는 우선순위 칸이 없어 원래 값 그대로
+            priority = if (parentTitle != null) task.priority else priority.toInt(),
+            ownerKind = owner,
+            assignee = if (owner == "other") assignee.trim() else null,
+            dueDate = if (hasDate && d != null) d.toString() else null,
+            dueTime = if (dueKind == "time" && d != null && t != null) ZonedDateTime.of(d, t, SEOUL).toOffsetDateTime().toString() else null,
+            dueAmbiguous = dueKind == "vague",
+            dueText = if (dueKind == "vague") vague.trim().ifEmpty { "미정" } else null,
+            projectId = projectId,
+            areaId = areaId,
+            recipients = recipients,
+        )
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -206,6 +239,19 @@ fun TaskEditSheet(
                 "time" -> Note("시각은 서울 시간으로 표시해요.")
                 "vague" -> Note("모호한 기한은 날짜로 바꾸지 않고 '확인 필요'로 둬요.")
             }
+            calendar?.let { c ->
+                Label("캘린더")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = calOn,
+                        onCheckedChange = { calPicked = it },
+                        enabled = c.connected && hasDate,
+                        colors = SwitchDefaults.colors(checkedTrackColor = Wb.colors.primary),
+                    )
+                    Text("캘린더에도 넣기", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.ink, modifier = Modifier.padding(start = 10.dp))
+                }
+                calendarNote(c.connected, c.linked, calOn, hasDate, withTime = dueKind == "time").takeIf { it.isNotEmpty() }?.let { Note(it) }
+            }
 
             if (parentTitle == null) {
                 Label("우선순위")
@@ -222,24 +268,13 @@ fun TaskEditSheet(
                 PrimaryButton(
                     when { saving && isNew -> "추가 중…"; saving -> "저장 중…"; isNew -> "추가"; else -> "저장" },
                     enabled = valid && !saving, modifier = Modifier.weight(1f), onClick = {
-                    val d = date
-                    val t = time
-                    onSave(
-                        TaskEdit(
-                            title = title.trim(),
-                            // 하위는 우선순위 칸이 없어 원래 값 그대로
-                            priority = if (parentTitle != null) task.priority else priority.toInt(),
-                            ownerKind = owner,
-                            assignee = if (owner == "other") assignee.trim() else null,
-                            dueDate = if ((dueKind == "date" || dueKind == "time") && d != null) d.toString() else null,
-                            dueTime = if (dueKind == "time" && d != null && t != null) ZonedDateTime.of(d, t, SEOUL).toOffsetDateTime().toString() else null,
-                            dueAmbiguous = dueKind == "vague",
-                            dueText = if (dueKind == "vague") vague.trim().ifEmpty { "미정" } else null,
-                            projectId = projectId,
-                            areaId = areaId,
-                            recipients = recipients,
-                        ),
-                    )
+                    when (calendar?.let { calendarPlan(it.connected, it.linked, calOn, hasDate) } ?: CalendarPlan.NONE) {
+                        // 이미 넣은 일정을 끄거나 기한을 지웠으면 저장하기 전에 묻는다
+                        CalendarPlan.ASK -> askingCalendar = true
+                        CalendarPlan.ADD -> onSave(edit(), CalendarIntent.ADD)
+                        CalendarPlan.KEEP -> onSave(edit(), CalendarIntent.KEEP)
+                        CalendarPlan.NONE -> onSave(edit(), CalendarIntent.NONE)
+                    }
                 })
             }
             // 잘못 넣은 하위를 상위째 지우지 않고 하나만 없애는 길(DEC-101 ⑦). 서랍은 닫히고 3초 '되돌리기'가 뜬다
@@ -254,7 +289,25 @@ fun TaskEditSheet(
 
     if (pickingDate) DatePickDialog(date, onDismiss = { pickingDate = false }) { date = it; pickingDate = false }
     if (pickingTime) TimePickDialog(time, onDismiss = { pickingTime = false }) { time = it; pickingTime = false }
+    // 닫으면(바깥·뒤로 가기) 저장하지 않고 서랍으로 — 아무것도 바뀌지 않음
+    if (askingCalendar) {
+        CalendarAskDialog(
+            askSaveText(title.trim(), hasDate),
+            onAnswer = { deleteEvent ->
+                askingCalendar = false
+                onSave(edit(), if (deleteEvent) CalendarIntent.DELETE else CalendarIntent.UNLINK)
+            },
+            onDismiss = { askingCalendar = false },
+        )
+    }
 }
+
+/** 서랍 '캘린더' 줄에 필요한 것: 연결돼 있는지(ON), 이 할 일을 이미 넣었는지 */
+data class CalendarField(val connected: Boolean, val linked: Boolean)
+
+/** 화면이 넘길 '캘린더' 줄. 연결 상태를 아직 못 읽었으면 null(줄 숨김) */
+fun calendarFieldOf(state: CalendarStore.State, taskId: String?): CalendarField? =
+    state.status?.let { CalendarField(connected = it == CalendarStatus.ON, linked = taskId != null && taskId in state.links) }
 
 /** 목업 .field label: 굵은 진한 글씨 */
 @Composable

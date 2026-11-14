@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -75,6 +76,14 @@ import com.workbrain.app.record.RecordingStore
 import com.workbrain.app.record.UploadManager
 import com.workbrain.app.record.UploadProgress
 import com.workbrain.app.review.Snooze
+import com.workbrain.app.tasks.CalendarDeleteAskHost
+import com.workbrain.app.tasks.CalendarIntent
+import com.workbrain.app.tasks.CalendarStore
+import com.workbrain.app.tasks.DELETE_EVENTS_TAIL
+import com.workbrain.app.tasks.TodayEventsCard
+import com.workbrain.app.tasks.calendarFieldOf
+import com.workbrain.app.tasks.deleteTaskWithEvents
+import com.workbrain.app.tasks.rememberCalendarDeleteAsk
 import com.workbrain.app.tasks.QUICK_DOCK_SPACE
 import com.workbrain.app.tasks.QuickAddDock
 import com.workbrain.app.tasks.QuickAddMemory
@@ -184,9 +193,14 @@ fun TodayScreen(nav: TodayNav) {
     // ⋮ › 선택(DEC-92): 고른 할 일을 한꺼번에 옮기거나 지운다
     val selection = rememberTaskSelection()
     var moving by remember { mutableStateOf(false) }
+    // 구글 캘린더(FR-24a): 연결 상태·넣은 할 일, 지울 때 '캘린더 일정도 지울까요?'
+    val calendar by CalendarStore.state.collectAsStateWithLifecycle()
+    val calendarAsk = rememberCalendarDeleteAsk()
 
     // 할 일이 핵심이라 그것만 실패를 알리고, 나머지(출처·검토 대기·비용·옮길 곳)는 못 읽으면 비워 둔다
     suspend fun load() = coroutineScope {
+        // 캘린더 연결 상태·넣은 할 일도 함께 다시 읽는다(고친 할 일이 있으면 그때 캘린더에 반영, Design §3.16). 할 일을 기다리게 하지 않는다
+        CalendarStore.refreshLater()
         val t = async { runCatching { Server.todayTasks() } }
         val pd = async { runCatching { Para.load() }.getOrNull() }
         val pend = async { runCatching { Server.pendingProposals() }.getOrNull() }
@@ -205,10 +219,13 @@ fun TodayScreen(nav: TodayNav) {
     LaunchedEffect(Unit) { load() }
     // 화면을 아래로 끌어 새로고침(11/12 사용자, ⋮의 '새로고침' 항목을 대신함). 다시 읽는 동안만 위에 빙글 표시
     var refreshing by remember { mutableStateOf(false) }
+    // 끌어 새로고침하면 오늘 일정도 5분 기억을 버리고 바로 다시 읽는다
+    var eventsRefresh by remember { mutableIntStateOf(0) }
     val refresh: () -> Unit = {
         scope.launch {
             refreshing = true
             message = null
+            eventsRefresh++
             try { load() } finally { refreshing = false }
         }
     }
@@ -233,8 +250,11 @@ fun TodayScreen(nav: TodayNav) {
         load()
     }
 
-    /** 서랍 저장. 실패하면 서랍을 닫지 않고 입력을 그대로 둔 채 띠를 보여 준다(목업 '미저장 표시') */
-    fun save(t: TaskRow, e: TaskEdit) = scope.launch {
+    /**
+     * 서랍 저장. 실패하면 서랍을 닫지 않고 입력을 그대로 둔 채 띠를 보여 준다(목업 '미저장 표시').
+     * 저장이 된 뒤에만 캘린더를 처리한다(넣기·연결 끊기·일정 지우기, FR-24a)
+     */
+    fun save(t: TaskRow, e: TaskEdit, cal: CalendarIntent = CalendarIntent.NONE) = scope.launch {
         saving = true
         val moved = e.projectId != t.projectId || e.areaId != t.areaId
         val result = runCatching { Server.updateTask(t, e) }
@@ -245,10 +265,11 @@ fun TodayScreen(nav: TodayNav) {
             val to = places.firstOrNull { it.id == (e.projectId ?: e.areaId) }
             // 옮긴 곳을 다음 빠른 입력의 넣을 곳으로 기억한다(DEC-91)
             if (row != null && moved) QuickAddMemory.save(context, to)
+            val calText = if (row != null) CalendarStore.apply(t.id, cal) else ""
             message = when {
                 row == null -> CONFLICT_TEXT to Tone.Warn
-                moved -> movedText(to) to Tone.Good
-                else -> "수정했어요 · 변경 이력에 남아요" to Tone.Good
+                moved -> movedText(to) + calText to Tone.Good
+                else -> "수정했어요 · 변경 이력에 남아요$calText" to Tone.Good
             }
             load()
         }.onFailure {
@@ -312,21 +333,29 @@ fun TodayScreen(nav: TodayNav) {
     // 따라오는 이름 칩은 화면 상자 안 좌표로 그린다
     val boxOrigin = remember { OriginRef() }
 
-    /** 고른 할 일을 지운다: 줄은 바로 빠지고, 3초 '되돌리기'가 지나면 서버에서 지운다(DEC-90) */
+    /**
+     * 고른 할 일을 지운다: 줄은 바로 빠지고, 3초 '되돌리기'가 지나면 서버에서 지운다(DEC-90).
+     * 지우는 것(하위 포함) 가운데 캘린더에 넣은 할 일이 있으면 먼저 '캘린더 일정도 지울까요?'(닫으면 지우지 않음)
+     */
     fun deleteSelected() {
         val picked = shownTasks.filter { it.id in selection.ids }
         if (picked.isEmpty()) return
-        selection.stop()
-        picked.forEach(TaskDeletes::delete)
-        val subs = picked.sumOf { p -> shownPara?.subtasksOf(p.id)?.size ?: 0 }
-        announcer.show(deletedText(picked, subs)) { picked.forEach { TaskDeletes.undo(it.id) } }
+        val kidsOf = { p: TaskRow -> shownPara?.subtasksOf(p.id).orEmpty() }
+        calendarAsk.confirm(picked + picked.flatMap(kidsOf)) { deleteEvents ->
+            selection.stop()
+            picked.forEach { deleteTaskWithEvents(it, kidsOf(it), deleteEvents) }
+            val subs = picked.sumOf { kidsOf(it).size }
+            announcer.show(deletedText(picked, subs) + if (deleteEvents) DELETE_EVENTS_TAIL else "") { picked.forEach { TaskDeletes.undo(it.id) } }
+        }
     }
 
     /** 하위 서랍의 [하위 할 일 삭제](DEC-101 ⑦): 서랍을 닫아 '되돌리기' 알림이 보이게 하고, 3초 뒤 서버에서 지운다 */
     fun deleteSubtask(t: TaskRow) {
         editing = null
-        TaskDeletes.delete(t)
-        announcer.show(deletedText(listOf(t))) { TaskDeletes.undo(t.id) }
+        calendarAsk.confirm(listOf(t)) { deleteEvents ->
+            deleteTaskWithEvents(t, emptyList(), deleteEvents)
+            announcer.show(deletedText(listOf(t)) + if (deleteEvents) DELETE_EVENTS_TAIL else "") { TaskDeletes.undo(t.id) }
+        }
     }
 
     val pendingGroups = groupPending(pending.filter { !Snooze.isActive(it.snoozedUntil) })
@@ -375,14 +404,16 @@ fun TodayScreen(nav: TodayNav) {
             CostWarn(budget, cost, nav.openMore)
             message?.let { (text, tone) -> Banner(text, tone, Modifier.padding(bottom = 12.dp)) }
 
+            // 오늘 일정(FR-24a): 오늘 할 일 바로 위, 지연보다 위(11/14 결정 ①). 구글 캘린더를 연결했을 때만 보인다
+            val eventsCard: @Composable () -> Unit = { TodayEventsCard(eventsRefresh, onReconnect = nav.openMore) }
             if (wide) {
                 // 목업 .dash: 왼쪽 1.25 : 오른쪽 1
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
-                    Column(Modifier.weight(1.25f)) { todayCard() }
+                    Column(Modifier.weight(1.25f), verticalArrangement = Arrangement.spacedBy(16.dp)) { eventsCard(); todayCard() }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) { reviewCard(); processingCard() }
                 }
             } else {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { todayCard(); reviewCard(); processingCard() }
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { eventsCard(); todayCard(); reviewCard(); processingCard() }
             }
 
             // 목업 .page-foot
@@ -402,10 +433,10 @@ fun TodayScreen(nav: TodayNav) {
         if (selection.active) {
             SelectionBar(selection.ids.size, onMove = { moving = true }, onDelete = ::deleteSelected, modifier = Modifier.align(Alignment.BottomCenter))
         } else {
-            QuickAddDock(places, draftKey = "today", Modifier.align(Alignment.BottomCenter), noDueMeansToday = true) { r ->
+            QuickAddDock(places, draftKey = "today", Modifier.align(Alignment.BottomCenter), noDueMeansToday = true) { r, calText ->
                 val shownHere = r.dueDate?.let { !it.isAfter(today) } == true
                 val due = quickDueLabel(r, today) ?: "${r.vague} · 확인 필요"
-                message = (quickAddedText(r) + if (shownHere) "" else " · $due · ‘모든 할 일’에서 보여요") to Tone.Good
+                message = (quickAddedText(r) + if (shownHere) "" else " · $due · ‘모든 할 일’에서 보여요") + calText to Tone.Good
                 scope.launch { load() }
             }
         }
@@ -428,9 +459,11 @@ fun TodayScreen(nav: TodayNav) {
                 onOpenSub = { c -> editError = null; editing = c },
                 onAddSub = { text -> addSubtask(t, text) },
                 onDelete = if (t.isSubtask) { { deleteSubtask(t) } } else null,
-            ) { e -> save(t, e) }
+                calendar = calendarFieldOf(calendar, t.id),
+            ) { e, cal -> save(t, e, cal) }
         }
     }
+    CalendarDeleteAskHost(calendarAsk)
     recipientsEditing?.let { t ->
         RecipientsSheet(t.recipients, sources[t.id]?.recordId, usedNamesOf(all), saving, editError, onDismiss = { recipientsEditing = null }) { names ->
             save(t, t.toEdit().copy(recipients = names))

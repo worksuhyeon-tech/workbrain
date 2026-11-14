@@ -52,6 +52,7 @@ import com.workbrain.app.record.NextProject
 import com.workbrain.app.record.RecState
 import com.workbrain.app.record.RecStatus
 import com.workbrain.app.record.RecorderLaunch
+import com.workbrain.app.tasks.CalendarStore
 import com.workbrain.app.record.RecorderScreen
 import com.workbrain.app.record.RecordingService
 import com.workbrain.app.record.RecordsScreen
@@ -127,6 +128,15 @@ fun MainShell() {
     LaunchedEffect(shared) {
         val item = shared ?: return@LaunchedEffect
         tab = if (item is SharedImport.Item.SkillZip) Tab.MORE else Tab.RECORDS
+        detailId = null
+        recorderOpen = false
+        searchOpen = false
+    }
+    // 구글 캘린더 허락에서 돌아오면(FR-24a) 결과를 알리는 더보기로 온다(목록 화면 — 열려 있던 상세는 닫음)
+    val calendarResult by CalendarStore.connectResult.collectAsStateWithLifecycle()
+    LaunchedEffect(calendarResult) {
+        if (calendarResult == null) return@LaunchedEffect
+        tab = Tab.MORE
         detailId = null
         recorderOpen = false
         searchOpen = false
@@ -216,6 +226,7 @@ fun MainShell() {
                     // 프로젝트에서 연 기록을 닫으면 보던 항목으로 돌아오게 그 열쇠를 맡겨 둔다
                     onOpenRecord = { id, title, returnKey -> projectsStart = returnKey; open(id, title) },
                     onSearch = openSearch,
+                    onOpenMore = { tab = Tab.MORE },
                 )
                 Tab.RECORDS -> RecordsScreen(onOpenRecord = open, onSearch = { openSearch(null) })
                 Tab.REVIEW -> ReviewScreen(

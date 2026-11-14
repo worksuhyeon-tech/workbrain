@@ -19,6 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.auth.LoginScreen
 import com.workbrain.app.record.RecorderLaunch
 import com.workbrain.app.record.SharedImport
+import com.workbrain.app.tasks.CalendarStore
 import com.workbrain.app.ui.WorkBrainTheme
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.handleDeeplinks
@@ -30,6 +31,7 @@ class MainActivity : ComponentActivity() {
         Supa.client.handleDeeplinks(intent)
         receiveShared(intent)
         receiveRecorder(intent)
+        receiveCalendar(intent)
         enableEdgeToEdge()
         setContent { WorkBrainTheme { AppRoot() } }
     }
@@ -40,6 +42,16 @@ class MainActivity : ComponentActivity() {
         Supa.client.handleDeeplinks(intent)
         receiveShared(intent)
         receiveRecorder(intent)
+        receiveCalendar(intent)
+    }
+
+    // 구글 캘린더 허락 뒤 workbrain://calendar-callback?calendar=결과 로 돌아온다(FR-24a). 더보기가 알린다.
+    // 주소는 한 번 쓰고 지워, 화면을 다시 그릴 때 같은 결과를 또 알리지 않는다
+    private fun receiveCalendar(intent: Intent) {
+        val data = intent.data ?: return
+        if (data.scheme != "workbrain" || data.host != "calendar-callback") return
+        intent.data = null
+        CalendarStore.onConnectResult(data.getQueryParameter("calendar") ?: "error")
     }
 
     // 녹음 알림을 눌러 열었으면 녹음 화면으로(DEC-89). 표시는 한 번 쓰고 지워, 같은 Intent로 다시 그려질 때 또 열지 않는다

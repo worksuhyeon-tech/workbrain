@@ -2,6 +2,10 @@ package com.workbrain.app.data
 
 import com.workbrain.app.Supa
 import com.workbrain.app.record.TranscriptText
+import com.workbrain.app.tasks.CalEvent
+import com.workbrain.app.tasks.CalendarError
+import com.workbrain.app.tasks.CalendarStatus
+import kotlinx.serialization.builtins.ListSerializer
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.exceptions.RestException
 import io.github.jan.supabase.functions.functions
@@ -628,9 +632,9 @@ object Server {
      * 사용자가 직접 만드는 할 일(결정 카드 '할 일로 만들기' DEC-48, 한 줄 빠른 입력 DEC-70). AI 후보 승인 경로가 아니다.
      * fields는 task 표의 사용자 입력 칸(title·priority·owner_kind·assignee·due_*·project_id/area_id)만 담는다. 소유자는 DB 기본값(auth.uid)
      */
-    suspend fun createTask(fields: JsonObject) {
-        db.from("task").insert(fields)
-    }
+    suspend fun createTask(fields: JsonObject): String =
+        // 새 할 일 ID: [캘린더에도]를 켰으면 바로 일정으로 넣는다(FR-24a)
+        db.from("task").insert(fields) { select(Columns.list("id")) }.decodeSingle<IdRow>().id
 
     /**
      * 모든 기록의 승인 대기 후보(검토함). 오래된 것부터. 미룬 후보도 함께 오며 '오늘'·'미룬 항목'은 화면이 나눈다(FR-28).
@@ -871,4 +875,72 @@ object Server {
                 eq("version", t.version)
             }
         }.decodeList<IdRow>().isNotEmpty()
+
+    // ── 구글 캘린더(FR-24a, DEC-105, Design §3.16): 처리 함수 `calendar`와 연결 상태 표(웹과 같은 함수·표) ──
+    // 연결 열쇠는 서버(Vault)에만 있고, 앱은 연결 상태(calendar_link)와 할 일 ↔ 일정 연결(task_calendar)만 읽는다
+
+    /** 내 연결 상태와 연결한 때. 줄이 없거나 끊었으면 OFF, Google이 열쇠를 거절했으면 BROKEN */
+    suspend fun calendarStatus(): Pair<CalendarStatus, String?> {
+        val row = db.from("calendar_link").select(Columns.list("connected_at", "broken_at")).decodeList<CalendarLinkRow>().firstOrNull()
+        if (row?.connectedAt == null) return CalendarStatus.OFF to null
+        return (if (row.brokenAt != null) CalendarStatus.BROKEN else CalendarStatus.ON) to row.connectedAt
+    }
+
+    /** 캘린더에 넣은 내 할 일 → '고쳤는데 아직 반영 안 됨'(dirty) */
+    suspend fun calendarLinks(): Map<String, Boolean> =
+        db.from("task_calendar").select(Columns.list("task_id", "dirty")).decodeList<TaskCalendarRow>().associate { it.taskId to it.dirty }
+
+    /** 함수가 기대한 실패를 200 + reason으로 돌려주면 CalendarError로 바꾼다 */
+    private suspend fun calendarCall(body: JsonObject): JsonObject {
+        val res = try {
+            invokeFunction("calendar", body)
+        } catch (e: RestException) {
+            throw CalendarError("failed", e)
+        }
+        val json = runCatching { Json.parseToJsonElement(res.bodyAsText()) as JsonObject }.getOrElse { throw CalendarError("failed", it) }
+        json["reason"]?.jsonPrimitive?.contentOrNull?.let { throw CalendarError(it) }
+        return json
+    }
+
+    /** Google 허락 화면 주소(1회용 확인값 포함, 10분). 허락 뒤 서버가 workbrain://calendar-callback 으로 돌려보낸다 */
+    suspend fun calendarConnectUrl(): String =
+        calendarCall(buildJsonObject { put("action", "connect"); put("return_to", "app") })["url"]?.jsonPrimitive?.contentOrNull
+            ?: throw CalendarError("failed")
+
+    /** 연결 끊기: Google에 열쇠 취소를 요청하고 서버 열쇠를 지운다. 넣은 일정·일정 연결은 남는다 */
+    suspend fun calendarDisconnect() {
+        calendarCall(buildJsonObject { put("action", "disconnect") })
+    }
+
+    /** 서울 날짜 from부터 days일(1~8)의 보여 줄 일정(취소·거절·WB가 넣은 일정은 서버가 뺌) */
+    suspend fun calendarEvents(from: LocalDate, days: Int): List<CalEvent> {
+        val json = calendarCall(buildJsonObject { put("action", "events"); put("from", from.toString()); put("days", days) })
+        return planJson.decodeFromJsonElement(ListSerializer(CalEvent.serializer()), json["events"] ?: JsonArray(emptyList()))
+    }
+
+    /** 할 일을 일정으로 넣기(이미 넣었으면 고치기). 기한 날짜가 없으면 no-due */
+    suspend fun calendarInsert(taskId: String) {
+        calendarCall(buildJsonObject { put("action", "insert"); put("task_id", taskId) })
+    }
+
+    /** 제목·기한을 고친 할 일(dirty)을 캘린더에 반영 */
+    suspend fun calendarSync() {
+        calendarCall(buildJsonObject { put("action", "sync") })
+    }
+
+    /** 일정 연결 끊기. deleteEvent면 WB가 넣은 일정도 지운다(다른 일정은 서버가 지키며 건너뜀) */
+    suspend fun calendarRemove(taskIds: List<String>, deleteEvent: Boolean) {
+        calendarCall(buildJsonObject {
+            put("action", "remove")
+            put("task_ids", JsonArray(taskIds.map(::JsonPrimitive)))
+            put("delete_event", deleteEvent)
+        })
+    }
 }
+
+@Serializable private data class CalendarLinkRow(
+    @SerialName("connected_at") val connectedAt: String? = null,
+    @SerialName("broken_at") val brokenAt: String? = null,
+)
+
+@Serializable private data class TaskCalendarRow(@SerialName("task_id") val taskId: String, val dirty: Boolean = false)
