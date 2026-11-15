@@ -376,7 +376,7 @@ fun ProjectsScreen(
                 val edit = parseSubtask(e.text, LocalDate.now(SEOUL)) ?: return
                 // 끝낸 상위에 넣으면 서버가 상위를 다시 연다(DEC-101 ③)
                 act(if (e.parent.done) "하위 할 일을 넣었어요 · 끝낸 상위 할 일을 다시 열었어요" else "하위 할 일을 넣었어요") {
-                    Server.createSubtask(e.parent, edit)
+                    Server.createSubtask(e.parent.id, edit)
                 }
             }
             is ParaEvent.Later -> announcer.show(

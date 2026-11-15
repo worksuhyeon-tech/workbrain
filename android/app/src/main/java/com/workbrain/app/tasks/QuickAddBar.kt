@@ -1,6 +1,15 @@
 package com.workbrain.app.tasks
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import java.time.LocalDateTime
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.selection.toggleable
@@ -45,14 +54,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.workbrain.app.data.Place
@@ -82,11 +88,6 @@ import java.time.ZonedDateTime
 const val QUICK_PLACEHOLDER = "+ 빠르게 추가 · 예: 내일3시 업체 미팅"
 private const val MAX_INPUT = 300
 
-/** 설명 줄: 단축어 → 뜻. 마이크는 짧게 누르면 말로 넣기, 길게 누르면 녹음 메모(DEC-89) */
-private val HINTS = listOf(
-    "#프로젝트" to "넣을 곳", "!높음·!낮음" to "우선순위", "@이름" to "팔로업", "내일3시·금요일·10/24" to "기한", "마이크 길게" to "녹음 메모",
-)
-
 /**
  * 빠른 입력 줄마다(today·all·place:…) 적던 글을 화면 밖에 둔다(DEC-89).
  * 접기·펼치기로 입력 줄 화면이 다시 그려져도 적던 글·받아쓴 글이 지워지지 않게 한다(NFR-05). 앱을 닫으면 비워진다
@@ -95,6 +96,20 @@ private object QuickDrafts {
     private val texts = mutableStateMapOf<String, String>()
     fun get(key: String): String = texts[key].orEmpty()
     fun set(key: String, value: String) { if (value.isEmpty()) texts.remove(key) else texts[key] = value }
+}
+
+/** 아이콘으로 고른 값·하위 할 일 줄도 적던 글처럼 화면 밖에 둔다(접기·펼치기, NFR-05, DEC-107) */
+private object QuickToolDrafts {
+    private val picks = mutableStateMapOf<String, QuickPicks>()
+    private val subs = mutableStateMapOf<String, List<String>>()
+    fun picks(key: String): QuickPicks = picks[key] ?: QuickPicks()
+    fun setPicks(key: String, value: QuickPicks) { if (value == QuickPicks()) picks.remove(key) else picks[key] = value }
+    fun subs(key: String): List<String> = subs[key].orEmpty()
+    fun setSubs(key: String, value: List<String>) { if (value.isEmpty()) subs.remove(key) else subs[key] = value }
+    fun clear(key: String) {
+        picks.remove(key)
+        subs.remove(key)
+    }
 }
 
 /**
@@ -204,6 +219,8 @@ class QuickAdd(
     val calendarShown: Boolean,
     val calendarOn: Boolean,
     val toggleCalendar: () -> Unit,
+    /** 아이콘 줄 값과 동작(DEC-107). parsed는 이미 이 값을 덮은 결과 */
+    val tools: QuickToolState,
 )
 
 /**
@@ -233,9 +250,13 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val remembered = QuickAddMemory.last(context, places)
-    val parsed = remember(text, places, fixedPlace, remembered, shownDay, noDueMeansToday) {
+    val raw = remember(text, places, fixedPlace, remembered, shownDay, noDueMeansToday) {
         QuickParse.parse(text, shownDay, places, fixedPlace ?: remembered, noDueMeansToday)
     }
+    // 아이콘으로 고른 값(DEC-107): 글을 고쳐 그 칸의 단축어 해석이 달라지면 버린다(나중에 한 것)
+    val picks = QuickToolDrafts.picks(draftKey)
+    LaunchedEffect(raw) { QuickToolDrafts.setPicks(draftKey, QuickToolDrafts.picks(draftKey).liveFor(raw)) }
+    val parsed = remember(raw, picks) { applyPicks(raw, picks) }
     val calendarStatus = CalendarStore.state.collectAsStateWithLifecycle().value.status
     var calendarOn by remember { mutableStateOf(false) }
     val calendarShown = calendarStatus == CalendarStatus.ON && parsed.dueDate != null
@@ -243,18 +264,22 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
     /** 서버에 넣고, 넣은 곳을 기억하고, 입력을 비운다. 다른 기기에서 그곳을 막 보관했으면 서버가 WB409로 막는다 → 그 이유를 쓴다 */
     fun insert(edit: TaskEdit, calendar: Boolean, onSaved: () -> Unit, onFailed: (String) -> Unit) {
         saving = true
+        // 하위 할 일 줄은 누른 때의 것. 줄마다 하위 입력과 같은 규칙으로 기한·@담당만 읽는다(FR-23a, DEC-107)
+        val subs = cleanSubtasks(QuickToolDrafts.subs(draftKey)).mapNotNull { parseSubtask(it, LocalDate.now(SEOUL)) }
         scope.launch {
             runCatching { Server.createTask(edit.toNewTaskFields()) }
                 .onSuccess { id ->
                     val r = edit.toQuickTask(places)
                     QuickAddMemory.save(context, r.place)
                     setText("")
+                    QuickToolDrafts.clear(draftKey)
                     fromVoice = false
                     calendarOn = false
                     onSaved()
-                    // 할 일은 이미 들어갔으니 캘린더에 못 넣어도 알림 끝에 이유만 붙인다
+                    // 상위는 이미 들어갔으니 하위·캘린더가 일부 안 돼도 알림 끝에 이유만 붙인다
+                    val failed = subs.count { s -> runCatching { Server.createSubtask(id, s) }.isFailure }
                     val calText = if (calendar) CalendarStore.apply(id, CalendarIntent.ADD) else ""
-                    onAdded(r, calText)
+                    onAdded(r, subtaskTail(subs.size, failed) + calText)
                 }
                 .onFailure { onFailed(if (it.message.orEmpty().contains("아카이브")) saveFailText(it) else UNSAVED_TEXT) }
             saving = false
@@ -288,8 +313,38 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
         setText(value)
         error = null
         VoiceInput.clearMessage(draftKey)
-        if (value.isEmpty()) { fromVoice = false; calendarOn = false }
+        if (value.isEmpty()) {
+            fromVoice = false
+            calendarOn = false
+            QuickToolDrafts.clear(draftKey)
+        }
     }
+
+    fun setPicks(change: (QuickPicks) -> QuickPicks) {
+        QuickToolDrafts.setPicks(draftKey, change(QuickToolDrafts.picks(draftKey)))
+        error = null
+    }
+    fun setDue(due: Due?) = setPicks { it.copy(due = Picked(due, dueBase(raw))) }
+
+    val tools = QuickToolState(
+        // 프로젝트·반복실행 상세는 곳이 정해져 있어 [어디에]가 없다
+        shown = if (fixedPlace != null) QuickTool.entries - QuickTool.PLACE else QuickTool.entries,
+        places = places,
+        recent = remembered,
+        subtasks = QuickToolDrafts.subs(draftKey),
+        setSubtasks = { QuickToolDrafts.setSubs(draftKey, it) },
+        pickDate = { d -> setDue(Due(d, parsed.dueTime)) },
+        pickTime = { t ->
+            if (t == null) parsed.dueDate?.let { setDue(Due(it, null)) }
+            else setDue(Due(parsed.dueDate ?: LocalDate.now(SEOUL), t))
+        },
+        pickHourLater = { setDue(hourLater(LocalDateTime.now(SEOUL))) },
+        pickNoDue = { setDue(null) },
+        choosePlace = { p -> setPicks { it.copy(place = Picked(p, placeBase(raw))) } },
+        choosePriority = { v -> setPicks { it.copy(priority = Picked(v, raw.priority)) } },
+        duePick = picks.due,
+        restoreDue = { p -> setPicks { it.copy(due = p) } },
+    )
 
     return QuickAdd(
         text, ::onText, parsed, shownDay, saving, error, ::add, ::addEdited, ::pickPlace,
@@ -301,6 +356,7 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
         calendarShown = calendarShown,
         calendarOn = calendarOn,
         toggleCalendar = { calendarOn = !calendarOn },
+        tools = tools,
     )
 }
 
@@ -316,7 +372,22 @@ fun QuickAddBar(
     fixedPlace: Place? = null,
     onAdded: (QuickTask, String) -> Unit,
 ) {
-    val quick = rememberQuickAdd(places, fixedPlace, noDueMeansToday = false, draftKey = "place:${fixedPlace?.type?.table}:${fixedPlace?.id}", onAdded)
+    // 아이콘 칸(DEC-107): 누르면 키보드를 내리고 이 카드 안에 연다. 입력 칸을 누르거나 뒤로 가면 닫힌다
+    var openTool by remember { mutableStateOf<QuickTool?>(null) }
+    var focused by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    BackHandler(enabled = openTool != null) { openTool = null }
+    val backToInput: () -> Unit = {
+        openTool = null
+        focusRequester.requestFocus()
+        keyboard?.show()
+    }
+    val quick = rememberQuickAdd(places, fixedPlace, noDueMeansToday = false, draftKey = "place:${fixedPlace?.type?.table}:${fixedPlace?.id}") { r, tail ->
+        openTool = null
+        onAdded(r, tail)
+    }
     // 마이크를 길게 눌러 녹음하면 이 프로젝트를 녹음 프로젝트로 미리 고른다. 반복실행은 녹음 화면에서 고를 수 없어 '나중에'(11/11 사용자 선택)
     val recordProject = fixedPlace?.takeIf { it.type == PlaceType.PROJECT }?.let { ChosenProject(it.id, it.name) }
     Column(modifier) {
@@ -331,7 +402,10 @@ fun QuickAddBar(
                 // 넣은 뒤에도 키보드를 닫지 않아 이어서 적을 수 있다(목업: 추가 뒤 입력 칸에 다시 초점)
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { quick.add() }),
-                modifier = Modifier.weight(1f).height(44.dp),
+                modifier = Modifier.weight(1f).height(44.dp).focusRequester(focusRequester).onFocusChanged {
+                    focused = it.isFocused
+                    if (it.isFocused) openTool = null
+                },
                 decorationBox = { inner ->
                     Box(
                         Modifier.fillMaxSize().background(Wb.colors.card, ControlShape)
@@ -347,48 +421,46 @@ fun QuickAddBar(
             PrimaryButton(if (quick.saving) "추가 중…" else "추가", onClick = quick.add, enabled = !quick.saving)
         }
         VoiceStatus(quick, Modifier.padding(top = 6.dp))
-        QuickHint()
+        QuickHintLine(Modifier.padding(top = 6.dp))
         // 목업 .qa-prev: 적는 동안 해석 결과를 칩으로(화면 읽기 프로그램도 바뀔 때마다 읽는다)
         FlowRow(
             Modifier.fillMaxWidth().padding(top = if (quick.text.isNotBlank()) 8.dp else 0.dp).semantics { liveRegion = LiveRegionMode.Polite },
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            if (quick.text.isNotBlank()) { QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace); CalendarChip(quick) }
+            if (quick.text.isNotBlank()) {
+                QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace, quick.subtaskCount, onClearDue = quick.tools.pickNoDue)
+                CalendarChip(quick)
+            }
+        }
+        // 아이콘 줄은 적는 중·글이 있을 때·칸이 열려 있을 때만(상세 화면이 늘 길어지지 않게)
+        if (focused || openTool != null || quick.text.isNotBlank()) {
+            QuickToolRow(
+                quick, openTool,
+                onToggle = { t -> if (openTool == t) backToInput() else { openTool = t; focusManager.clearFocus() } },
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        AnimatedContent(openTool, transitionSpec = { quickFade() }, label = "bar-panel") { t ->
+            if (t != null) QuickToolPanel(quick, t, onDone = backToInput, horizontalPadding = 0.dp) else Spacer(Modifier.fillMaxWidth())
         }
         quick.error?.let { Text(it, fontSize = 12.sp, color = Wb.colors.crit, modifier = Modifier.padding(top = 6.dp)) }
         Spacer(Modifier.height(10.dp))
     }
 }
 
-/** 입력 줄 아래 단축어 설명. 묶음 사이에서만 줄을 바꾼다 */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun QuickHint() {
-    FlowRow(
-        Modifier.fillMaxWidth().padding(top = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        HINTS.forEach { (token, meaning) ->
-            Text(
-                buildAnnotatedString {
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Wb.colors.body)) { append(token) }
-                    append(" $meaning")
-                },
-                fontSize = 12.sp, color = Wb.colors.muted, maxLines = 1,
-            )
-        }
-        Text("본문과는 한 칸 띄어 쓰기", fontSize = 12.sp, color = Wb.colors.muted, maxLines = 1)
-    }
-}
+/** 하위 할 일 줄 수(빈 줄 빼고) — 미리보기 칩 '하위 N개' */
+val QuickAdd.subtaskCount: Int get() = cleanSubtasks(tools.subtasks).size
 
-/** 목업 .qa-prev 칩들: 제목 · 기한 · 모호 · 우선순위 · 들어갈 곳 · 팔로업 · 경고 · ('#'이 여럿에 걸리면) 고를 곳 */
+/**
+ * 목업 .qa-prev 칩들: 제목 · 기한 · 모호 · 우선순위 · 들어갈 곳 · 팔로업 · 하위 N개 · 경고 · ('#'이 여럿에 걸리면) 고를 곳.
+ * onClearDue: 기한·모호 칩 끝 ⊖로 넣은 기한을 뺀다(삼성 리마인더처럼, 11/15 사용자). '오늘' 탭에서 빼면 기한 없이 들어간다
+ */
 @Composable
-fun QuickPreview(r: QuickTask, today: LocalDate, onPickPlace: (Place) -> Unit) {
+fun QuickPreview(r: QuickTask, today: LocalDate, onPickPlace: (Place) -> Unit, subtasks: Int = 0, onClearDue: (() -> Unit)? = null) {
     QuickChip(WbIcons.Pencil, r.title.ifEmpty { "제목 없음" }, italic = r.title.isEmpty())
-    quickDueLabel(r, today)?.let { QuickChip(WbIcons.Calendar, it) }
-    r.vague?.let { QuickChip(WbIcons.Calendar, "$it · 확인 필요", warn = true) }
+    quickDueLabel(r, today)?.let { QuickChip(WbIcons.Calendar, it, onClear = onClearDue) }
+    r.vague?.let { QuickChip(WbIcons.Calendar, "$it · 확인 필요", warn = true, onClear = onClearDue) }
     // 줄과 같은 기호(DEC-103): 높음 주황 별 · 낮음 회색 아래 화살표
     when (r.priority) {
         1 -> QuickChip(WbIcons.Star, "높음", iconTint = Wb.colors.star)
@@ -396,6 +468,7 @@ fun QuickPreview(r: QuickTask, today: LocalDate, onPickPlace: (Place) -> Unit) {
     }
     QuickChip(placeIcon(r.place?.type), r.place?.name ?: UNSORTED)
     r.assignee?.let { QuickChip(WbIcons.Person, "$it · 팔로업") }
+    if (subtasks > 0) QuickChip(WbIcons.Checklist, "하위 ${subtasks}개")
     r.warnings.forEach { QuickChip(WbIcons.Alert, it, warn = true) }
     r.placeChoices.forEach { PlaceChoiceChip(it) { onPickPlace(it) } }
 }
@@ -409,11 +482,12 @@ fun CalendarChip(quick: QuickAdd) {
     if (!quick.calendarShown) return
     val on = quick.calendarOn
     Row(
-        Modifier.heightIn(min = 32.dp).clip(PillShape)
+        // 다른 미리보기 칩과 같은 높이(11/15 사용자)
+        Modifier.heightIn(min = QUICK_CHIP_HEIGHT).clip(PillShape)
             .toggleable(value = on, role = Role.Switch, onValueChange = { quick.toggleCalendar() })
             .background(if (on) Wb.colors.infoSoft else Wb.colors.card, PillShape)
             .then(if (on) Modifier.border(1.dp, Wb.colors.info.copy(alpha = 0.35f), PillShape) else Modifier.dashedPill(Wb.colors.info.copy(alpha = 0.6f)))
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(WbIcons.Calendar, contentDescription = null, tint = Wb.colors.info, modifier = Modifier.size(12.dp))
@@ -443,21 +517,28 @@ private fun PlaceChoiceChip(place: Place, onClick: () -> Unit) {
     }
 }
 
-/** 목업 .qc: 작은 테두리 알약(경고는 주황 글씨·테두리) */
+/** 미리보기 칩 높이: ⊖가 붙은 기한 칩과 다른 칩을 같은 높이로(11/15 사용자) */
+private val QUICK_CHIP_HEIGHT = 28.dp
+
+/** 목업 .qc: 작은 테두리 알약(경고는 주황 글씨·테두리). 글자가 바뀌면 밝아지며 바뀐다. onClear가 있으면 끝에 ⊖(빼기) */
 @Composable
-private fun QuickChip(icon: ImageVector, text: String, warn: Boolean = false, italic: Boolean = false, iconTint: Color? = null) {
+private fun QuickChip(icon: ImageVector, text: String, warn: Boolean = false, italic: Boolean = false, iconTint: Color? = null, onClear: (() -> Unit)? = null) {
     val color = if (warn) Wb.colors.warn else Wb.colors.body
     Row(
-        Modifier.background(Wb.colors.surface, PillShape)
+        Modifier.heightIn(min = QUICK_CHIP_HEIGHT).background(Wb.colors.surface, PillShape)
             .border(1.dp, if (warn) Wb.colors.warn.copy(alpha = 0.35f) else Wb.colors.border, PillShape)
-            .padding(horizontal = 9.dp, vertical = 2.dp),
+            .padding(start = 9.dp, end = if (onClear != null) 1.dp else 9.dp)
+            .animateContentSize(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, contentDescription = null, tint = iconTint ?: color, modifier = Modifier.size(12.dp))
-        Text(
-            text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = color,
-            fontStyle = if (italic) FontStyle.Italic else null,
-            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 4.dp),
-        )
+        AnimatedContent(text, transitionSpec = { quickFade() }, label = "chip") { shown ->
+            Text(
+                shown, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = color,
+                fontStyle = if (italic) FontStyle.Italic else null,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 4.dp),
+            )
+        }
+        onClear?.let { MinusButton("기한 빼기", it, Modifier.padding(start = 2.dp), touch = QUICK_CHIP_HEIGHT - 2.dp, visual = 18.dp) }
     }
 }

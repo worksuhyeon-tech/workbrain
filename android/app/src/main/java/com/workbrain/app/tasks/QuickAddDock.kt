@@ -1,5 +1,13 @@
 package com.workbrain.app.tasks
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -79,7 +88,12 @@ fun QuickAddDock(
     noDueMeansToday: Boolean = false,
     onAdded: (QuickTask, String) -> Unit,
 ) {
-    val quick = rememberQuickAdd(places, fixedPlace = null, noDueMeansToday, draftKey, onAdded)
+    // 아이콘 칸(DEC-107): 누르면 키보드를 내리고 그 자리(띠 아래)에 연다. 띠를 누르거나 뒤로 가면 닫힌다
+    var openTool by remember { mutableStateOf<QuickTool?>(null) }
+    val quick = rememberQuickAdd(places, fixedPlace = null, noDueMeansToday, draftKey) { r, tail ->
+        openTool = null
+        onAdded(r, tail)
+    }
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -88,57 +102,100 @@ fun QuickAddDock(
     val typing = focused && WindowInsets.isImeVisible
     var detail by remember { mutableStateOf<TaskEdit?>(null) }
     var detailError by remember { mutableStateOf<String?>(null) }
+    BackHandler(enabled = openTool != null) { openTool = null }
 
     val openInput: () -> Unit = {
+        openTool = null
         focusRequester.requestFocus()
         keyboard?.show()
     }
+    val toggleTool: (QuickTool) -> Unit = { t ->
+        if (openTool == t) openInput()
+        else {
+            openTool = t
+            focusManager.clearFocus()
+        }
+    }
     val openDetail: () -> Unit = {
+        openTool = null
         detailError = null
         detail = quick.parsed.toEdit()
         focusManager.clearFocus()
     }
 
-    Column(
-        // 키보드가 뜨면 그 바로 위로 올라간다(아래 메뉴만큼은 MainShell이 빼 준다)
-        modifier.imePadding().padding(horizontal = 16.dp).padding(bottom = 12.dp).widthIn(max = 640.dp).fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        // 말로 넣을 때(듣는 중·다 들은 뒤·안내)는 키보드 없이 카드만 띄운다(DEC-89, 사용자 선택 11/11)
-        val voiceCard = quick.listening || quick.voiceMessage != null || quick.fromVoice
-        if (typing || quick.error != null || voiceCard) {
-            TypingCard(quick, showHelp = typing, showDetail = typing || quick.fromVoice, onDetail = openDetail)
-        }
-        Surface(
-            onClick = openInput,
-            shape = PillShape,
-            color = Wb.colors.card,
-            border = BorderStroke(1.dp, Wb.colors.border),
-            shadowElevation = 6.dp,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+    // 키보드가 뜨면 그 바로 위로 올라간다(아래 메뉴만큼은 MainShell이 빼 준다). 칸은 키보드 자리라 띠 아래 화면 폭으로
+    Column(modifier.imePadding().fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp).widthIn(max = 640.dp).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(Modifier.padding(start = 20.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                BasicTextField(
-                    value = quick.text,
-                    onValueChange = quick.onText,
-                    singleLine = true,
-                    textStyle = TextStyle(fontSize = 15.sp, color = Wb.colors.ink),
-                    cursorBrush = SolidColor(Wb.colors.primary),
-                    // 넣은 뒤에도 키보드를 닫지 않아 이어서 적을 수 있다
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { quick.add() }),
-                    modifier = Modifier.weight(1f).focusRequester(focusRequester).onFocusChanged { focused = it.isFocused },
-                    decorationBox = { inner ->
-                        Box(contentAlignment = Alignment.CenterStart) {
-                            if (quick.text.isEmpty()) {
-                                Text(QUICK_PLACEHOLDER, fontSize = 15.sp, color = Wb.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            inner()
-                        }
-                    },
+            // 말로 넣을 때(듣는 중·다 들은 뒤·안내)는 키보드 없이 카드만 띄운다(DEC-89, 사용자 선택 11/11)
+            val voiceCard = quick.listening || quick.voiceMessage != null || quick.fromVoice
+            val tooling = openTool != null
+            // 카드는 밝아지며 나타나고 사라지며 접힌다(뚝 끊기지 않게, 11/15 사용자)
+            AnimatedVisibility(
+                visible = typing || tooling || quick.error != null || voiceCard,
+                enter = fadeIn(tween(220)) + expandVertically(tween(220), expandFrom = Alignment.Bottom),
+                exit = fadeOut(tween(140)) + shrinkVertically(tween(180), shrinkTowards = Alignment.Bottom),
+            ) {
+                TypingCard(
+                    quick,
+                    showHelp = typing || tooling,
+                    showTools = typing || tooling || quick.fromVoice,
+                    open = openTool,
+                    onTool = toggleTool,
+                    showDetail = typing || tooling || quick.fromVoice,
+                    onDetail = openDetail,
                 )
-                MicButton(quick, recordProject = null)
-                if (quick.text.isBlank()) PlusButton(openInput) else AddButton(quick.saving, quick.add)
+            }
+            Surface(
+                onClick = openInput,
+                shape = PillShape,
+                color = Wb.colors.card,
+                border = BorderStroke(1.dp, Wb.colors.border),
+                shadowElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) {
+                Row(Modifier.padding(start = 20.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BasicTextField(
+                        value = quick.text,
+                        onValueChange = quick.onText,
+                        singleLine = true,
+                        textStyle = TextStyle(fontSize = 15.sp, color = Wb.colors.ink),
+                        cursorBrush = SolidColor(Wb.colors.primary),
+                        // 넣은 뒤에도 키보드를 닫지 않아 이어서 적을 수 있다
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { quick.add() }),
+                        modifier = Modifier.weight(1f).focusRequester(focusRequester).onFocusChanged {
+                            focused = it.isFocused
+                            if (it.isFocused) openTool = null
+                        },
+                        decorationBox = { inner ->
+                            Box(contentAlignment = Alignment.CenterStart) {
+                                if (quick.text.isEmpty()) {
+                                    Text(QUICK_PLACEHOLDER, fontSize = 15.sp, color = Wb.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                inner()
+                            }
+                        },
+                    )
+                    MicButton(quick, recordProject = null)
+                    if (quick.text.isBlank()) PlusButton(openInput) else AddButton(quick.saving, quick.add)
+                }
+            }
+        }
+        // 칸: 열고 닫고 다른 칸으로 바꿀 때 밝아지기/사라지기 + 높이 이어 바꾸기
+        AnimatedContent(openTool, transitionSpec = { quickFade() }, label = "dock-panel") { t ->
+            if (t != null) {
+                Surface(
+                    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                    color = Wb.colors.card,
+                    border = BorderStroke(1.dp, Wb.colors.border),
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.widthIn(max = 672.dp).fillMaxWidth(),
+                ) { QuickToolPanel(quick, t, onDone = openInput) }
+            } else {
+                Spacer(Modifier.fillMaxWidth())
             }
         }
     }
@@ -156,12 +213,21 @@ fun QuickAddDock(
 }
 
 /**
- * 입력 중 키보드 위 카드: 미리보기 칩 · 말로 넣기 상태 · 단축어 설명 · 저장 실패 · '자세히 ›'.
- * showHelp: 단축어 설명(키보드로 적을 때만). showDetail: '자세히 ›'(적을 때와 말로 넣은 뒤). 둘 다 false면 실패 띠만(키보드를 내린 뒤)
+ * 입력 중 키보드 위 카드: 미리보기 칩 · 말로 넣기 상태 · 단축어 설명 한 줄 · 저장 실패 · 아이콘 줄 + '자세히 ›'(DEC-107).
+ * showHelp: 단축어 설명(적을 때·칸이 열렸을 때). showTools·showDetail: 아이콘 줄·'자세히 ›'(적을 때·칸·말로 넣은 뒤).
+ * 모두 false면 실패 띠만(키보드를 내린 뒤)
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TypingCard(quick: QuickAdd, showHelp: Boolean, showDetail: Boolean, onDetail: () -> Unit) {
+private fun TypingCard(
+    quick: QuickAdd,
+    showHelp: Boolean,
+    showTools: Boolean,
+    open: QuickTool?,
+    onTool: (QuickTool) -> Unit,
+    showDetail: Boolean,
+    onDetail: () -> Unit,
+) {
     Surface(
         shape = CardShape,
         color = Wb.colors.card,
@@ -176,12 +242,16 @@ private fun TypingCard(quick: QuickAdd, showHelp: Boolean, showDetail: Boolean, 
                     Modifier.fillMaxWidth().padding(end = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) { QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace); CalendarChip(quick) }
+                ) {
+                    QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace, quick.subtaskCount, onClearDue = quick.tools.pickNoDue)
+                    CalendarChip(quick)
+                }
             }
             VoiceStatus(quick, Modifier.padding(top = if (quick.text.isNotBlank()) 6.dp else 0.dp, end = 8.dp))
-            if (showHelp) Box(Modifier.padding(end = 8.dp)) { QuickHint() }
+            if (showHelp) QuickHintLine(Modifier.padding(top = if (quick.text.isNotBlank()) 8.dp else 0.dp, end = 8.dp))
             quick.error?.let { Text(it, fontSize = 12.sp, color = Wb.colors.crit, modifier = Modifier.padding(top = 6.dp, end = 8.dp)) }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(top = if (showTools) 8.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (showTools) QuickToolRow(quick, open, onTool)
                 Spacer(Modifier.weight(1f))
                 if (showDetail) {
                     // 해석한 값으로 채운 새 할 일 서랍(담당·기한·우선순위를 직접 고를 때)

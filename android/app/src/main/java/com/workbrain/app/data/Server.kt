@@ -809,11 +809,11 @@ object Server {
 
     /**
      * 하위 할 일 넣기(FR-23a, DEC-101): 곳은 서버가 상위 것을 넣고, 끝난 상위면 서버가 다시 연다.
-     * 보관된 곳의 할 일·하위 아래에는 서버가 거부한다(WB409·WB422)
+     * 보관된 곳의 할 일·하위 아래에는 서버가 거부한다(WB409·WB422). 빠른 입력은 막 만든 상위의 ID로 부른다(DEC-107)
      */
-    suspend fun createSubtask(parent: TaskRow, e: TaskEdit) {
+    suspend fun createSubtask(parentId: String, e: TaskEdit) {
         val fields = e.copy(projectId = null, areaId = null, priority = null).toNewTaskFields()
-        db.from("task").insert(JsonObject(fields + ("parent_id" to JsonPrimitive(parent.id))))
+        db.from("task").insert(JsonObject(fields + ("parent_id" to JsonPrimitive(parentId))))
     }
 
     suspend fun task(id: String): TaskRow? =

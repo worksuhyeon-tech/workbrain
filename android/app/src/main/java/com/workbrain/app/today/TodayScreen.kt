@@ -243,7 +243,7 @@ fun TodayScreen(nav: TodayNav) {
     /** 하위 할 일 한 줄 넣기(FR-23a). 끝낸 상위에 넣으면 서버가 상위를 다시 연다(DEC-101 ③) */
     fun addSubtask(parent: TaskRow, text: String) = scope.launch {
         val e = parseSubtask(text, LocalDate.now(SEOUL)) ?: return@launch
-        message = runCatching { Server.createSubtask(parent, e) }.fold(
+        message = runCatching { Server.createSubtask(parent.id, e) }.fold(
             onSuccess = { (if (parent.done) "하위 할 일을 넣었어요 · 끝낸 상위 할 일을 다시 열었어요" else "하위 할 일을 넣었어요") to Tone.Good },
             onFailure = { saveFailText(it) to Tone.Crit },
         )

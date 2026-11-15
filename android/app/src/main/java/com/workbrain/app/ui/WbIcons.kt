@@ -71,6 +71,8 @@ object WbIcons {
     // 빠른 입력 미리보기 칩(목업 📅 기한 · ❗ 우선순위 · ⚠ 경고)
     val Calendar = line("calendar", "M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z", "M3 10h18", "M8 3v4", "M16 3v4")
     val Flag = line("flag", "M5 21V4", "M5 4h12l-2.5 4.5L17 13H5")
+    /** 하위 할 일(체크 목록) — 빠른 입력 아이콘 줄(DEC-107) */
+    val Checklist = line("checklist", "M10 6h10", "M10 12h10", "M10 18h10", "M3.5 6l1.5 1.5L7.5 5", "M3.5 12l1.5 1.5L7.5 11", "M5.2 19.2a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4z")
     // 우선순위 높음: 채운 별(DEC-103, OneNote '중요' 태그처럼) · 낮음: 아래 화살표(Outlook '중요도 낮음' 모양). PC 웹 Icons.star·low와 같은 그림
     val Star = line("star", "M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.4l-5.8 3.1 1.1-6.5L2.6 9.4l6.5-.9z", fill = true)
     val PriorityLow = line("priority-low", "M12 5v14", "M6 13l6 6 6-6")
