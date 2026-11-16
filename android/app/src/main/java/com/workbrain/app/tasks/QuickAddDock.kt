@@ -119,7 +119,7 @@ fun QuickAddDock(
     val openDetail: () -> Unit = {
         openTool = null
         detailError = null
-        detail = quick.parsed.toEdit()
+        detail = quick.editToSave()
         focusManager.clearFocus()
     }
 
@@ -243,7 +243,7 @@ private fun TypingCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace, quick.subtaskCount, onClearDue = quick.tools.pickNoDue)
+                    QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace, quick.subtaskCount, onClearDue = quick.tools.pickNoDue, remind = quick.tools.remind, onClearRemind = { quick.tools.setRemind(null) })
                     CalendarChip(quick)
                 }
             }

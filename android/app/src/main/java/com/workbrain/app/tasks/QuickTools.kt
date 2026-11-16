@@ -84,6 +84,11 @@ import com.workbrain.app.ui.WbIcons
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.YearMonth
+import java.time.LocalDateTime
+import androidx.compose.material3.Surface
+import androidx.compose.ui.window.Dialog
+import java.time.ZonedDateTime
+import com.workbrain.app.ui.SEOUL
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -111,6 +116,9 @@ class QuickToolState(
     /** 칸을 열 때의 기한 값([취소]로 되돌리려고) */
     val duePick: Picked<Due?>?,
     val restoreDue: (Picked<Due?>?) -> Unit,
+    /** 미리 알림(DEC-108): 몇 분 전, null = 없음. 기한을 빼면 같이 비운다 */
+    val remind: Int?,
+    val setRemind: (Int?) -> Unit,
 )
 
 // ── 부드럽게(11/15 사용자: 칸·탭·곳 고르기가 뚝뚝 끊김) — 밝아지기/사라지기 + 크기 이어 바꾸기 ──
@@ -193,6 +201,7 @@ fun QuickToolRow(quick: QuickAdd, open: QuickTool?, onToggle: (QuickTool) -> Uni
 fun QuickToolPanel(quick: QuickAdd, tool: QuickTool, onDone: () -> Unit, modifier: Modifier = Modifier, horizontalPadding: Dp = 16.dp) {
     val maxHeight = (LocalConfiguration.current.screenHeightDp - 280).coerceIn(240, 460).dp
     val dueAtOpen = remember(tool) { quick.tools.duePick }
+    val remindAtOpen = remember(tool) { quick.tools.remind }
     val subsAtOpen = remember(tool) { quick.tools.subtasks }
     // 하위 할 일 칸의 적다 만 줄: [완료]가 아래 고정 줄에 있어서 여기서 들고 있는다
     var subDraft by remember(tool) { mutableStateOf("") }
@@ -207,7 +216,14 @@ fun QuickToolPanel(quick: QuickAdd, tool: QuickTool, onDone: () -> Unit, modifie
             }
         }
         when (tool) {
-            QuickTool.DUE -> PanelFoot(onCancel = { quick.tools.restoreDue(dueAtOpen); onDone() }, onDone = onDone)
+            QuickTool.DUE -> PanelFoot(
+                onCancel = {
+                    quick.tools.restoreDue(dueAtOpen)
+                    quick.tools.setRemind(remindAtOpen)
+                    onDone()
+                },
+                onDone = onDone,
+            )
             QuickTool.SUB -> PanelFoot(
                 onCancel = { quick.tools.setSubtasks(subsAtOpen); onDone() },
                 onDone = {
@@ -231,27 +247,84 @@ private fun dayLabel(d: LocalDate) = "${d.monthValue}월 ${d.dayOfMonth}일 (${D
 private fun DuePanel(quick: QuickAdd) {
     var timeTab by rememberSaveable { mutableStateOf(false) }
     val r = quick.parsed
-    val today = quick.shownDay
+    DueTabs(
+        date = r.dueDate, time = r.dueTime, vague = r.vague, today = quick.shownDay,
+        timeTab = timeTab, onTab = { timeTab = it },
+        onPickDate = quick.tools.pickDate, onPickTime = quick.tools.pickTime, onHourLater = quick.tools.pickHourLater,
+    )
+    // 미리 알림(DEC-108): 삼성 리마인더처럼 날짜·시간 아래 줄, 누르면 떠 있는 목록
+    val remind = quick.tools.remind
+    Box(Modifier.padding(top = 10.dp).fillMaxWidth().height(1.dp).background(Wb.colors.border))
+    RemindRow(
+        value = remind,
+        enabled = r.dueDate != null,
+        whenText = remindWhenText(remindAt(r.dueDate, r.dueTime, remind), dateOnly = r.dueTime == null, now = ZonedDateTime.now(SEOUL)),
+        onPick = quick.tools.setRemind,
+    )
+}
+
+/**
+ * 기한 고르기 부품(삼성 리마인더처럼 [날짜 | 시간] 두 칸 + 달력·휠 + 바로 가기). 빠른 입력 기한 칸과 할 일 서랍 창(DueTabsDialog)이 같이 쓴다.
+ * 값은 바깥이 들고 있고(onPick…), 탭만 timeTab으로 받는다. 시각만 빼기는 [시간] 값 옆 ⊖
+ */
+@Composable
+fun DueTabs(
+    date: LocalDate?, time: LocalTime?, vague: String?, today: LocalDate,
+    timeTab: Boolean, onTab: (Boolean) -> Unit,
+    onPickDate: (LocalDate) -> Unit, onPickTime: (LocalTime?) -> Unit, onHourLater: () -> Unit,
+) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        DueTab("날짜", r.dueDate?.let(::dayLabel) ?: r.vague?.let { "$it · 확인 필요" } ?: "없음", !timeTab, Modifier.weight(1f)) { timeTab = false }
-        // 넣은 시각만 빼기: 값 옆 ⊖(삼성 리마인더 시간 줄처럼). 기한 전체를 빼는 ⊖는 미리보기 기한 칩에
+        DueTab("날짜", date?.let(::dayLabel) ?: vague?.let { "$it · 확인 필요" } ?: "없음", !timeTab, Modifier.weight(1f)) { onTab(false) }
         DueTab(
-            "시간", r.dueTime?.let(::ampmLabel) ?: "시간 설정", timeTab, Modifier.weight(1f),
-            onClear = if (r.dueTime != null) ({ quick.tools.pickTime(null) }) else null,
-        ) { timeTab = true }
+            "시간", time?.let(::ampmLabel) ?: "시간 설정", timeTab, Modifier.weight(1f),
+            onClear = if (time != null) ({ onPickTime(null) }) else null,
+        ) { onTab(true) }
     }
     // 날짜 ↔ 시간: 밝아지고 사라지며 높이가 이어서 바뀐다
-    AnimatedContent(timeTab, transitionSpec = { quickFade() }, label = "due-tab") { time ->
+    AnimatedContent(timeTab, transitionSpec = { quickFade() }, label = "due-tab") { showTime ->
         Column {
-            if (!time) {
-                MonthGrid(selected = r.dueDate, today = today, onPick = quick.tools.pickDate)
-                QuickChips(QUICK_DAYS.map { (label, f) -> Triple(label, r.dueDate == f(today)) { quick.tools.pickDate(f(today)) } })
+            if (!showTime) {
+                MonthGrid(selected = date, today = today, onPick = onPickDate)
+                QuickChips(QUICK_DAYS.map { (label, f) -> Triple(label, date == f(today)) { onPickDate(f(today)) } })
             } else {
-                TimeWheel(r.dueTime, quick.tools.pickTime)
+                TimeWheel(time, onPickTime)
                 QuickChips(
-                    listOf(Triple("1시간 후", false, quick.tools.pickHourLater)) +
-                        QUICK_TIMES.map { (label, t) -> Triple(label, r.dueTime == t) { quick.tools.pickTime(t) } },
+                    listOf(Triple("1시간 후", false, onHourLater)) +
+                        QUICK_TIMES.map { (label, t) -> Triple(label, time == t) { onPickTime(t) } },
                 )
+            }
+        }
+    }
+}
+
+/**
+ * 할 일 서랍의 기한 고르기 창(11/15 사용자): 날짜를 고르고 [시간] 탭으로 넘어가 한 번에 정한 뒤 [완료].
+ * 빠른 입력 기한 칸과 같은 부품(DueTabs) + 넓은 [취소]·[완료]. 시각을 정하면 '날짜+시각', 빼면 '날짜'
+ */
+@Composable
+fun DueTabsDialog(
+    initialDate: LocalDate?, initialTime: LocalTime?, startOnTime: Boolean,
+    onDismiss: () -> Unit, onDone: (LocalDate, LocalTime?) -> Unit,
+) {
+    val today = remember { LocalDate.now(SEOUL) }
+    var date by remember { mutableStateOf(initialDate ?: today) }
+    var time by remember { mutableStateOf(initialTime) }
+    var timeTab by remember { mutableStateOf(startOnTime) }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(28.dp), color = Wb.colors.card, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
+                DueTabs(
+                    date = date, time = time, vague = null, today = today,
+                    timeTab = timeTab, onTab = { timeTab = it },
+                    onPickDate = { date = it },
+                    onPickTime = { time = it },
+                    onHourLater = {
+                        val h = hourLater(LocalDateTime.now(SEOUL))
+                        date = h.date
+                        time = h.time
+                    },
+                )
+                PanelFoot(onCancel = onDismiss, onDone = { onDone(date, time) })
             }
         }
     }

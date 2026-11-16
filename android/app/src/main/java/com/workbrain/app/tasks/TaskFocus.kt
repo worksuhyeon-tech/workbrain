@@ -37,6 +37,17 @@ object TaskFocus {
     fun request(taskId: String) { _pending.value = taskId }
 
     fun consume(taskId: String) { if (_pending.value == taskId) _pending.value = null }
+
+    // 미리 알림을 눌러 왔으면(DEC-108) 줄을 칠하는 것에 더해 그 할 일 서랍도 연다. 프로젝트 탭이 그 할 일을 읽은 뒤 한 번 쓰고 비운다
+    private val _open = MutableStateFlow<String?>(null)
+    val openPending: StateFlow<String?> = _open
+
+    fun requestOpen(taskId: String) {
+        _pending.value = taskId
+        _open.value = taskId
+    }
+
+    fun consumeOpen(taskId: String) { if (_open.value == taskId) _open.value = null }
 }
 
 /**

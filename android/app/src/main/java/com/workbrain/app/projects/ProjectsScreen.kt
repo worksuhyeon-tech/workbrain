@@ -58,6 +58,7 @@ import com.workbrain.app.tasks.SelectionBar
 import com.workbrain.app.tasks.SelectionHeader
 import com.workbrain.app.tasks.TaskDeletes
 import com.workbrain.app.search.SearchButton
+import com.workbrain.app.reminders.ReminderSync
 import com.workbrain.app.tasks.TaskFocus
 import com.workbrain.app.tasks.parseSubtask
 import com.workbrain.app.ui.SEOUL
@@ -171,6 +172,8 @@ fun ProjectsScreen(
     suspend fun load() {
         // 캘린더 연결 상태·넣은 할 일도 함께 다시 읽는다(고친 할 일이 있으면 그때 캘린더에 반영, Design §3.16)
         CalendarStore.refreshLater()
+        // 미리 알림 예약도 서버 값에 맞춘다(DEC-108)
+        ReminderSync.refreshLater(context)
         runCatching { Para.load() }
             .onSuccess { d ->
                 data = d; loadFailed = false
@@ -196,6 +199,14 @@ fun ProjectsScreen(
         val id = taskFocus ?: return@LaunchedEffect
         delay(TaskFocus.TIMEOUT_MS)
         TaskFocus.consume(id)
+    }
+    // 미리 알림을 눌러 왔으면(DEC-108) 그 할 일을 읽은 뒤 서랍을 연다(지운 할 일이면 열지 않고 비움)
+    val openTask by TaskFocus.openPending.collectAsStateWithLifecycle()
+    LaunchedEffect(openTask, data) {
+        val id = openTask ?: return@LaunchedEffect
+        val d = data ?: return@LaunchedEffect
+        d.tasks.firstOrNull { it.id == id }?.let { taskError = null; editingTask = it }
+        TaskFocus.consumeOpen(id)
     }
     // 오늘 화면의 '다음 7일 · 전체 →'·프로젝트 이름에서 왔으면 그 항목을 연다(한 번만)
     LaunchedEffect(startKey) {

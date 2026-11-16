@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 할 일 미리 알림(DEC-108): 정확한 시각에 울리기(사용자가 '알람 및 리마인더'를 허용해야 함), 휴대폰을 다시 켠 뒤 다시 걸기 -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- 빠른 입력 말로 넣기(DEC-89): Android 11부터는 음성 인식 서비스를 여기 적어야 앱이 찾을 수 있다 -->
     <queries>
@@ -68,6 +71,21 @@
                 <data android:scheme="workbrain" android:host="calendar-callback" />
             </intent-filter>
         </activity>
+
+        <!-- 미리 알림(DEC-108): 울리기·[완료]·[10분 뒤 다시]는 앱 안에서만, 다시 켜기·시각 바뀜은 시스템이 보낸다 -->
+        <receiver
+            android:name=".reminders.ReminderReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".reminders.ReminderBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".record.RecordingService"

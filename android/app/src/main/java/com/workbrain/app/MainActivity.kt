@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.workbrain.app.auth.LoginScreen
 import com.workbrain.app.record.RecorderLaunch
+import com.workbrain.app.reminders.ReminderLaunch
 import com.workbrain.app.record.SharedImport
 import com.workbrain.app.tasks.CalendarStore
 import com.workbrain.app.ui.WorkBrainTheme
@@ -32,6 +33,7 @@ class MainActivity : ComponentActivity() {
         receiveShared(intent)
         receiveRecorder(intent)
         receiveCalendar(intent)
+        receiveReminder(intent)
         enableEdgeToEdge()
         setContent { WorkBrainTheme { AppRoot() } }
     }
@@ -43,6 +45,7 @@ class MainActivity : ComponentActivity() {
         receiveShared(intent)
         receiveRecorder(intent)
         receiveCalendar(intent)
+        receiveReminder(intent)
     }
 
     // 구글 캘린더 허락 뒤 workbrain://calendar-callback?calendar=결과 로 돌아온다(FR-24a). 더보기가 알린다.
@@ -52,6 +55,15 @@ class MainActivity : ComponentActivity() {
         if (data.scheme != "workbrain" || data.host != "calendar-callback") return
         intent.data = null
         CalendarStore.onConnectResult(data.getQueryParameter("calendar") ?: "error")
+    }
+
+    // 미리 알림을 눌러 열었으면 그 할 일 서랍으로(DEC-108). 한 번 쓰고 지운다
+    private fun receiveReminder(intent: Intent) {
+        val id = intent.getStringExtra(ReminderLaunch.EXTRA_OPEN_TASK) ?: return
+        val key = intent.getStringExtra(ReminderLaunch.EXTRA_OPEN_KEY) ?: "all"
+        intent.removeExtra(ReminderLaunch.EXTRA_OPEN_TASK)
+        intent.data = null
+        ReminderLaunch.pending.value = id to key
     }
 
     // 녹음 알림을 눌러 열었으면 녹음 화면으로(DEC-89). 표시는 한 번 쓰고 지워, 같은 Intent로 다시 그려질 때 또 열지 않는다

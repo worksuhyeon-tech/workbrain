@@ -102,13 +102,17 @@ private object QuickDrafts {
 private object QuickToolDrafts {
     private val picks = mutableStateMapOf<String, QuickPicks>()
     private val subs = mutableStateMapOf<String, List<String>>()
+    private val reminds = mutableStateMapOf<String, Int>()
     fun picks(key: String): QuickPicks = picks[key] ?: QuickPicks()
     fun setPicks(key: String, value: QuickPicks) { if (value == QuickPicks()) picks.remove(key) else picks[key] = value }
     fun subs(key: String): List<String> = subs[key].orEmpty()
     fun setSubs(key: String, value: List<String>) { if (value.isEmpty()) subs.remove(key) else subs[key] = value }
+    fun remind(key: String): Int? = reminds[key]
+    fun setRemind(key: String, value: Int?) { if (value == null) reminds.remove(key) else reminds[key] = value }
     fun clear(key: String) {
         picks.remove(key)
         subs.remove(key)
+        reminds.remove(key)
     }
 }
 
@@ -221,7 +225,10 @@ class QuickAdd(
     val toggleCalendar: () -> Unit,
     /** 아이콘 줄 값과 동작(DEC-107). parsed는 이미 이 값을 덮은 결과 */
     val tools: QuickToolState,
-)
+) {
+    /** 넣을 값: 해석 결과 + 기한 칸에서 고른 미리 알림(DEC-108, 기한이 없으면 저장 때 빠짐) */
+    fun editToSave(): TaskEdit = parsed.toEdit().copy(remindBeforeMin = tools.remind)
+}
 
 /**
  * places: 보관 안 된 프로젝트·반복실행(# 찾기·마지막에 넣은 곳 확인).
@@ -296,7 +303,7 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
         }
         if (parsed.title.isBlank()) { error = "할 일 제목을 입력해 주세요"; return }
         error = null
-        insert(parsed.toEdit(), calendar = calendarShown && calendarOn, onSaved = {}, onFailed = { error = it })
+        insert(parsed.toEdit().copy(remindBeforeMin = QuickToolDrafts.remind(draftKey)), calendar = calendarShown && calendarOn, onSaved = {}, onFailed = { error = it })
     }
 
     fun addEdited(edit: TaskEdit, calendar: Boolean, onSaved: () -> Unit, onFailed: (String) -> Unit) {
@@ -339,11 +346,17 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
             else setDue(Due(parsed.dueDate ?: LocalDate.now(SEOUL), t))
         },
         pickHourLater = { setDue(hourLater(LocalDateTime.now(SEOUL))) },
-        pickNoDue = { setDue(null) },
+        // 기한을 빼면 미리 알림도 비운다(Design §3.19)
+        pickNoDue = {
+            setDue(null)
+            QuickToolDrafts.setRemind(draftKey, null)
+        },
         choosePlace = { p -> setPicks { it.copy(place = Picked(p, placeBase(raw))) } },
         choosePriority = { v -> setPicks { it.copy(priority = Picked(v, raw.priority)) } },
         duePick = picks.due,
         restoreDue = { p -> setPicks { it.copy(due = p) } },
+        remind = QuickToolDrafts.remind(draftKey),
+        setRemind = { QuickToolDrafts.setRemind(draftKey, it) },
     )
 
     return QuickAdd(
@@ -429,7 +442,7 @@ fun QuickAddBar(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (quick.text.isNotBlank()) {
-                QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace, quick.subtaskCount, onClearDue = quick.tools.pickNoDue)
+                QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace, quick.subtaskCount, onClearDue = quick.tools.pickNoDue, remind = quick.tools.remind, onClearRemind = { quick.tools.setRemind(null) })
                 CalendarChip(quick)
             }
         }
@@ -457,9 +470,14 @@ val QuickAdd.subtaskCount: Int get() = cleanSubtasks(tools.subtasks).size
  * onClearDue: 기한·모호 칩 끝 ⊖로 넣은 기한을 뺀다(삼성 리마인더처럼, 11/15 사용자). '오늘' 탭에서 빼면 기한 없이 들어간다
  */
 @Composable
-fun QuickPreview(r: QuickTask, today: LocalDate, onPickPlace: (Place) -> Unit, subtasks: Int = 0, onClearDue: (() -> Unit)? = null) {
+fun QuickPreview(
+    r: QuickTask, today: LocalDate, onPickPlace: (Place) -> Unit, subtasks: Int = 0, onClearDue: (() -> Unit)? = null,
+    remind: Int? = null, onClearRemind: (() -> Unit)? = null,
+) {
     QuickChip(WbIcons.Pencil, r.title.ifEmpty { "제목 없음" }, italic = r.title.isEmpty())
     quickDueLabel(r, today)?.let { QuickChip(WbIcons.Calendar, it, onClear = onClearDue) }
+    // 미리 알림(DEC-108): 기한 날짜가 있을 때만(모호·없음이면 저장 때 빠짐)
+    if (remind != null && r.dueDate != null) QuickChip(WbIcons.Bell, remindLabel(remind), onClear = onClearRemind, clearLabel = "알림 빼기")
     r.vague?.let { QuickChip(WbIcons.Calendar, "$it · 확인 필요", warn = true, onClear = onClearDue) }
     // 줄과 같은 기호(DEC-103): 높음 주황 별 · 낮음 회색 아래 화살표
     when (r.priority) {
@@ -522,7 +540,10 @@ private val QUICK_CHIP_HEIGHT = 28.dp
 
 /** 목업 .qc: 작은 테두리 알약(경고는 주황 글씨·테두리). 글자가 바뀌면 밝아지며 바뀐다. onClear가 있으면 끝에 ⊖(빼기) */
 @Composable
-private fun QuickChip(icon: ImageVector, text: String, warn: Boolean = false, italic: Boolean = false, iconTint: Color? = null, onClear: (() -> Unit)? = null) {
+private fun QuickChip(
+    icon: ImageVector, text: String, warn: Boolean = false, italic: Boolean = false, iconTint: Color? = null,
+    onClear: (() -> Unit)? = null, clearLabel: String = "기한 빼기",
+) {
     val color = if (warn) Wb.colors.warn else Wb.colors.body
     Row(
         Modifier.heightIn(min = QUICK_CHIP_HEIGHT).background(Wb.colors.surface, PillShape)
@@ -539,6 +560,6 @@ private fun QuickChip(icon: ImageVector, text: String, warn: Boolean = false, it
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 4.dp),
             )
         }
-        onClear?.let { MinusButton("기한 빼기", it, Modifier.padding(start = 2.dp), touch = QUICK_CHIP_HEIGHT - 2.dp, visual = 18.dp) }
+        onClear?.let { MinusButton(clearLabel, it, Modifier.padding(start = 2.dp), touch = QUICK_CHIP_HEIGHT - 2.dp, visual = 18.dp) }
     }
 }

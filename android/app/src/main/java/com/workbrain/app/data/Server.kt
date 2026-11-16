@@ -13,6 +13,7 @@ import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
 import io.github.jan.supabase.storage.storage
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsBytes
@@ -272,6 +273,8 @@ data class Transcript(val content: String, val segments: List<TranscriptSegment>
     @SerialName("parent_id") val parentId: String? = null,
     /** 만든 시각(하위 할 일을 만든 순서로 보인다) */
     @SerialName("created_at") val createdAt: String? = null,
+    /** 미리 알림(DEC-108, 0043): 몇 분 전(0 = 정각). null = 알림 없음. 날짜만 있으면 그날 09:00 기준 */
+    @SerialName("remind_before_min") val remindBeforeMin: Int? = null,
 ) {
     val done: Boolean get() = status == "done"
     val isSubtask: Boolean get() = parentId != null
@@ -295,9 +298,14 @@ data class TaskEdit(
     val projectId: String?,
     val areaId: String?,
     val recipients: List<String> = emptyList(),
-)
+    /** 미리 알림(DEC-108): 몇 분 전, null = 없음 */
+    val remindBeforeMin: Int? = null,
+) {
+    /** 저장할 알림 값: 기한 날짜가 없으면(없음·모호) 알림도 없다(Design §3.19) */
+    val savedRemind: Int? get() = remindBeforeMin.takeIf { dueDate != null && !dueAmbiguous }
+}
 
-fun TaskRow.toEdit() = TaskEdit(title, priority, ownerKind, assignee, dueDate, dueTime, dueAmbiguous, dueText, projectId, areaId, recipients)
+fun TaskRow.toEdit() = TaskEdit(title, priority, ownerKind, assignee, dueDate, dueTime, dueAmbiguous, dueText, projectId, areaId, recipients, remindBeforeMin)
 
 /**
  * 사용자가 직접 만드는 새 할 일(한 줄 빠른 입력·새 할 일 서랍, DEC-70·73)의 task 행.
@@ -317,6 +325,7 @@ fun TaskEdit.toNewTaskFields(): JsonObject = buildJsonObject {
     projectId?.let { put("project_id", it) }
     areaId?.let { put("area_id", it) }
     if (recipients.isNotEmpty()) put("recipients", JsonArray(recipients.map(::JsonPrimitive)))
+    savedRemind?.let { put("remind_before_min", it) }
 }
 
 private const val TASK_WITH_PLACE = "*,project(name,archived_at),area(name,archived_at)"
@@ -816,6 +825,20 @@ object Server {
         db.from("task").insert(JsonObject(fields + ("parent_id" to JsonPrimitive(parentId))))
     }
 
+    /**
+     * 휴대폰이 울릴 미리 알림(DEC-108): 알림을 정했고 안 끝난 할 일 중 기한이 어제~16일 뒤인 것(곳 이름 포함).
+     * 울릴 시각 계산·14일 안 고르기는 앱 규칙(remindAtOf)이 한다
+     */
+    suspend fun remindTasks(today: java.time.LocalDate): List<TaskRow> =
+        db.from("task").select(Columns.raw(TASK_WITH_PLACE)) {
+            filter {
+                neq("status", "done")
+                filterNot("remind_before_min", FilterOperator.IS, "null")
+                gte("due_date", today.minusDays(1).toString())
+                lte("due_date", today.plusDays(16).toString())
+            }
+        }.decodeList<TaskRow>()
+
     suspend fun task(id: String): TaskRow? =
         db.from("task").select { filter { eq("id", id) } }.decodeList<TaskRow>().firstOrNull()
 
@@ -837,6 +860,7 @@ object Server {
             put("project_id", json(e.projectId))
             put("area_id", json(e.areaId))
             put("recipients", JsonArray(e.recipients.map(::JsonPrimitive)))
+            put("remind_before_min", e.savedRemind?.let { JsonPrimitive(it) } ?: JsonNull)
             put("version", t.version + 1)
         }) {
             select()

@@ -2,7 +2,6 @@ package com.workbrain.app.tasks
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -10,9 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,7 +22,6 @@ import com.workbrain.app.ui.SegmentPills
 import com.workbrain.app.ui.Wb
 import java.time.Instant
 import java.time.LocalDate
-import java.time.LocalTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -106,21 +102,6 @@ fun DatePickDialog(initial: LocalDate?, onDismiss: () -> Unit, onPick: (LocalDat
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
     ) { DatePicker(state) }
-}
-
-/** 시각 고르기 창(서울 시각으로 보여 준다, 목업 '날짜+시각') */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun TimePickDialog(initial: LocalTime?, onDismiss: () -> Unit, onPick: (LocalTime) -> Unit) {
-    val start = initial ?: LocalTime.of(10, 0)
-    val state = rememberTimePickerState(initialHour = start.hour, initialMinute = start.minute, is24Hour = true)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("시각 고르기") },
-        text = { TimePicker(state) },
-        confirmButton = { TextButton(onClick = { onPick(LocalTime.of(state.hour, state.minute)) }) { Text("확인") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
-    )
 }
 
 /** 서랍 안 칸 이름 */

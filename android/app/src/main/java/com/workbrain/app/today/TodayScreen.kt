@@ -1,5 +1,6 @@
 package com.workbrain.app.today
 
+import com.workbrain.app.reminders.ReminderSync
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -201,6 +202,8 @@ fun TodayScreen(nav: TodayNav) {
     suspend fun load() = coroutineScope {
         // 캘린더 연결 상태·넣은 할 일도 함께 다시 읽는다(고친 할 일이 있으면 그때 캘린더에 반영, Design §3.16). 할 일을 기다리게 하지 않는다
         CalendarStore.refreshLater()
+        // 미리 알림 예약도 서버 값에 맞춘다(DEC-108)
+        ReminderSync.refreshLater(context)
         val t = async { runCatching { Server.todayTasks() } }
         val pd = async { runCatching { Para.load() }.getOrNull() }
         val pend = async { runCatching { Server.pendingProposals() }.getOrNull() }

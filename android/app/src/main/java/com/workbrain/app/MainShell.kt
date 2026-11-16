@@ -52,6 +52,8 @@ import com.workbrain.app.record.NextProject
 import com.workbrain.app.record.RecState
 import com.workbrain.app.record.RecStatus
 import com.workbrain.app.record.RecorderLaunch
+import com.workbrain.app.reminders.ReminderLaunch
+import com.workbrain.app.reminders.ReminderSync
 import com.workbrain.app.tasks.CalendarStore
 import com.workbrain.app.record.RecorderScreen
 import com.workbrain.app.record.RecordingService
@@ -118,6 +120,11 @@ fun MainShell() {
     // 앱을 열 때: 결과가 아직 없는 녹음은 백그라운드 처리를 다시 건다(강제 중지 뒤에도 이어 가기, DEC-37)
     val context = LocalContext.current
     LaunchedEffect(Unit) { UploadManager.ensureRunning(context) }
+    // 미리 알림(DEC-108): 1시간마다 서버 값과 맞추기를 걸어 두고, 열 때 한 번 맞춘다
+    LaunchedEffect(Unit) {
+        ReminderSync.schedulePeriodic(context)
+        ReminderSync.refreshLater(context)
+    }
     // 밀린 프로젝트 연결 제안(FR-06, DEC-75): 지난 기록·실패한 기록의 제안을 몇 건씩 채운다. 보조 기능이라 화면에는 알리지 않고,
     // 앱을 닫으면 멈췄다가 다음에 열 때 이어진다(실패만 개발 기록 logcat 'WorkBrainLink')
     LaunchedEffect(Unit) {
@@ -181,6 +188,14 @@ fun MainShell() {
                 searchOpen = false; detailId = null; projectsStart = t.key; tab = Tab.PROJECTS
             }
         }
+    }
+    // 미리 알림을 눌러 왔으면(DEC-108) 프로젝트 탭의 그 할 일 줄로 가서 칠하고 서랍을 연다
+    val remindOpen by ReminderLaunch.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(remindOpen) {
+        val (id, key) = remindOpen ?: return@LaunchedEffect
+        ReminderLaunch.pending.value = null
+        TaskFocus.requestOpen(id)
+        searchOpen = false; detailId = null; recorderOpen = false; projectsStart = key; tab = Tab.PROJECTS
     }
     val todayNav = TodayNav(
         openRecord = open,

@@ -195,6 +195,10 @@ fun TaskLine(
         if (t.id in calendarLinks) {
             Icon(WbIcons.Calendar, contentDescription = "캘린더에 넣은 할 일", tint = Wb.colors.info, modifier = Modifier.padding(start = 6.dp).size(14.dp))
         }
+        // 미리 알림(DEC-108): 아직 안 울린 알림이 있으면 작은 종
+        if (remindAtOf(t)?.isAfter(java.time.Instant.now()) == true) {
+            Icon(WbIcons.Bell, contentDescription = "미리 알림 ${remindLabel(t.remindBeforeMin)}", tint = Wb.colors.muted, modifier = Modifier.padding(start = 6.dp).size(14.dp))
+        }
         WbChip(
             rowDue(t, today),
             when { late -> Tone.Crit; t.dueAmbiguous && dueDay(t) == null -> Tone.Warn; else -> Tone.Mute },

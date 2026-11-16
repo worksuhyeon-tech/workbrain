@@ -134,10 +134,12 @@ fun TaskEditSheet(
     var vague by remember { mutableStateOf(task.dueText.orEmpty()) }
     var priority by remember { mutableStateOf((task.priority ?: 2).toString()) }
     var recipients by remember { mutableStateOf(task.recipients) }
+    // 미리 알림(DEC-108): 기한 날짜가 없으면(없음·모호) 칸이 흐리고 저장 때 빠진다
+    var remind by remember { mutableStateOf(task.remindBeforeMin) }
     var recordPeople by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(recordId) { recordPeople = loadRecordPeople(recordId) }
-    var pickingDate by remember { mutableStateOf(false) }
-    var pickingTime by remember { mutableStateOf(false) }
+    // 기한 고르기 창(DueTabsDialog): null = 닫힘, false = 날짜 탭으로, true = 시간 탭으로 연다
+    var pickingDue by remember { mutableStateOf<Boolean?>(null) }
     // 고르기 전에는 '이미 넣었는지'를 따른다 — 연결 상태를 읽기 전에 연 서랍도 읽은 뒤 맞게 켜지도록(웹과 같음)
     var calPicked by remember { mutableStateOf(if (calendarStartOn) true else null) }
     val calOn = calPicked ?: (calendar?.linked == true)
@@ -171,6 +173,7 @@ fun TaskEditSheet(
             projectId = projectId,
             areaId = areaId,
             recipients = recipients,
+            remindBeforeMin = remind,
         )
     }
 
@@ -217,16 +220,33 @@ fun TaskEditSheet(
             Label("받는 사람")
             RecipientsField(recipients, recipientChoices(task.recipients, recordPeople, usedNames)) { recipients = it }
 
-            Label("기한")
+            Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("기한", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Wb.colors.ink, modifier = Modifier.weight(1f))
+                calendar?.let { c ->
+                    val canCal = c.connected && hasDate
+                    Text(
+                        "캘린더에도 넣기", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        color = if (canCal) Wb.colors.ink else Wb.colors.muted, modifier = Modifier.padding(end = 8.dp),
+                    )
+                    Switch(
+                        checked = calOn,
+                        onCheckedChange = { calPicked = it },
+                        enabled = canCal,
+                        colors = SwitchDefaults.colors(checkedTrackColor = Wb.colors.primary),
+                    )
+                }
+            }
             DarkSeg(DUES, dueKind) { k ->
                 dueKind = k
-                if ((k == "date" || k == "time") && date == null) pickingDate = true
+                // 날짜가 없으면 바로 고르기 창. '날짜+시각'인데 시각이 없으면 시간 탭으로 연다
+                if (k == "date" && date == null) pickingDue = false
+                if (k == "time" && (date == null || time == null)) pickingDue = date != null
             }
             when (dueKind) {
-                "date" -> TextButton(onClick = { pickingDate = true }) { Text(date?.format(DAY) ?: "날짜 고르기", color = Wb.colors.link) }
+                "date" -> TextButton(onClick = { pickingDue = false }) { Text(date?.format(DAY) ?: "날짜 고르기", color = Wb.colors.link) }
                 "time" -> Row {
-                    TextButton(onClick = { pickingDate = true }) { Text(date?.format(DAY) ?: "날짜 고르기", color = Wb.colors.link) }
-                    TextButton(onClick = { pickingTime = true }) { Text(time?.let { "%02d:%02d".format(it.hour, it.minute) } ?: "시각 고르기", color = Wb.colors.link) }
+                    TextButton(onClick = { pickingDue = false }) { Text(date?.format(DAY) ?: "날짜 고르기", color = Wb.colors.link) }
+                    TextButton(onClick = { pickingDue = true }) { Text(time?.let(::ampmLabel) ?: "시각 고르기", color = Wb.colors.link) }
                 }
                 "vague" -> OutlinedTextField(
                     value = vague, onValueChange = { vague = it.take(40) },
@@ -239,17 +259,18 @@ fun TaskEditSheet(
                 "time" -> Note("시각은 서울 시간으로 표시해요.")
                 "vague" -> Note("모호한 기한은 날짜로 바꾸지 않고 '확인 필요'로 둬요.")
             }
+            Label("미리 알림")
+            RemindRow(
+                value = remind,
+                enabled = hasDate,
+                whenText = remindWhenText(
+                    remindAt(date.takeIf { hasDate }, time.takeIf { dueKind == "time" }, remind),
+                    dateOnly = dueKind != "time", now = ZonedDateTime.now(SEOUL),
+                ),
+                onPick = { remind = it },
+            )
+            // 캘린더 안내(연결 전·기한 없음·넣으면 어떻게 되는지)는 기한 설명 아래에
             calendar?.let { c ->
-                Label("캘린더")
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = calOn,
-                        onCheckedChange = { calPicked = it },
-                        enabled = c.connected && hasDate,
-                        colors = SwitchDefaults.colors(checkedTrackColor = Wb.colors.primary),
-                    )
-                    Text("캘린더에도 넣기", style = MaterialTheme.typography.bodyMedium, color = Wb.colors.ink, modifier = Modifier.padding(start = 10.dp))
-                }
                 calendarNote(c.connected, c.linked, calOn, hasDate, withTime = dueKind == "time").takeIf { it.isNotEmpty() }?.let { Note(it) }
             }
 
@@ -287,8 +308,15 @@ fun TaskEditSheet(
         }
     }
 
-    if (pickingDate) DatePickDialog(date, onDismiss = { pickingDate = false }) { date = it; pickingDate = false }
-    if (pickingTime) TimePickDialog(time, onDismiss = { pickingTime = false }) { time = it; pickingTime = false }
+    pickingDue?.let { onTime ->
+        DueTabsDialog(date, time, startOnTime = onTime, onDismiss = { pickingDue = null }) { d, t ->
+            date = d
+            time = t
+            // 시각을 정했으면 '날짜+시각', 뺐으면 '날짜'
+            dueKind = if (t != null) "time" else "date"
+            pickingDue = null
+        }
+    }
     // 닫으면(바깥·뒤로 가기) 저장하지 않고 서랍으로 — 아무것도 바뀌지 않음
     if (askingCalendar) {
         CalendarAskDialog(
