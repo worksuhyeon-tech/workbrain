@@ -17,6 +17,7 @@ import { buildHeadInput, cleanHeads, PLAN_HEAD_PROMPT, PLAN_HEAD_SCHEMA, PLAN_HE
 import { loadPlanInput } from "./plan-data.ts";
 import { applyHeads, buildWorkPlan, headInputs, type PlanKind, type WorkPlan } from "../_shared/work-plan.ts";
 import { withCors } from "../_shared/cors.ts";
+import { AI_NO_KEY_MESSAGE, AiAccountError, openAiError } from "./ai-error.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -29,7 +30,7 @@ const LLM_USD_PER_1M = { input: 0.10, output: 0.50 };
 const KRW_PER_USD = 1400;
 const STT_MAX_BYTES = 25 * 1024 * 1024; // 전사 API 한 번 한도
 
-type Job = { id: string; stage: string; stage_state: string; retry_count: number };
+type Job = { id: string; stage: string; stage_state: string; retry_count: number; last_error: string | null };
 
 const reply = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -68,25 +69,28 @@ Deno.serve(withCors(async (req) => {
   // 현재 상태 제안(FR-09): 처리 작업 단계와 상관없이, 연결을 확정한 기록 하나로 그 프로젝트의 제안을 만들거나 고쳐 쓴다
   if (action === "project_state") {
     if (!/^[0-9a-f-]{36}$/i.test(recordId) || !/^[0-9a-f-]{36}$/i.test(projectId)) return reply(400, { error: "기록·프로젝트 ID가 올바르지 않아요" });
-    if (!OPENAI_KEY) return reply(200, { state: "WAITING_KEY", error: "AI 키가 아직 설정되지 않았어요" });
+    if (!OPENAI_KEY) return reply(200, { state: "WAITING_KEY", error: AI_NO_KEY_MESSAGE });
     const cycle = new Date().toISOString().slice(0, 7);
     if (await overBudget(db, uid, cycle)) return reply(200, { state: "BUDGET_WAIT", error: "이번 달 AI 예산 대기선을 넘어 지금은 만들 수 없어요" });
     try {
       return reply(200, await proposeState(db, uid, recordId, projectId, cycle));
     } catch (e) {
       console.error("project_state failed", String(e));
-      return reply(200, { state: "FAILED", error: "현재 상태 제안을 만들지 못했어요" });
+      return reply(200, { state: "FAILED", error: e instanceof AiAccountError ? e.message : "현재 상태 제안을 만들지 못했어요" });
     }
   }
   if (!/^[0-9a-f-]{36}$/i.test(recordId)) return reply(400, { error: "기록 ID가 올바르지 않아요" });
 
-  const { data: job } = await db.from("processing_job").select("id,stage,stage_state,retry_count")
+  const { data: job } = await db.from("processing_job").select("id,stage,stage_state,retry_count,last_error")
     .eq("source_record_id", recordId).eq("owner_id", uid).maybeSingle<Job>();
   if (!job) return reply(404, { error: "처리할 작업이 없어요" });
   if (job.stage === "REVIEWABLE" && action !== "document") return reply(200, { stage: "REVIEWABLE", state: "DONE" });
   if (action === "document" && job.stage !== "REVIEWABLE") return reply(200, { error: "할 일 정리가 끝난 뒤에 만들 수 있어요" });
-  if (!OPENAI_KEY) return reply(200, { stage: job.stage, state: "WAITING_KEY", error: "AI 키가 아직 설정되지 않았어요" });
-  if (job.stage_state === "FAILED" && job.retry_count >= 3) return reply(200, { stage: job.stage, state: "FAILED", error: "세 번 실패해 멈췄어요" });
+  if (!OPENAI_KEY) return reply(200, { stage: job.stage, state: "WAITING_KEY", error: AI_NO_KEY_MESSAGE });
+  // 멈춘 까닭(마지막 오류)을 같이 알려, 화면에서 무엇이 문제였는지 바로 보이게 한다(11/18 사용자)
+  if (job.stage_state === "FAILED" && job.retry_count >= 3) {
+    return reply(200, { stage: job.stage, state: "FAILED", error: ["세 번 실패해 멈췄어요", job.last_error].filter(Boolean).join(" · ") });
+  }
 
   // 예산: 이번 달 확정 비용이 대기선을 넘으면 새 유료 작업을 기다리게 한다(NFR-07)
   const cycle = new Date().toISOString().slice(0, 7);
@@ -117,7 +121,7 @@ Deno.serve(withCors(async (req) => {
       return reply(200, { document: "DONE" });
     } catch (e) {
       console.error("document failed", String(e));
-      return reply(200, { error: "회의록을 만들지 못했어요. 다시 시도해 주세요" });
+      return reply(200, { error: e instanceof AiAccountError ? e.message : "회의록을 만들지 못했어요. 다시 시도해 주세요" });
     } finally {
       // 응답을 못 받은 앱이 wb_document_status로 결과를 확인한다
       await db.from("processing_job").update({ document_lease_until: null, document_result: result })
@@ -135,6 +139,13 @@ Deno.serve(withCors(async (req) => {
     const { data: after } = await db.from("processing_job").select("stage,stage_state,last_error").eq("id", job.id).single();
     return reply(200, { stage: after?.stage, state: after?.stage_state, error: after?.last_error ?? undefined });
   } catch (e) {
+    // 키·크레딧 문제는 기록 잘못이 아니라 실패로 세지 않고 기다린다: 새 키를 넣은 뒤 이어서 처리하면 같은 단계부터(11/18 사용자)
+    if (e instanceof AiAccountError) {
+      await db.from("processing_job").update({
+        stage_state: "PENDING", last_error: e.message, lease_until: null, updated_at: new Date().toISOString(),
+      }).eq("id", job.id);
+      return reply(200, { stage: job.stage, state: "WAITING_KEY", error: e.message });
+    }
     const message = String((e as Error)?.message ?? e).slice(0, 300);
     await db.from("processing_job").update({
       stage_state: "FAILED", retry_count: job.retry_count + 1, last_error: message, lease_until: null, updated_at: new Date().toISOString(),
@@ -197,7 +208,7 @@ async function runStt(db: SupabaseClient, uid: string, recordId: string, job: Jo
     method: "POST", headers: { Authorization: `Bearer ${OPENAI_KEY}` }, body: form,
   });
   const d = await r.json();
-  if (!r.ok) throw new Error("전사 실패: " + (d?.error?.message ?? r.status));
+  if (!r.ok) throw openAiError("전사 실패", r.status, d);
   await addCost(db, uid, cycle, ((asset.duration_sec ?? 60) / 60) * STT_USD_PER_MIN);
 
   const text = String(d.text ?? "").trim();
@@ -241,7 +252,7 @@ async function correctChunk(text: string, vocab: string[], attendees: string[]):
     body: JSON.stringify({ model: LLM_MODEL, instructions: CORRECT_PROMPT, input: `용어집: ${vocab.join(", ") || "(없음)"}\n참석자: ${attendees.join(", ") || "(없음)"}\n\n전사:\n${text}` }),
   });
   const d = await r.json();
-  if (!r.ok) throw new Error("용어 교정 실패: " + (d?.error?.message ?? r.status));
+  if (!r.ok) throw openAiError("용어 교정 실패", r.status, d);
   const out = String(d.output_text ?? d.output?.flatMap((o: { content?: unknown[] }) => o.content ?? [])
     .find((c: { type?: string }) => c.type === "output_text")?.text ?? "").trim();
   // 길이가 크게 달라졌으면 요약·추가로 보고 그 조각은 원문을 쓴다(교정은 용어 몇 개만 바꾼다)
@@ -370,7 +381,7 @@ async function matchTasks(candidates: Record<string, unknown>[], tasks: OpenTask
     body: JSON.stringify({ model: LLM_MODEL, instructions: MATCH_PROMPT, input, text: { format: { type: "json_schema", name: "task_match", schema: MATCH_SCHEMA, strict: true } } }),
   });
   const d = await r.json();
-  if (!r.ok) throw new Error("기존 할 일 비교 실패: " + (d?.error?.message ?? r.status));
+  if (!r.ok) throw openAiError("기존 할 일 비교 실패", r.status, d);
   const raw = d.output_text ?? d.output?.flatMap((o: { content?: unknown[] }) => o.content ?? []).find((c: { type?: string }) => c.type === "output_text")?.text;
   const map = new Map<number, OpenTask>();
   for (const m of (JSON.parse(raw).matches ?? []) as { candidate: number; task: string | null }[]) {
@@ -434,7 +445,7 @@ async function runExtract(db: SupabaseClient, uid: string, recordId: string, job
     }),
   });
   const d = await r.json();
-  if (!r.ok) throw new Error("분석 실패: " + (d?.error?.message ?? r.status));
+  if (!r.ok) throw openAiError("분석 실패", r.status, d);
   const usage = { input_tokens: d.usage?.input_tokens ?? 0, output_tokens: d.usage?.output_tokens ?? 0 };
   await addCost(db, uid, cycle, (usage.input_tokens * LLM_USD_PER_1M.input + usage.output_tokens * LLM_USD_PER_1M.output) / 1e6);
   const raw = d.output_text ?? d.output?.flatMap((o: { content?: unknown[] }) => o.content ?? [])
@@ -582,7 +593,7 @@ async function suggestLinks(db: SupabaseClient, uid: string, recordId: string, c
       }),
     });
     const d = await r.json();
-    if (!r.ok) throw new Error("연결 제안 실패: " + (d?.error?.message ?? r.status));
+    if (!r.ok) throw openAiError("연결 제안 실패", r.status, d);
     usage = { input_tokens: d.usage?.input_tokens ?? 0, output_tokens: d.usage?.output_tokens ?? 0 };
     requestId = d.id ?? null;
     await addCost(db, uid, cycle, (usage.input_tokens * LLM_USD_PER_1M.input + usage.output_tokens * LLM_USD_PER_1M.output) / 1e6);
@@ -676,7 +687,7 @@ async function proposeState(db: SupabaseClient, uid: string, recordId: string, p
       }),
     });
     const d = await r.json();
-    if (!r.ok) throw new Error("현재 상태 제안 실패: " + (d?.error?.message ?? r.status));
+    if (!r.ok) throw openAiError("현재 상태 제안 실패", r.status, d);
     usage = { input_tokens: d.usage?.input_tokens ?? 0, output_tokens: d.usage?.output_tokens ?? 0 };
     requestId = d.id ?? null;
     await addCost(db, uid, cycle, (usage.input_tokens * LLM_USD_PER_1M.input + usage.output_tokens * LLM_USD_PER_1M.output) / 1e6);
@@ -765,7 +776,7 @@ async function makeWorkPlan(db: SupabaseClient, uid: string, kind: PlanKind, bas
       }),
     });
     const d = await r.json();
-    if (!r.ok) throw new Error(d?.error?.message ?? String(r.status));
+    if (!r.ok) throw openAiError("업무계획 줄 다듬기 실패", r.status, d);
     const usage = { input_tokens: d.usage?.input_tokens ?? 0, output_tokens: d.usage?.output_tokens ?? 0 };
     await addCost(db, uid, cycle, (usage.input_tokens * LLM_USD_PER_1M.input + usage.output_tokens * LLM_USD_PER_1M.output) / 1e6);
     // 기록 단위가 아니라 analysis_run(전사 버전 필수)에 남길 수 없어, 모델·지시문 판·사용량은 함수 로그로 남긴다(NFR-09)
@@ -904,7 +915,7 @@ async function writeDocument(db: SupabaseClient, uid: string, recordId: string, 
     }),
   });
   const d = await r.json();
-  if (!r.ok) throw new Error("회의록 문서 실패: " + (d?.error?.message ?? r.status));
+  if (!r.ok) throw openAiError("회의록 문서 실패", r.status, d);
   await addCost(db, uid, cycle, ((d.usage?.input_tokens ?? 0) * LLM_USD_PER_1M.input + (d.usage?.output_tokens ?? 0) * LLM_USD_PER_1M.output) / 1e6);
   const raw = d.output_text ?? d.output?.flatMap((o: { content?: unknown[] }) => o.content ?? [])
     .find((c: { type?: string }) => c.type === "output_text")?.text;

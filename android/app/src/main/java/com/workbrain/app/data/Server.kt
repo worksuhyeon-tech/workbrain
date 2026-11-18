@@ -275,6 +275,8 @@ data class Transcript(val content: String, val segments: List<TranscriptSegment>
     @SerialName("created_at") val createdAt: String? = null,
     /** 미리 알림(DEC-108, 0043): 몇 분 전(0 = 정각). null = 알림 없음. 날짜만 있으면 그날 09:00 기준 */
     @SerialName("remind_before_min") val remindBeforeMin: Int? = null,
+    /** 반복(DEC-109, 0044): RRULE 일부('FREQ=WEEKLY'…). null = 반복 안 함. 완료하면 서버가 다음 회차를 새 할 일로 만들고 이 칸을 비운다 */
+    @SerialName("repeat_rule") val repeatRule: String? = null,
 ) {
     val done: Boolean get() = status == "done"
     val isSubtask: Boolean get() = parentId != null
@@ -300,12 +302,16 @@ data class TaskEdit(
     val recipients: List<String> = emptyList(),
     /** 미리 알림(DEC-108): 몇 분 전, null = 없음 */
     val remindBeforeMin: Int? = null,
+    /** 반복(DEC-109): 서버 글자(RepeatRule.text()), null = 반복 안 함 */
+    val repeatRule: String? = null,
 ) {
     /** 저장할 알림 값: 기한 날짜가 없으면(없음·모호) 알림도 없다(Design §3.19) */
     val savedRemind: Int? get() = remindBeforeMin.takeIf { dueDate != null && !dueAmbiguous }
+    /** 저장할 반복: 기한 날짜가 없으면 반복도 없다(다음 회차를 셀 기준이 없음, Design §3.20) */
+    val savedRepeat: String? get() = repeatRule.takeIf { dueDate != null && !dueAmbiguous }
 }
 
-fun TaskRow.toEdit() = TaskEdit(title, priority, ownerKind, assignee, dueDate, dueTime, dueAmbiguous, dueText, projectId, areaId, recipients, remindBeforeMin)
+fun TaskRow.toEdit() = TaskEdit(title, priority, ownerKind, assignee, dueDate, dueTime, dueAmbiguous, dueText, projectId, areaId, recipients, remindBeforeMin, repeatRule)
 
 /**
  * 사용자가 직접 만드는 새 할 일(한 줄 빠른 입력·새 할 일 서랍, DEC-70·73)의 task 행.
@@ -326,6 +332,7 @@ fun TaskEdit.toNewTaskFields(): JsonObject = buildJsonObject {
     areaId?.let { put("area_id", it) }
     if (recipients.isNotEmpty()) put("recipients", JsonArray(recipients.map(::JsonPrimitive)))
     savedRemind?.let { put("remind_before_min", it) }
+    savedRepeat?.let { put("repeat_rule", it) }
 }
 
 private const val TASK_WITH_PLACE = "*,project(name,archived_at),area(name,archived_at)"
@@ -861,6 +868,7 @@ object Server {
             put("area_id", json(e.areaId))
             put("recipients", JsonArray(e.recipients.map(::JsonPrimitive)))
             put("remind_before_min", e.savedRemind?.let { JsonPrimitive(it) } ?: JsonNull)
+            put("repeat_rule", e.savedRepeat?.let { JsonPrimitive(it) } ?: JsonNull)
             put("version", t.version + 1)
         }) {
             select()
@@ -873,7 +881,7 @@ object Server {
 
     /**
      * 완료·완료 취소(DEC-64: 체크를 다시 누르면 할 일로 되돌림). 버전이 같을 때만 바꾼다(다른 기기에서 먼저 바꿨으면 0건, M18).
-     * 완료 시각은 서버 트리거가 상태를 보고 채우거나 비운다
+     * 완료 시각은 서버 트리거가 상태를 보고 채우거나 비운다. 반복 할 일이면 서버가 다음 회차를 만들고, 완료를 되돌리면 손대지 않은 다음 회차를 지운다(DEC-109)
      */
     suspend fun setTaskDone(t: TaskRow, done: Boolean): Boolean =
         db.from("task").update({

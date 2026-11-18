@@ -72,6 +72,7 @@ import com.workbrain.app.tasks.rememberTaskSelection
 import com.workbrain.app.tasks.TaskEditSheet
 import com.workbrain.app.tasks.UNSAVED_TEXT
 import com.workbrain.app.tasks.movedText
+import com.workbrain.app.tasks.repeatDoneNote
 import com.workbrain.app.ui.AnnounceHost
 import com.workbrain.app.ui.Banner
 import com.workbrain.app.ui.CONFLICT_TEXT
@@ -365,7 +366,9 @@ fun ProjectsScreen(
             is ParaEvent.EditRecipients -> { taskError = null; recipientsTask = e.task }
             is ParaEvent.ToggleTask -> {
                 val t = e.task
-                act(if (t.done) "다시 열었어요" else "완료로 표시했어요") { t.takeIf { Server.setTaskDone(t, !t.done) } }
+                // 반복 할 일(DEC-109)이면 서버가 만드는 다음 회차 날짜를 같이 알린다
+                val next = repeatDoneNote(t, LocalDate.now(SEOUL))
+                act(if (t.done) "다시 열었어요" else listOfNotNull("완료로 표시했어요", next).joinToString(" · ")) { t.takeIf { Server.setTaskDone(t, !t.done) } }
             }
             is ParaEvent.Edit -> editKey = e.key
             is ParaEvent.SavePurpose -> act("목적을 저장했어요") { Para.setPurpose(e.project, e.purpose) }

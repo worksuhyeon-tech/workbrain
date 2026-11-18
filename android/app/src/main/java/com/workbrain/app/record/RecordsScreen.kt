@@ -359,7 +359,11 @@ private fun SessionActions(
 ) {
     // 앱을 다시 열었는데 진행 표시가 없으면, 백그라운드 작업이 이어서 하는 중이다
     val shown = progress ?: when {
-        s.serverState == "failed" -> UploadProgress("처리하지 못했어요 · 왼쪽으로 밀어 지우고 다시 올려 주세요", busy = false, isError = true)
+        // 서버가 알려 준 까닭을 먼저(11/18 사용자: 무엇이 문제인지 바로 알게)
+        s.serverState == "failed" -> UploadProgress(
+            listOf(s.serverError ?: "처리하지 못했어요", "왼쪽으로 밀어 지우고 다시 올려 주세요").joinToString(" · "),
+            busy = false, isError = true,
+        )
         s.recordId != null && s.serverState != "ready" -> UploadProgress("백그라운드에서 처리 중 · 결과가 나오면 알려 드릴게요", busy = true)
         else -> null
     }

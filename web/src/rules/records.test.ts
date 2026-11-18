@@ -16,6 +16,7 @@ import {
   fullTimeText,
   mdOf,
   processStep,
+  stuckMessage,
   snoozeActive,
   snoozeLabel,
   groupByDay,
@@ -120,6 +121,16 @@ describe('날짜·길이 글자', () => {
     expect(processStep({ stage: 'EXTRACT', stage_state: 'FAILED' })).toBe(3)
     expect(processStep({ stage: 'CORRECT', stage_state: 'PENDING' })).toBe(3)
     expect(processStep({ stage: 'REVIEWABLE', stage_state: 'DONE' })).toBe(4)
+  })
+
+  it('멈춘 처리 안내 - 실패는 까닭을 같이, 키·크레딧 대기는 서버 안내 그대로', () => {
+    expect(stuckMessage({ stage: 'STT', stage_state: 'FAILED', last_error: '전사 실패: Invalid file format.' }))
+      .toBe('처리하지 못했어요(까닭: 전사 실패: Invalid file format.). 다시 시도해 보고, 그래도 안 되면 이 녹음을 지우고 다시 올려 주세요.')
+    expect(stuckMessage({ stage: 'STT', stage_state: 'FAILED' })).toBe('처리하지 못했어요. 다시 시도해 보고, 그래도 안 되면 이 녹음을 지우고 다시 올려 주세요.')
+    const wait = "AI API 키 기한이 만료됐어요. 새 키를 넣은 뒤 '이어서 처리'를 누르면 돼요(다시 올리지 않아도 돼요)"
+    expect(stuckMessage({ stage: 'CORRECT', stage_state: 'PENDING', last_error: wait })).toBe(wait)
+    expect(stuckMessage({ stage: 'CORRECT', stage_state: 'PENDING', last_error: null })).toContain('정리가 멈춰 있어요')
+    expect(stuckMessage(null)).toContain('정리가 멈춰 있어요')
   })
 })
 

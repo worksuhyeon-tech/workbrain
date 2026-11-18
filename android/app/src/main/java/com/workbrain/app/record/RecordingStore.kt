@@ -19,8 +19,10 @@ data class RecordingSession(
     val bytes: Long,
     /** 서버에 만든 기록 ID(올리기 시작 뒤) */
     val recordId: String? = null,
-    /** 서버 진행: uploaded(올림 완료) · ready(회의록·할 일 후보 나옴) · 그 밖은 null */
+    /** 서버 진행: uploaded(올림 완료) · ready(회의록·할 일 후보 나옴) · failed(서버가 더 시도하지 않음) · 그 밖은 null */
     val serverState: String? = null,
+    /** failed일 때 서버가 알려 준 까닭('세 번 실패해 멈췄어요 · 전사 실패: …'). 앱을 다시 열어도 목록에 그대로 보인다 */
+    val serverError: String? = null,
     /** 처리 완료 시각. 이때부터 7일 뒤 기기 음성을 자동으로 지운다 */
     val readyAt: Long? = null,
     /** 기기 음성을 지웠는지(목록 줄과 서버 기록 연결은 남긴다) */
@@ -173,9 +175,10 @@ object RecordingStore {
         dir.listFiles { f -> f.name.startsWith("seg-") && f.name.endsWith(".m4a") }.orEmpty().sortedBy { it.name }
 
     /** 올리기 진행 상태를 기록해 두어 앱을 다시 열어도 이어서 처리할 수 있게 한다 */
-    fun setServer(dir: File, recordId: String, serverState: String?) {
+    fun setServer(dir: File, recordId: String, serverState: String?, serverError: String? = null) {
         val m = read(dir) ?: return
         m.put("recordId", recordId).put("serverState", serverState ?: "")
+        if (serverError != null) m.put("serverError", serverError) else m.remove("serverError")
         if (serverState == "ready" && !m.has("readyAt")) m.put("readyAt", System.currentTimeMillis())
         write(dir, m)
     }
@@ -260,6 +263,7 @@ object RecordingStore {
                 bytes = segs.sumOf { it.length() },
                 recordId = m.optString("recordId").ifEmpty { null },
                 serverState = m.optString("serverState").ifEmpty { null },
+                serverError = m.optString("serverError").ifEmpty { null },
                 readyAt = m.optLong("readyAt").takeIf { m.has("readyAt") },
                 audioDeleted = m.has("audioDeletedAt"),
                 attendees = attendees(m),

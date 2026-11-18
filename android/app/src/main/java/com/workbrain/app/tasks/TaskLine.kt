@@ -195,6 +195,10 @@ fun TaskLine(
         if (t.id in calendarLinks) {
             Icon(WbIcons.Calendar, contentDescription = "캘린더에 넣은 할 일", tint = Wb.colors.info, modifier = Modifier.padding(start = 6.dp).size(14.dp))
         }
+        // 반복(DEC-109): 안 끝난 반복 할 일에 작은 🔄(끝내면 서버가 규칙을 다음 회차로 옮겨 안 보임)
+        RepeatRule.parse(t.repeatRule)?.takeIf { !t.done }?.let { rule ->
+            Icon(WbIcons.Recur, contentDescription = "반복 ${repeatLabel(rule, dueDay(t))}", tint = Wb.colors.muted, modifier = Modifier.padding(start = 6.dp).size(14.dp))
+        }
         // 미리 알림(DEC-108): 아직 안 울린 알림이 있으면 작은 종
         if (remindAtOf(t)?.isAfter(java.time.Instant.now()) == true) {
             Icon(WbIcons.Bell, contentDescription = "미리 알림 ${remindLabel(t.remindBeforeMin)}", tint = Wb.colors.muted, modifier = Modifier.padding(start = 6.dp).size(14.dp))

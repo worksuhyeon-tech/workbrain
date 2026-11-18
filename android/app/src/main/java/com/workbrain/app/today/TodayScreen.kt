@@ -115,6 +115,7 @@ import com.workbrain.app.tasks.doneInstant
 import com.workbrain.app.tasks.dueDay
 import com.workbrain.app.tasks.isLate
 import com.workbrain.app.tasks.movedText
+import com.workbrain.app.tasks.repeatDoneNote
 import com.workbrain.app.ui.ControlShape
 import com.workbrain.app.ui.AnnounceHost
 import com.workbrain.app.ui.Banner
@@ -234,9 +235,11 @@ fun TodayScreen(nav: TodayNav) {
     }
 
     fun setDone(t: TaskRow, done: Boolean) = scope.launch {
+        // 반복 할 일(DEC-109): 서버가 만드는 다음 회차 날짜를 같은 규칙으로 미리 센다
+        val next = if (done) repeatDoneNote(t, LocalDate.now(SEOUL)) else null
         val ok = runCatching { Server.setTaskDone(t, done) }.getOrNull()
         message = when (ok) {
-            true -> (if (done) "완료했어요 · 아래 ‘오늘 완료’에 남겨 둘게요" else "다시 열었어요 · ${t.title}") to Tone.Good
+            true -> (if (done) "완료했어요 · " + (next ?: "아래 ‘오늘 완료’에 남겨 둘게요") else "다시 열었어요 · ${t.title}") to Tone.Good
             false -> CONFLICT_TEXT to Tone.Warn
             null -> "저장하지 못했어요. 인터넷 연결을 확인해 주세요" to Tone.Crit
         }
@@ -658,7 +661,7 @@ private fun ProcessingCard(
                 Column(Modifier.weight(1f).padding(start = 10.dp, end = 8.dp)) {
                     Text(s.title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Wb.colors.ink)
                     Text(
-                        listOf(sessionWhen(s), live?.message ?: if (failed) "처리하지 못했어요" else "백그라운드에서 처리 중").joinToString(" · "),
+                        listOf(sessionWhen(s), live?.message ?: if (failed) s.serverError ?: "처리하지 못했어요" else "백그라운드에서 처리 중").joinToString(" · "),
                         fontSize = 12.sp, color = if (failed || live?.isError == true) Wb.colors.crit else Wb.colors.muted,
                     )
                     if (!failed) {

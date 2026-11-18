@@ -103,16 +103,20 @@ private object QuickToolDrafts {
     private val picks = mutableStateMapOf<String, QuickPicks>()
     private val subs = mutableStateMapOf<String, List<String>>()
     private val reminds = mutableStateMapOf<String, Int>()
+    private val repeats = mutableStateMapOf<String, RepeatRule>()
     fun picks(key: String): QuickPicks = picks[key] ?: QuickPicks()
     fun setPicks(key: String, value: QuickPicks) { if (value == QuickPicks()) picks.remove(key) else picks[key] = value }
     fun subs(key: String): List<String> = subs[key].orEmpty()
     fun setSubs(key: String, value: List<String>) { if (value.isEmpty()) subs.remove(key) else subs[key] = value }
     fun remind(key: String): Int? = reminds[key]
     fun setRemind(key: String, value: Int?) { if (value == null) reminds.remove(key) else reminds[key] = value }
+    fun repeat(key: String): RepeatRule? = repeats[key]
+    fun setRepeat(key: String, value: RepeatRule?) { if (value == null) repeats.remove(key) else repeats[key] = value }
     fun clear(key: String) {
         picks.remove(key)
         subs.remove(key)
         reminds.remove(key)
+        repeats.remove(key)
     }
 }
 
@@ -226,8 +230,8 @@ class QuickAdd(
     /** 아이콘 줄 값과 동작(DEC-107). parsed는 이미 이 값을 덮은 결과 */
     val tools: QuickToolState,
 ) {
-    /** 넣을 값: 해석 결과 + 기한 칸에서 고른 미리 알림(DEC-108, 기한이 없으면 저장 때 빠짐) */
-    fun editToSave(): TaskEdit = parsed.toEdit().copy(remindBeforeMin = tools.remind)
+    /** 넣을 값: 해석 결과 + 기한 칸에서 고른 미리 알림·반복(DEC-108·109, 기한이 없으면 저장 때 빠짐) */
+    fun editToSave(): TaskEdit = parsed.toEdit().copy(remindBeforeMin = tools.remind, repeatRule = tools.repeat?.text())
 }
 
 /**
@@ -303,7 +307,8 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
         }
         if (parsed.title.isBlank()) { error = "할 일 제목을 입력해 주세요"; return }
         error = null
-        insert(parsed.toEdit().copy(remindBeforeMin = QuickToolDrafts.remind(draftKey)), calendar = calendarShown && calendarOn, onSaved = {}, onFailed = { error = it })
+        val edit = parsed.toEdit().copy(remindBeforeMin = QuickToolDrafts.remind(draftKey), repeatRule = QuickToolDrafts.repeat(draftKey)?.text())
+        insert(edit, calendar = calendarShown && calendarOn, onSaved = {}, onFailed = { error = it })
     }
 
     fun addEdited(edit: TaskEdit, calendar: Boolean, onSaved: () -> Unit, onFailed: (String) -> Unit) {
@@ -346,10 +351,11 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
             else setDue(Due(parsed.dueDate ?: LocalDate.now(SEOUL), t))
         },
         pickHourLater = { setDue(hourLater(LocalDateTime.now(SEOUL))) },
-        // 기한을 빼면 미리 알림도 비운다(Design §3.19)
+        // 기한을 빼면 미리 알림·반복도 비운다(Design §3.19·§3.20)
         pickNoDue = {
             setDue(null)
             QuickToolDrafts.setRemind(draftKey, null)
+            QuickToolDrafts.setRepeat(draftKey, null)
         },
         choosePlace = { p -> setPicks { it.copy(place = Picked(p, placeBase(raw))) } },
         choosePriority = { v -> setPicks { it.copy(priority = Picked(v, raw.priority)) } },
@@ -357,6 +363,8 @@ fun rememberQuickAdd(places: List<Place>, fixedPlace: Place?, noDueMeansToday: B
         restoreDue = { p -> setPicks { it.copy(due = p) } },
         remind = QuickToolDrafts.remind(draftKey),
         setRemind = { QuickToolDrafts.setRemind(draftKey, it) },
+        repeat = QuickToolDrafts.repeat(draftKey),
+        setRepeat = { QuickToolDrafts.setRepeat(draftKey, it) },
     )
 
     return QuickAdd(
@@ -442,7 +450,7 @@ fun QuickAddBar(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (quick.text.isNotBlank()) {
-                QuickPreview(quick.parsed, quick.shownDay, quick.pickPlace, quick.subtaskCount, onClearDue = quick.tools.pickNoDue, remind = quick.tools.remind, onClearRemind = { quick.tools.setRemind(null) })
+                QuickPreview(quick)
                 CalendarChip(quick)
             }
         }
@@ -470,13 +478,22 @@ val QuickAdd.subtaskCount: Int get() = cleanSubtasks(tools.subtasks).size
  * onClearDue: 기한·모호 칩 끝 ⊖로 넣은 기한을 뺀다(삼성 리마인더처럼, 11/15 사용자). '오늘' 탭에서 빼면 기한 없이 들어간다
  */
 @Composable
+fun QuickPreview(quick: QuickAdd) = QuickPreview(
+    quick.parsed, quick.shownDay, quick.pickPlace, quick.subtaskCount, onClearDue = quick.tools.pickNoDue,
+    remind = quick.tools.remind, onClearRemind = { quick.tools.setRemind(null) },
+    repeat = quick.tools.repeat, onClearRepeat = { quick.tools.setRepeat(null) },
+)
+
+@Composable
 fun QuickPreview(
     r: QuickTask, today: LocalDate, onPickPlace: (Place) -> Unit, subtasks: Int = 0, onClearDue: (() -> Unit)? = null,
     remind: Int? = null, onClearRemind: (() -> Unit)? = null,
+    repeat: RepeatRule? = null, onClearRepeat: (() -> Unit)? = null,
 ) {
     QuickChip(WbIcons.Pencil, r.title.ifEmpty { "제목 없음" }, italic = r.title.isEmpty())
     quickDueLabel(r, today)?.let { QuickChip(WbIcons.Calendar, it, onClear = onClearDue) }
-    // 미리 알림(DEC-108): 기한 날짜가 있을 때만(모호·없음이면 저장 때 빠짐)
+    // 반복·미리 알림(DEC-109·108): 기한 날짜가 있을 때만(모호·없음이면 저장 때 빠짐). 목업 순서: 기한 → 반복 → 알림
+    if (repeat != null && r.dueDate != null) QuickChip(WbIcons.Recur, repeatLabel(repeat, r.dueDate), onClear = onClearRepeat, clearLabel = "반복 빼기")
     if (remind != null && r.dueDate != null) QuickChip(WbIcons.Bell, remindLabel(remind), onClear = onClearRemind, clearLabel = "알림 빼기")
     r.vague?.let { QuickChip(WbIcons.Calendar, "$it · 확인 필요", warn = true, onClear = onClearDue) }
     // 줄과 같은 기호(DEC-103): 높음 주황 별 · 낮음 회색 아래 화살표

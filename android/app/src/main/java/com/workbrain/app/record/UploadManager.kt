@@ -145,7 +145,8 @@ object UploadManager {
                     return RunOutcome.DONE
                 }
                 s.state == "WAITING_KEY" -> {
-                    set(id, UploadProgress("올리기는 끝났어요. 서버 AI 설정이 끝나면 '이어서 처리'를 눌러 주세요", busy = false, isError = true))
+                    // 키 없음·만료·크레딧 없음: 서버가 까닭과 할 일을 한 줄로 준다(11/18). 기기에는 실패로 남기지 않아 앱을 열 때 이어서 한다
+                    set(id, UploadProgress(s.error ?: "올리기는 끝났어요. 서버 AI 설정이 끝나면 '이어서 처리'를 눌러 주세요", busy = false, isError = true))
                     return RunOutcome.STOPPED
                 }
                 s.state == "BUDGET_WAIT" -> {
@@ -154,7 +155,7 @@ object UploadManager {
                 }
                 s.state == "FAILED" && (s.error?.contains("세 번") == true || s.error?.contains("말소리") == true) -> {
                     // 서버가 더 시도하지 않는 실패: 기기에도 남겨 목록에서 밀어 지울 수 있게 한다
-                    RecordingStore.setServer(dir, recordId, "failed")
+                    RecordingStore.setServer(dir, recordId, "failed", s.error)
                     set(id, UploadProgress(s.error ?: "처리에 실패했어요", busy = false, isError = true))
                     return RunOutcome.STOPPED
                 }

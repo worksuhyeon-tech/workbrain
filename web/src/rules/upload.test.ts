@@ -27,6 +27,9 @@ describe('처리 진행(앱 UploadManager.processLoop)', () => {
   it('검토 가능이면 끝, 키·예산 대기·더 시도 않는 실패면 멈춤', () => {
     expect(processNext({ stage: 'REVIEWABLE', state: 'DONE', error: null })).toMatchObject({ done: true, error: false })
     expect(processNext({ stage: 'STT', state: 'WAITING_KEY', error: null })).toMatchObject({ done: true, error: true })
+    // 키 만료·크레딧 없음은 서버가 쓴 안내를 그대로(11/18)
+    const expired = "AI API 키 기한이 만료됐어요. 새 키를 넣은 뒤 '이어서 처리'를 누르면 돼요(다시 올리지 않아도 돼요)"
+    expect(processNext({ stage: 'CORRECT', state: 'WAITING_KEY', error: expired })).toEqual({ done: true, message: expired, error: true })
     expect(processNext({ stage: 'EXTRACT', state: 'BUDGET_WAIT', error: null })).toMatchObject({ done: true, message: expect.stringContaining('예산') })
     expect(processNext({ stage: 'STT', state: 'FAILED', error: '녹음에서 말소리를 찾지 못했어요' })).toMatchObject({ done: true, message: '녹음에서 말소리를 찾지 못했어요' })
   })

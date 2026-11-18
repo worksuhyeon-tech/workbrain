@@ -13,6 +13,8 @@ import { seoulDate, seoulTime } from './tasks'
 export interface JobBrief {
   stage: string
   stage_state: string
+  /** 마지막 오류. 실패면 그 까닭, 대기(PENDING)인데 있으면 키·크레딧을 기다리는 중(서버가 쓴 안내 글) */
+  last_error?: string | null
 }
 
 /** 이 기록에서 나온 제안 한 줄(할 일 후보·기존 할 일 변경·프로젝트 현재 상태 제안) */
@@ -142,6 +144,19 @@ export function processStep(job: JobBrief | null): number {
   if (job.stage === 'STT') return 1
   if (job.stage === 'CORRECT' || job.stage === 'EXTRACT') return 3
   return job.stage === 'REVIEWABLE' ? 4 : 0
+}
+
+/**
+ * 처리가 멈췄을 때 단계 아래 안내(11/18 사용자: 무엇이 문제인지 바로 알게).
+ * 실패면 까닭 + 다시 시도/다시 올리기, 대기인데 오류 글이 있으면 키·크레딧을 기다리는 중이라 서버가 쓴 안내 그대로
+ */
+export function stuckMessage(job: JobBrief | null): string {
+  if (job?.stage_state === 'FAILED') {
+    const why = job.last_error ? `(까닭: ${job.last_error})` : ''
+    return `처리하지 못했어요${why}. 다시 시도해 보고, 그래도 안 되면 이 녹음을 지우고 다시 올려 주세요.`
+  }
+  if (job?.last_error) return job.last_error
+  return '정리가 멈춰 있어요. 이 창에서 이어서 정리할 수 있어요(창을 열어 두는 동안 진행).'
 }
 
 /** 시각 순서(최신 먼저)를 지킨 채 서울 날짜로 묶는다. 시각이 없는 기록은 맨 끝 '날짜 모름' */

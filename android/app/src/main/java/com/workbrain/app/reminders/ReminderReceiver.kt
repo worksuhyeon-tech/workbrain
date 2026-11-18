@@ -43,7 +43,11 @@ class ReminderReceiver : BroadcastReceiver() {
                         val t = Server.task(p.taskId)
                         t == null || t.done || Server.setTaskDone(t, true)
                     }.getOrDefault(false)
-                    if (ok) NotificationManagerCompat.from(context).cancel(notificationId(p.taskId)) else show(context, p, failed = true)
+                    if (ok) {
+                        NotificationManagerCompat.from(context).cancel(notificationId(p.taskId))
+                        // 반복 할 일이면 서버가 다음 회차를 만들었으니 그 알림을 예약하러 한 번 맞춘다(DEC-109)
+                        ReminderSync.syncSoon(context)
+                    } else show(context, p, failed = true)
                     pending.finish()
                 }
             }

@@ -98,6 +98,18 @@ class QuickPicksTest {
         assertEquals("오전 12:05", ampmLabel(LocalTime.of(0, 5)))
     }
 
+    @Test fun `시 휠 - 하루 24줄이라 오전 11시 다음 줄은 오후 12시`() {
+        assertEquals(24, WHEEL_HOURS.size)
+        // 줄 번호 = 시: 0 = 오전 12, 11 = 오전 11, 12 = 오후 12, 13 = 오후 1
+        assertEquals(listOf("12", "1"), WHEEL_HOURS.subList(0, 2))
+        assertEquals(listOf("11", "12", "1"), WHEEL_HOURS.subList(11, 14))
+        assertEquals("11", WHEEL_HOURS.last())
+        assertEquals("오후 12:00", ampmLabel(LocalTime.of(11, 0).withHour(12)))
+        // 오전/오후 칸만 돌리면 같은 글자의 시에서 12시간을 오간다
+        assertEquals(LocalTime.of(23, 30), wheelTime(pm = true, hour12 = hour12(11), minute = 30))
+        assertEquals(LocalTime.of(0, 0), wheelTime(pm = false, hour12 = hour12(12), minute = 0))
+    }
+
     @Test fun `하위 할 일 줄 정리와 알림 끝말`() {
         val lines = listOf("  자료 모으기 ", "", "   ") + List(25) { "줄 $it" } + listOf("가".repeat(150))
         val clean = cleanSubtasks(lines)

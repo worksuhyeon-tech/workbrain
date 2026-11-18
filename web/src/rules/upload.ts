@@ -58,7 +58,8 @@ export type ProcessNext = { done: true; message: string; error: boolean } | { do
  */
 export function processNext(s: ProcessStatus): ProcessNext {
   if (s.stage === 'REVIEWABLE') return { done: true, message: '회의록·할 일 후보가 나왔어요', error: false }
-  if (s.state === 'WAITING_KEY') return { done: true, message: "올리기는 끝났어요. 서버 AI 설정이 끝나면 '이어서 처리'를 눌러 주세요", error: true }
+  // 키 없음·만료·크레딧 없음: 서버가 까닭과 할 일을 한 줄로 준다(11/18)
+  if (s.state === 'WAITING_KEY') return { done: true, message: s.error ?? "올리기는 끝났어요. 서버 AI 설정이 끝나면 '이어서 처리'를 눌러 주세요", error: true }
   if (s.state === 'BUDGET_WAIT') return { done: true, message: '이번 달 AI 예산 대기선을 넘어 기다리는 중이에요', error: true }
   if (s.state === 'FAILED' && (s.error?.includes('세 번') || s.error?.includes('말소리'))) return { done: true, message: s.error ?? '처리에 실패했어요', error: true }
   const label = s.stage === 'STT' ? '받아쓰는 중' : s.stage === 'CORRECT' ? '업무 용어 맞추는 중' : '회의록·할 일 정리 중'

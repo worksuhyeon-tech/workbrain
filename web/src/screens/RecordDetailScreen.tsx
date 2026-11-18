@@ -47,6 +47,7 @@ import {
   meetingTimeText,
   overlappingDecision,
   processStep,
+  stuckMessage,
   proposalSegments,
   recipientsOf,
   snoozeActive,
@@ -329,8 +330,8 @@ function ProcessSteps({ d, pendingCount, onFinished }: { d: RecordDetail; pendin
             </span>
           ) : (
             <>
-              <span className={cn('flex-1', run?.error || failed ? 'text-crit' : 'text-muted')}>
-                {run ? run.message : failed ? '처리하지 못했어요. 다시 시도해 보고, 그래도 안 되면 이 녹음을 지우고 다시 올려 주세요.' : '정리가 멈춰 있어요. 이 창에서 이어서 정리할 수 있어요(창을 열어 두는 동안 진행).'}
+              <span className={cn('flex-1', run?.error || failed || job?.last_error ? 'text-crit' : 'text-muted')}>
+                {run ? run.message : stuckMessage(job)}
               </span>
               <button type="button" onClick={() => ProcessRunner.follow(d.info.id, d.info.title)} className={SECONDARY_BUTTON}>
                 {failed ? '다시 시도' : '이어서 처리'}

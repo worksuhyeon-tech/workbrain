@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -37,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -69,36 +71,14 @@ fun RemindRow(value: Int?, enabled: Boolean, whenText: String?, onPick: (Int?) -
         if (v != null) askPermission()
     }
     Box(modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(12.dp))
-                .clickable(enabled = enabled, role = Role.DropdownList, onClickLabel = "미리 알림 고르기") { open = true }
-                .alpha(if (enabled) 1f else 0.5f).padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(WbIcons.Bell, contentDescription = null, tint = Wb.colors.body, modifier = Modifier.size(20.dp))
-            Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                Text(
-                    if (enabled) remindLabel(value) else "기한을 정하면 미리 알림을 넣을 수 있어요",
-                    fontSize = 15.sp, color = if (enabled && value != null) Wb.colors.ink else Wb.colors.muted,
-                )
-                if (enabled) whenText?.let { Text(it, fontSize = 12.sp, color = Wb.colors.muted) }
-            }
-            if (enabled) Text("›", fontSize = 18.sp, color = Wb.colors.muted, modifier = Modifier.padding(end = 4.dp))
-        }
+        PickerRow(
+            WbIcons.Bell, if (enabled) remindLabel(value) else "기한을 정하면 미리 알림을 넣을 수 있어요", whenText,
+            active = value != null, enabled = enabled, clickLabel = "미리 알림 고르기",
+        ) { open = true }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }, shape = RoundedCornerShape(20.dp), containerColor = Wb.colors.card) {
-            REMIND_PRESETS.forEach { v ->
-                val on = v == value
-                DropdownMenuItem(
-                    text = { Text(remindLabel(v), fontSize = 15.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, color = if (on) Wb.colors.primary else Wb.colors.ink) },
-                    trailingIcon = if (on) ({ Icon(WbIcons.Check, contentDescription = "고름", tint = Wb.colors.primary, modifier = Modifier.size(18.dp)) }) else null,
-                    onClick = { open = false; pick(v) },
-                )
-            }
+            REMIND_PRESETS.forEach { v -> PickMenuItem(remindLabel(v), on = v == value) { open = false; pick(v) } }
             val customOn = value != null && value !in REMIND_PRESETS
-            DropdownMenuItem(
-                text = { Text(if (customOn) "직접 설정 · ${remindLabel(value)}" else "직접 설정…", fontSize = 15.sp, fontWeight = if (customOn) FontWeight.Bold else FontWeight.Normal, color = if (customOn) Wb.colors.primary else Wb.colors.ink) },
-                onClick = { open = false; custom = true },
-            )
+            PickMenuItem(if (customOn) "직접 설정 · ${remindLabel(value)}" else "직접 설정…", on = customOn) { open = false; custom = true }
         }
     }
     if (custom) CustomRemindDialog(onDismiss = { custom = false }) { v -> custom = false; pick(v) }
@@ -123,15 +103,7 @@ private fun CustomRemindDialog(onDismiss: () -> Unit, onPick: (Int) -> Unit) {
                     suffix = { Text("${unit.label} 전") }, modifier = Modifier.fillMaxWidth(),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    RemindUnit.entries.forEach { u ->
-                        val on = u == unit
-                        Box(
-                            Modifier.heightIn(min = 40.dp).clip(PillShape)
-                                .border(1.dp, if (on) Wb.colors.primary else Wb.colors.borderStrong, PillShape)
-                                .clickable(role = Role.RadioButton) { unit = u }.padding(horizontal = 16.dp),
-                            contentAlignment = Alignment.Center,
-                        ) { Text(u.label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = if (on) Wb.colors.primary else Wb.colors.body) }
-                    }
+                    RemindUnit.entries.forEach { u -> ChoicePill(u.label, on = u == unit) { unit = u } }
                 }
                 if (amount.isNotEmpty() && minutes == null) Text("1분부터 30일까지 정할 수 있어요", fontSize = 12.sp, color = Wb.colors.crit)
             }
@@ -139,6 +111,49 @@ private fun CustomRemindDialog(onDismiss: () -> Unit, onPick: (Int) -> Unit) {
         confirmButton = { TextButton(onClick = { minutes?.let(onPick) }, enabled = minutes != null) { Text("확인") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
     )
+}
+
+// ── 미리 알림·반복 줄이 같이 쓰는 모양(목업 .rem-row·.rem-menu) ──
+
+/** 기한 칸·서랍의 줄: 아이콘 · 값(정했으면 진하게) · 둘째 줄 · ›. enabled가 아니면 흐리게 안내만 */
+@Composable
+internal fun PickerRow(
+    icon: ImageVector, text: String, sub: String?, active: Boolean, enabled: Boolean, clickLabel: String, onClick: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled, role = Role.DropdownList, onClickLabel = clickLabel, onClick = onClick)
+            .alpha(if (enabled) 1f else 0.5f).padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = Wb.colors.body, modifier = Modifier.size(20.dp))
+        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+            Text(text, fontSize = 15.sp, color = if (enabled && active) Wb.colors.ink else Wb.colors.muted)
+            if (enabled) sub?.let { Text(it, fontSize = 12.sp, color = Wb.colors.muted) }
+        }
+        if (enabled) Text("›", fontSize = 18.sp, color = Wb.colors.muted, modifier = Modifier.padding(end = 4.dp))
+    }
+}
+
+/** 떠 있는 목록 한 줄: 고른 것은 파랗고 굵게 + ✓ */
+@Composable
+internal fun PickMenuItem(label: String, on: Boolean, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label, fontSize = 15.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, color = if (on) Wb.colors.primary else Wb.colors.ink) },
+        trailingIcon = if (on) ({ Icon(WbIcons.Check, contentDescription = "고름", tint = Wb.colors.primary, modifier = Modifier.size(18.dp)) }) else null,
+        onClick = onClick,
+    )
+}
+
+/** 직접 설정 창의 고르기 알약(단위·요일) */
+@Composable
+internal fun ChoicePill(label: String, on: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier.heightIn(min = 40.dp).defaultMinSize(minWidth = 40.dp).clip(PillShape)
+            .border(1.dp, if (on) Wb.colors.primary else Wb.colors.borderStrong, PillShape)
+            .clickable(role = Role.Checkbox, onClick = onClick).padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = if (on) Wb.colors.primary else Wb.colors.body) }
 }
 
 /**

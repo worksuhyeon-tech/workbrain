@@ -16,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.snapping.SnapPosition
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -91,6 +92,7 @@ import java.time.ZonedDateTime
 import com.workbrain.app.ui.SEOUL
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /*
  * 빠른 입력 아이콘 줄과 칸(DEC-107, Design §3.18, 목업 workbrain-quickadd-android.html).
@@ -119,6 +121,9 @@ class QuickToolState(
     /** 미리 알림(DEC-108): 몇 분 전, null = 없음. 기한을 빼면 같이 비운다 */
     val remind: Int?,
     val setRemind: (Int?) -> Unit,
+    /** 반복(DEC-109): null = 반복 안 함. 기한을 빼면 같이 비운다 */
+    val repeat: RepeatRule?,
+    val setRepeat: (RepeatRule?) -> Unit,
 )
 
 // ── 부드럽게(11/15 사용자: 칸·탭·곳 고르기가 뚝뚝 끊김) — 밝아지기/사라지기 + 크기 이어 바꾸기 ──
@@ -202,6 +207,7 @@ fun QuickToolPanel(quick: QuickAdd, tool: QuickTool, onDone: () -> Unit, modifie
     val maxHeight = (LocalConfiguration.current.screenHeightDp - 280).coerceIn(240, 460).dp
     val dueAtOpen = remember(tool) { quick.tools.duePick }
     val remindAtOpen = remember(tool) { quick.tools.remind }
+    val repeatAtOpen = remember(tool) { quick.tools.repeat }
     val subsAtOpen = remember(tool) { quick.tools.subtasks }
     // 하위 할 일 칸의 적다 만 줄: [완료]가 아래 고정 줄에 있어서 여기서 들고 있는다
     var subDraft by remember(tool) { mutableStateOf("") }
@@ -220,6 +226,7 @@ fun QuickToolPanel(quick: QuickAdd, tool: QuickTool, onDone: () -> Unit, modifie
                 onCancel = {
                     quick.tools.restoreDue(dueAtOpen)
                     quick.tools.setRemind(remindAtOpen)
+                    quick.tools.setRepeat(repeatAtOpen)
                     onDone()
                 },
                 onDone = onDone,
@@ -261,6 +268,8 @@ private fun DuePanel(quick: QuickAdd) {
         whenText = remindWhenText(remindAt(r.dueDate, r.dueTime, remind), dateOnly = r.dueTime == null, now = ZonedDateTime.now(SEOUL)),
         onPick = quick.tools.setRemind,
     )
+    // 반복(DEC-109): 미리 알림 아래 같은 모양 줄
+    RepeatRow(value = quick.tools.repeat, due = r.dueDate, today = quick.shownDay, onPick = quick.tools.setRepeat)
 }
 
 /**
@@ -449,43 +458,53 @@ private fun QuickChips(items: List<Triple<String, Boolean, () -> Unit>>) {
 
 private val WHEEL_ROW = 48.dp
 private val AMPM = listOf("오전", "오후")
-private val HOURS = (1..12).map { "$it" }
 private val MINUTES = (0..55 step 5).map { "%02d".format(it) }
 
 @Composable
 private fun TimeWheel(time: LocalTime?, onPick: (LocalTime?) -> Unit) {
     // 시각이 없으면 오전 9:00에 놓고, 돌리면 그때 정해진다
     val t = time ?: LocalTime.of(9, 0)
-    val pm = t.hour >= 12
-    val h12 = (t.hour % 12).let { if (it == 0) 12 else it }
+    // 시 휠이 지금 가리키는 시(0~23). 돌리는 동안 오전/오후 칸이 따라 바뀌고, 값은 멈출 때 정해진다
+    var liveHour by remember(t) { mutableStateOf(t.hour) }
     Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        WheelColumn(AMPM, if (pm) 1 else 0, Modifier.weight(1f), "오전 오후") { onPick(wheelTime(it == 1, h12, t.minute)) }
-        WheelColumn(HOURS, h12 - 1, Modifier.weight(1f), "시") { onPick(wheelTime(pm, it + 1, t.minute)) }
+        WheelColumn(AMPM, if (liveHour >= 12) 1 else 0, Modifier.weight(1f), "오전 오후") { onPick(wheelTime(it == 1, hour12(liveHour), t.minute)) }
+        WheelColumn(WHEEL_HOURS, t.hour, Modifier.weight(1f), "시", onCenter = { liveHour = it }) { onPick(t.withHour(it)) }
         Text(":", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Wb.colors.ink, modifier = Modifier.width(18.dp), textAlign = TextAlign.Center)
-        WheelColumn(MINUTES, wheelMinuteIndex(t), Modifier.weight(1f), "분") { onPick(wheelTime(pm, h12, it * 5)) }
+        WheelColumn(MINUTES, wheelMinuteIndex(t), Modifier.weight(1f), "분") { onPick(t.withMinute(it * 5)) }
     }
 }
 
 /**
  * 휠 한 칸: 위아래에 빈 줄을 두고 맨 위 줄에 맞춰 멈추게 해(SnapPosition.Start) 가운데 줄 = 첫 줄 번호.
- * 손으로 돌리다 멈추면 onSettled, 바깥에서 값이 바뀌면(바로 가기) 그 줄로 옮긴다
+ * 손으로 돌리다 멈추면 onSettled, 가운데 줄이 바뀔 때마다 onCenter.
+ * 바깥에서 값이 바뀌면(바로 가기·오전/오후 따라가기) 그 줄로 옮기되, 이렇게 옮긴 것은 다시 값으로 넣지 않는다
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun WheelColumn(items: List<String>, selected: Int, modifier: Modifier, label: String, onSettled: (Int) -> Unit) {
+private fun WheelColumn(
+    items: List<String>, selected: Int, modifier: Modifier, label: String,
+    onCenter: (Int) -> Unit = {}, onSettled: (Int) -> Unit,
+) {
     val rowPx = with(LocalDensity.current) { WHEEL_ROW.roundToPx() }
     val state = rememberLazyListState(initialFirstVisibleItemIndex = selected)
     val center by remember { derivedStateOf { state.firstVisibleItemIndex + if (state.firstVisibleItemScrollOffset > rowPx / 2) 1 else 0 } }
     val settled by rememberUpdatedState(onSettled)
-    LaunchedEffect(selected) { if (!state.isScrollInProgress && center != selected) state.scrollToItem(selected) }
+    val centered by rememberUpdatedState(onCenter)
+    // 마지막 움직임이 손가락이었는지: 손으로 끌면 켜지고, 바깥에서 옮기기 시작하면 꺼진다
+    var byHand by remember { mutableStateOf(false) }
+    LaunchedEffect(selected) {
+        // 손가락으로 돌리는 중이면 그대로 둔다(앞서 바깥에서 옮기던 것은 새로 옮기며 끊는다)
+        if (byHand && state.isScrollInProgress) return@LaunchedEffect
+        if (state.firstVisibleItemIndex == selected && state.firstVisibleItemScrollOffset == 0) return@LaunchedEffect
+        byHand = false
+        // 한 칸(오전↔오후)은 굴러가듯, 멀면(바로 가기, 시 ±12) 바로
+        if (abs(center - selected) <= 1) state.animateScrollToItem(selected) else state.scrollToItem(selected)
+    }
+    LaunchedEffect(state) { snapshotFlow { center }.collect { centered(it.coerceIn(items.indices)) } }
     LaunchedEffect(state) {
-        var moved = false
+        launch { state.interactionSource.interactions.collect { if (it is DragInteraction.Start) byHand = true } }
         snapshotFlow { state.isScrollInProgress }.collect { scrolling ->
-            if (scrolling) moved = true
-            else if (moved) {
-                moved = false
-                settled(center.coerceIn(items.indices))
-            }
+            if (!scrolling && byHand) settled(center.coerceIn(items.indices))
         }
     }
     LazyColumn(
@@ -671,7 +690,7 @@ private fun PanelHead(icon: ImageVector, text: String) {
 
 /** 아래 줄: 반씩 나눈 넓은 [취소](열 때 값으로 되돌리고 닫기) · [완료](그대로 닫기) — 둘 다 키보드로 돌아간다(11/15 사용자) */
 @Composable
-private fun PanelFoot(onCancel: () -> Unit, onDone: () -> Unit) {
+internal fun PanelFoot(onCancel: () -> Unit, onDone: () -> Unit, doneLabel: String = "완료", doneEnabled: Boolean = true) {
     Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(
             Modifier.weight(1f).height(48.dp).clip(PillShape).background(Wb.colors.surface).border(1.dp, Wb.colors.border, PillShape)
@@ -679,9 +698,10 @@ private fun PanelFoot(onCancel: () -> Unit, onDone: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) { Text("취소", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Wb.colors.ink) }
         Box(
-            Modifier.weight(1f).height(48.dp).clip(PillShape).background(Wb.colors.pillActive).clickable(onClickLabel = "칸 닫기", onClick = onDone),
+            Modifier.weight(1f).height(48.dp).clip(PillShape).background(Wb.colors.pillActive).alpha(if (doneEnabled) 1f else 0.4f)
+                .clickable(enabled = doneEnabled, onClickLabel = "칸 닫기", onClick = onDone),
             contentAlignment = Alignment.Center,
-        ) { Text("완료", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Wb.colors.onPillActive) }
+        ) { Text(doneLabel, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Wb.colors.onPillActive) }
     }
 }
 

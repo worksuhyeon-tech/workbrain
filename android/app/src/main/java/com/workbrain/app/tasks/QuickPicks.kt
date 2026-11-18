@@ -75,8 +75,17 @@ fun hourLater(now: LocalDateTime): Due {
 /** 휠 분 칸은 5분 단위: 적은 시각이 3:07이면 3:05에 놓는다(돌리기 전까지 값은 그대로) */
 fun wheelMinuteIndex(t: LocalTime): Int = t.minute / 5
 
+/** 0~23시 → 12시간 글자(0·12시는 12) */
+fun hour12(hour: Int): Int = (hour % 12).let { if (it == 0) 12 else it }
+
 /** '오후 3:00' */
-fun ampmLabel(t: LocalTime): String = "${if (t.hour < 12) "오전" else "오후"} ${(t.hour % 12).let { if (it == 0) 12 else it }}:%02d".format(t.minute)
+fun ampmLabel(t: LocalTime): String = "${if (t.hour < 12) "오전" else "오후"} ${hour12(t.hour)}:%02d".format(t.minute)
+
+/**
+ * 시 휠은 하루 24줄(오전 12·1~11 → 오후 12·1~11), 줄 번호 = 시(0~23). 글자는 12시간이라 삼성 시계처럼
+ * 오전 11시에서 더 내리면 오후 12시로 넘어간다(11/17 사용자)
+ */
+val WHEEL_HOURS: List<String> = (0..23).map { "${hour12(it)}" }
 
 /** 휠 [오전/오후, 시(1~12), 분(5분)] → 시각 */
 fun wheelTime(pm: Boolean, hour12: Int, minute: Int): LocalTime = LocalTime.of(hour12 % 12 + if (pm) 12 else 0, minute)

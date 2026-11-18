@@ -136,6 +136,8 @@ fun TaskEditSheet(
     var recipients by remember { mutableStateOf(task.recipients) }
     // 미리 알림(DEC-108): 기한 날짜가 없으면(없음·모호) 칸이 흐리고 저장 때 빠진다
     var remind by remember { mutableStateOf(task.remindBeforeMin) }
+    // 반복(DEC-109): 상위 할 일만. 기한 날짜가 없으면 칸이 흐리고 저장 때 빠진다
+    var repeat by remember { mutableStateOf(RepeatRule.parse(task.repeatRule)) }
     var recordPeople by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(recordId) { recordPeople = loadRecordPeople(recordId) }
     // 기한 고르기 창(DueTabsDialog): null = 닫힘, false = 날짜 탭으로, true = 시간 탭으로 연다
@@ -174,6 +176,7 @@ fun TaskEditSheet(
             areaId = areaId,
             recipients = recipients,
             remindBeforeMin = remind,
+            repeatRule = if (parentTitle == null) repeat?.text() else null,
         )
     }
 
@@ -269,6 +272,10 @@ fun TaskEditSheet(
                 ),
                 onPick = { remind = it },
             )
+            if (parentTitle == null) {
+                Label("반복")
+                RepeatRow(value = repeat, due = date.takeIf { hasDate }, today = LocalDate.now(SEOUL), onPick = { repeat = it })
+            }
             // 캘린더 안내(연결 전·기한 없음·넣으면 어떻게 되는지)는 기한 설명 아래에
             calendar?.let { c ->
                 calendarNote(c.connected, c.linked, calOn, hasDate, withTime = dueKind == "time").takeIf { it.isNotEmpty() }?.let { Note(it) }

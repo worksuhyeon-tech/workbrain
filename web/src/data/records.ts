@@ -193,7 +193,7 @@ interface SuggestionRaw {
 export async function loadRecordDetail(id: string): Promise<RecordDetail | null> {
   const infoRes = await supabase
     .from('source_record')
-    .select('id,title,channel,occurred_at,ingested_at,classification,attendees,audio_asset(duration_sec),processing_job(stage,stage_state)')
+    .select('id,title,channel,occurred_at,ingested_at,classification,attendees,audio_asset(duration_sec),processing_job(stage,stage_state,last_error)')
     .eq('id', id)
   const raw = must<InfoRaw[]>(infoRes, 'load record')[0]
   if (!raw) return null
