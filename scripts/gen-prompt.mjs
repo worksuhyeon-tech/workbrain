@@ -1,7 +1,7 @@
 // 처리 함수의 지시문·출력 형식을 평가에 쓴 원본(eval/llm)에서 다시 만든다(DEC-28). 지시문을 바꾸면 평가 → 이 스크립트 → 배포 순서.
 //   node scripts/gen-prompt.mjs        (지금 쓰는 판: VERSION)
 import { readFileSync, writeFileSync } from "node:fs";
-const VERSION = "v5";
+const VERSION = "v6";
 const prompt = readFileSync(`eval/llm/prompt-${VERSION}.md`, "utf8");
 const schema = JSON.parse(readFileSync("eval/llm/schema.json", "utf8"));
 const out = `// 자동 생성: node 스크립트가 eval/llm/prompt-${VERSION}.md·schema.json에서 만든다. 직접 고치지 않는다(DEC-28).\n` +

@@ -36,6 +36,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import com.workbrain.app.data.Decide
+import com.workbrain.app.data.DroppedRow
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -412,6 +416,49 @@ private fun FoldToggle(label: String, count: Int, open: Boolean, onToggle: () ->
             if (open) WbIcons.ChevronDown else WbIcons.ChevronRight, contentDescription = null, tint = Wb.colors.muted,
             modifier = Modifier.padding(start = 2.dp).size(16.dp),
         )
+    }
+}
+
+/**
+ * 내려놓음(DEC-111): 비서와 결정에서 [이제 필요 없어요]로 정한 일. 할 일은 지우고 사본만 남아 있어 [되살리기]로 새 할 일로 만든다
+ * (원래 곳이 보관·삭제됐으면 '정리 안 됨', 미리 알림은 되살리지 않음). 없으면 안 보인다
+ */
+@Composable
+private fun DroppedCard(d: ParaData, onEvent: (ParaEvent) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var rows by remember { mutableStateOf<List<DroppedRow>>(emptyList()) }
+    var open by rememberSaveable { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    LaunchedEffect(d) { rows = runCatching { Decide.dropped() }.getOrDefault(rows) }
+    if (rows.isEmpty()) return
+    MockCard {
+        FoldToggle("내려놓음", rows.size, open) { open = !open }
+        if (open) {
+            rows.forEach { r ->
+                HorizontalDivider(color = Wb.colors.border)
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(r.title, fontSize = 15.sp, color = Wb.colors.muted)
+                        val day = runCatching { java.time.OffsetDateTime.parse(r.createdAt).atZoneSameInstant(SEOUL).toLocalDate() }.getOrNull()
+                        val place = r.projectId?.let { d.project(it)?.name } ?: r.areaId?.let { d.area(it)?.name }
+                        Text(
+                            listOfNotNull(place, day?.let { "${it.monthValue}/${it.dayOfMonth} 내려놓음" }, r.subtaskCount.takeIf { it > 0 }?.let { "하위 ${it}개" }).joinToString(" · "),
+                            fontSize = 12.sp, color = Wb.colors.muted,
+                        )
+                    }
+                    SmallButton("되살리기", enabled = !busy) {
+                        busy = true
+                        scope.launch {
+                            val res = runCatching { Decide.restore(r.id) }
+                            busy = false
+                            res.onSuccess { rows = rows - r; onEvent(ParaEvent.QuickAdded("되살렸어요 · ${r.title}")) }
+                                .onFailure { onEvent(ParaEvent.QuickAdded("되살리지 못했어요. 인터넷 연결을 확인해 주세요")) }
+                        }
+                    }
+                }
+            }
+            Note("안 하기로 정한 일이에요. 되살리면 할 일로 돌아와요.", Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp))
+        }
     }
 }
 
@@ -810,6 +857,8 @@ private fun AllTasksPane(d: ParaData, drag: ParaDragState, layout: PaneLayout, o
                     }
                 }
             }
+            // 비서와 결정에서 내려놓은 일(DEC-111): 접힌 줄, 펼쳐서 되살리기
+            if (selection?.active != true) item(key = "dropped") { DroppedCard(d, onEvent) }
             item(key = "foot") {
                 // 목업 아래 .note(굵은 글씨 자리 그대로)
                 Text(

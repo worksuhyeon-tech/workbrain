@@ -16,11 +16,11 @@ const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) =>
   return acc;
 }, []));
 
-// DEC-19 단가(USD / 1M 토큰). 환율은 --krw로 바꿀 수 있다
-const PRICE = { input: 0.10, output: 0.50 };
-const KRW = Number(args.krw ?? 1400);
 const PROMPT_FILE = args.prompt ?? "prompt-v1.md";
 const MODEL = args.model;
+// 모델별 단가(USD / 1M 토큰)는 prices.json(run-record.ts와 같이 씀). 환율은 --krw로 바꿀 수 있다
+const PRICE = JSON.parse(readFileSync(join(HERE, "prices.json"), "utf8"))[MODEL];
+const KRW = Number(args.krw ?? 1400);
 const SPLIT = args.split ?? "dev";
 const LIMIT = args.limit ? Number(args.limit) : Infinity;
 
@@ -88,17 +88,18 @@ async function callAnthropic(key, r) {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
     body: JSON.stringify({
-      model: MODEL, max_tokens: 4096, system: SYSTEM,
+      model: MODEL, max_tokens: 16000, system: SYSTEM,
       messages: [{ role: "user", content: userMessage(r) }],
-      // 도구 입력 형식으로 JSON 구조를 강제한다(자유 텍스트 답변을 받지 않음)
-      tools: [{ name: "record_extraction", description: "전사에서 뽑은 회의록·할 일 후보", input_schema: SCHEMA }],
-      tool_choice: { type: "tool", name: "record_extraction" },
+      // 응답 형식(JSON 스키마)으로 구조를 강제한다. Sonnet 5.5는 도구 강제 호출(tool_choice tool)을 400으로 막는다
+      output_config: { format: { type: "json_schema", schema: SCHEMA } },
     }),
   });
   const data = await res.json();
   if (!res.ok) throw Object.assign(new Error(data?.error?.message ?? `HTTP ${res.status}`), { status: res.status });
-  const tool = data.content?.find((c) => c.type === "tool_use");
-  return { text: tool ? JSON.stringify(tool.input) : null, usage: { input_tokens: data.usage?.input_tokens ?? 0, output_tokens: data.usage?.output_tokens ?? 0 }, request_id: data.id };
+  // 거절·길이 초과면 JSON이 스키마대로가 아닐 수 있어 실패로 본다
+  if (data.stop_reason !== "end_turn") throw new Error(`stop_reason ${data.stop_reason}`);
+  const text = data.content?.find((c) => c.type === "text")?.text ?? null;
+  return { text, usage: { input_tokens: data.usage?.input_tokens ?? 0, output_tokens: data.usage?.output_tokens ?? 0 }, request_id: data.id };
 }
 
 // 일시 오류(429·5xx)만 최대 3번 다시 시도한다
@@ -119,6 +120,7 @@ async function main() {
     return;
   }
   if (!MODEL) { console.error("--model 이 필요해요 (예: gpt-6-luna, claude-haiku-5-5)"); process.exit(2); }
+  if (!PRICE) { console.error(`${MODEL} 단가가 prices.json에 없어요`); process.exit(2); }
   const env = { ...loadEnv(), ...process.env };
   const isClaude = MODEL.startsWith("claude");
   const key = isClaude ? env.ANTHROPIC_API_KEY : env.OPENAI_API_KEY;

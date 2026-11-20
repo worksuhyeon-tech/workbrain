@@ -87,6 +87,11 @@
             </intent-filter>
         </receiver>
 
+        <!-- 집중 타이머(DEC-111): 정한 시간이 되면 진동 알림. 앱 안에서만 받는다 -->
+        <receiver
+            android:name=".decide.FocusAlarmReceiver"
+            android:exported="false" />
+
         <service
             android:name=".record.RecordingService"
             android:exported="false"

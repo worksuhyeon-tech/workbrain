@@ -4,14 +4,12 @@ import {
   candidateDueLabel,
   candidateEdits,
   candidateValid,
-  checkedAtFirst,
   decisionTaskEdit,
   followNamesOf,
   withPlace,
   changeLines,
   clockText,
   dayLabel,
-  decisionsOf,
   durationText,
   fullTimeText,
   mdOf,
@@ -23,8 +21,6 @@ import {
   inFilter,
   markedParts,
   meetingTimeText,
-  overlappingDecision,
-  proposalSegments,
   recordProjectIds,
   recordStage,
   speakerTurns,
@@ -141,15 +137,9 @@ describe('기록 상세', () => {
   }
 
   it('결정 후보·정하지 못한 것(빈 줄 뺌)', () => {
-    expect(decisionsOf(fields).map((d) => d.text)).toEqual(['개선안 확정 후 리뷰 착수', '업체는 다음 주에'])
+    expect(textsOf(fields, 'decisions')).toEqual(['개선안 확정 후 리뷰 착수', '업체는 다음 주에'])
     expect(textsOf(fields, 'open_questions')).toEqual(['판독 솔루션 업체'])
-    expect(decisionsOf(null)).toEqual([])
-  })
-
-  it('근거가 결정과 겹치는 후보는 그 결정 번호(DEC-48)', () => {
-    const decisions = decisionsOf(fields)
-    expect(overlappingDecision(proposalSegments([{ segment_ref: { idx: [9, 10] } }]), decisions)).toBe(1)
-    expect(overlappingDecision(proposalSegments([{ segment_ref: { idx: [20] } }, { segment_ref: null }]), decisions)).toBeNull()
+    expect(textsOf(null, 'decisions')).toEqual([])
   })
 
   it('화자 차례: 같은 화자·시각을 잇고, 화자가 없으면 빈 목록', () => {
@@ -232,14 +222,6 @@ describe('후보 고치기·추가(앱 CandidateEditSheet·AddPlace)', () => {
 
   it('팔로업 목록: 참석자 + AI가 짚은 사람, 내 이름 뺌', () => {
     expect(followNamesOf(['나', '김가상', ' 박예시 '], ['김가상', null, '이예시'], ['나'])).toEqual(['김가상', '박예시', '이예시'])
-  })
-
-  it('처음 체크: 결정과 겹치거나 아직 미룬 후보는 빼 둔다', () => {
-    const now = new Date('2026-11-13T12:00:00Z')
-    expect(checkedAtFirst(false, null, now)).toBe(true)
-    expect(checkedAtFirst(true, null, now)).toBe(false)
-    expect(checkedAtFirst(false, '2026-11-16T15:00:00Z', now)).toBe(false)
-    expect(checkedAtFirst(false, '2026-11-10T15:00:00Z', now)).toBe(true)
   })
 
   it('결정 → 새 할 일은 task 칸만(후보 전용 owner_basis는 뺌)', () => {

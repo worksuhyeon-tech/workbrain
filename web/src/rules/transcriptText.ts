@@ -2,6 +2,7 @@
  * 받아쓴 글 가져오기(DEC-53, 앱 record/TranscriptText.kt·FileImporter.decodeText를 옮김 — 고치면 두 곳을 같이, DEC-102).
  * 클로바노트 형식: 1줄 제목, 2줄 "2026.10.08 목 오후 3:06 ・ 53분 38초", 3줄 작성자, 이후 "참석자 1 00:00" 줄 + 말한 문장 줄.
  * 삼성 음성 녹음 형식: 1줄 "AI로 생성된 콘텐츠입니다", 다음 글 줄이 제목, 이후 "발화자 1  (00:03)" 줄 + 말한 문장 줄(날짜·길이 없음).
+ *   화자 분리를 끄고 내보내면 제목 없이 "00:05"처럼 시각만 있는 줄 + 말한 문장 줄이다(DEC-112: 안내 문구·시각이 문장에 섞여 할 일로 뽑혔음).
  * 본문(body)에서는 화자 표시·시각 줄을 뗀다(익명 화자 번호로 담당을 추정하지 않게, NFR-02·DEC-27). 화자·시각은 전문 보기용 turns로 따로(DEC-54)
  */
 
@@ -24,6 +25,8 @@ export interface ParsedText {
 // "참석자 1 00:23", "김가상 1:02:03", 삼성 "발화자 1  (00:03)"
 const SPEAKER_LINE = /^(.{1,30}?)\s+\(?((?:\d{1,2}:)?\d{1,2}:\d{2})\)?$/
 const DATE_LINE = /^(\d{4})\.(\d{1,2})\.(\d{1,2})\s+\S+\s+(오전|오후)\s+(\d{1,2}):(\d{2})(?:\s*[・·]\s*(?:(\d+)시간\s*)?(?:(\d+)분\s*)?(?:(\d+)초)?)?/
+// 삼성 화자 분리 끔: 시각만 있는 줄 "00:05", "1:02:03"
+const CLOCK_LINE = /^\(?((?:\d{1,2}:)?\d{1,2}:\d{2})\)?$/
 const SAMSUNG_HEADER = 'AI로 생성된 콘텐츠입니다'
 
 /** "00:23" → 23초, "1:02:03" → 1시간 2분 3초 */
@@ -33,14 +36,17 @@ export function parseTranscriptText(raw: string): ParsedText {
   const lines = raw.replace(/^﻿/, '').split(/\r?\n/).map((l) => l.trim())
   const firstSpeaker = lines.findIndex((l) => SPEAKER_LINE.test(l))
 
-  // 삼성은 안내 문구와 제목 사이에 빈 줄을 두기도 해서, 안내 문구 뒤 첫 글 줄을 제목으로 쓴다
-  if (lines[0] === SAMSUNG_HEADER && firstSpeaker > 1) {
-    const title = lines.slice(1, firstSpeaker).find((l) => l !== '') ?? null
-    return spoken(lines.slice(firstSpeaker), title, null, null)
+  // 삼성은 안내 문구와 제목 사이에 빈 줄을 두기도 해서, 안내 문구 뒤 첫 글 줄을 제목으로 쓴다(화자 분리를 끈 글은 제목 없이 바로 시각 줄)
+  if (lines[0] === SAMSUNG_HEADER) {
+    const firstMark = lines.findIndex((l) => SPEAKER_LINE.test(l) || CLOCK_LINE.test(l))
+    if (firstMark > 0) {
+      const title = lines.slice(1, firstMark).find((l) => l !== '') ?? null
+      return spoken(lines.slice(firstMark), title, null, null)
+    }
   }
 
   const date = lines[1] ? DATE_LINE.exec(lines[1]) : null
-  if (!date || firstSpeaker <= 0) return { title: null, startedAt: null, durationMs: null, body: lines.filter((l) => l !== '').join('\n'), turns: [] }
+  if (!date || firstSpeaker <= 0) return { title: null, startedAt: null, durationMs: null, body: lines.filter((l) => l !== '' && l !== SAMSUNG_HEADER).join('\n'), turns: [] }
 
   const [, y, mo, d, ampm, h, mi, hh, mm, ss] = date
   const hour = (Number(h) % 12) + (ampm === '오후' ? 12 : 0)
@@ -50,20 +56,25 @@ export function parseTranscriptText(raw: string): ParsedText {
   return spoken(lines.slice(firstSpeaker), lines[0] || null, Number.isNaN(started.getTime()) ? null : started, seconds > 0 ? seconds * 1000 : null)
 }
 
-/** 첫 화자 줄부터: 화자 줄마다 차례를 새로 열고, 그 아래 글 줄을 그 차례에 담는다 */
-function spoken(fromFirstSpeaker: string[], title: string | null, startedAt: Date | null, durationMs: number | null): ParsedText {
+/**
+ * 첫 화자(또는 시각) 줄부터: 그 줄마다 차례를 새로 열고, 그 아래 글 줄을 그 차례에 담는다.
+ * 화자가 하나도 없으면(삼성 화자 분리 끔) 차례는 넘기지 않는다: 차례는 전문 보기의 화자 표시용이라(DEC-54) 글만 올린다
+ */
+function spoken(fromFirstMark: string[], title: string | null, startedAt: Date | null, durationMs: number | null): ParsedText {
   const turns: Turn[] = []
-  for (const line of fromFirstSpeaker) {
+  for (const line of fromFirstMark) {
     if (!line) continue
     const m = SPEAKER_LINE.exec(line)
+    const clock = m ? null : CLOCK_LINE.exec(line)
     if (m) turns.push({ speaker: m[1]!.trim(), offsetMs: clockToMs(m[2]!), text: '' })
+    else if (clock) turns.push({ speaker: null, offsetMs: clockToMs(clock[1]!), text: '' })
     else {
       const last = turns[turns.length - 1]!
       last.text = last.text ? `${last.text}\n${line}` : line
     }
   }
   const said = turns.filter((t) => t.text !== '')
-  return { title, startedAt, durationMs, body: said.map((t) => t.text).join('\n'), turns: said }
+  return { title, startedAt, durationMs, body: said.map((t) => t.text).join('\n'), turns: said.some((t) => t.speaker !== null) ? said : [] }
 }
 
 /**

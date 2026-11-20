@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import com.workbrain.app.data.Place
 import com.workbrain.app.data.PlaceType
 import com.workbrain.app.data.TaskRow
+import com.workbrain.app.decide.calmLateLabel
 import com.workbrain.app.ui.ParaGlyph
 import com.workbrain.app.ui.PillShape
 import com.workbrain.app.ui.SEOUL
@@ -93,6 +94,8 @@ private fun rowDue(t: TaskRow, today: LocalDate): String {
  * modifier: 프로젝트 화면에서 길게 눌러 끌기를 붙일 때(DEC-72)
  * 하위 할 일(FR-23a): subtasks가 있으면 제목 옆 '⤷ 1/3' 칩(onSubtasks로 펼침·접힘). parentTitle은 오늘 탭의 '상위 › 하위' 줄,
  * compact는 상위 아래 펼친 하위 줄(들여 쓰고 출처·우선순위 칸 없이)
+ * calmLate: 오늘 탭의 다시 정할 일은 빨간 '지연' 대신 'M/d(요일) · N일 지남'(팔로업은 'N일째 기다림') 회색 칩(DEC-111).
+ * nextStep: 남은 첫 하위 할 일을 줄 아래 '→ 다음: …'으로(비서와 결정에서 남긴 다음 동작이 보이게, DEC-111)
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -113,10 +116,13 @@ fun TaskLine(
     subtasksOpen: Boolean = false,
     onSubtasks: (() -> Unit)? = null,
     compact: Boolean = false,
+    calmLate: Boolean = false,
+    nextStep: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val today = LocalDate.now(SEOUL)
     val late = isLate(t, today)
+    val calm = if (calmLate && late) calmLateLabel(t, today) else null
     val selecting = selected != null
     val mark = priorityMarkOf(t)
     val calendarLinks = CalendarStore.state.collectAsStateWithLifecycle().value.links
@@ -169,6 +175,10 @@ fun TaskLine(
                     RecipientsChip(t.recipients, if (selecting) onSelect else if (readOnly) null else onRecipients ?: onOpen)
                 }
             }
+            nextStep?.let {
+                Text("→ 다음: $it", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Wb.colors.primary,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp))
+            }
             // 펼친 하위 줄은 출처 줄 없이(상위에 이미 보임)
             if (!compact) Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (place != null || showUnsorted) {
@@ -204,8 +214,8 @@ fun TaskLine(
             Icon(WbIcons.Bell, contentDescription = "미리 알림 ${remindLabel(t.remindBeforeMin)}", tint = Wb.colors.muted, modifier = Modifier.padding(start = 6.dp).size(14.dp))
         }
         WbChip(
-            rowDue(t, today),
-            when { late -> Tone.Crit; t.dueAmbiguous && dueDay(t) == null -> Tone.Warn; else -> Tone.Mute },
+            calm ?: rowDue(t, today),
+            when { calm != null -> Tone.Mute; late -> Tone.Crit; t.dueAmbiguous && dueDay(t) == null -> Tone.Warn; else -> Tone.Mute },
             Modifier.padding(start = 6.dp),
         )
     }

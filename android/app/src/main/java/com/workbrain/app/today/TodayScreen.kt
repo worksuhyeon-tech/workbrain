@@ -133,6 +133,11 @@ import com.workbrain.app.ui.WbIcons
 import com.workbrain.app.ui.isWideWindow
 import com.workbrain.app.ui.rememberAnnouncer
 import com.workbrain.app.ui.saveFailText
+import com.workbrain.app.decide.DECIDE_BATCH
+import com.workbrain.app.decide.DecideSheet
+import com.workbrain.app.decide.FocusController
+import com.workbrain.app.decide.SecretaryBanner
+import com.workbrain.app.decide.decideQueue
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -364,6 +369,17 @@ fun TodayScreen(nav: TodayNav) {
         }
     }
 
+    // 비서와 결정(DEC-111): 다시 정할 일(지연)을 5장씩. 열려 있는 동안 묶음은 그대로 둔다
+    val decideAll = decideQueue(all, today)
+    var deciding by remember { mutableStateOf<List<TaskRow>?>(null) }
+    // 집중이 끝나면(앱을 다시 열어 끝낸 것 포함) 다시 읽는다. 서랍이 닫혀 있으면 결과는 위 띠로
+    LaunchedEffect(Unit) {
+        FocusController.finished.collect { r ->
+            if (deciding == null) message = r.message to Tone.Good
+            load()
+        }
+    }
+
     val pendingGroups = groupPending(pending.filter { !Snooze.isActive(it.snoozedUntil) })
     val processing = sessions.filter { it.recordId != null && it.serverState != "ready" }
 
@@ -409,6 +425,10 @@ fun TodayScreen(nav: TodayNav) {
             PlanDayCard(today, nav.openWorkPlan, Modifier.padding(bottom = 12.dp))
             CostWarn(budget, cost, nav.openMore)
             message?.let { (text, tone) -> Banner(text, tone, Modifier.padding(bottom = 12.dp)) }
+            // 비서가 먼저 말 걸기(목업 ①): 다시 정할 일이 있을 때만
+            if (decideAll.isNotEmpty() && !selection.active) {
+                SecretaryBanner(decideAll.size, Modifier.padding(bottom = 16.dp)) { deciding = decideAll.take(DECIDE_BATCH) }
+            }
 
             // 오늘 일정(FR-24a): 오늘 할 일 바로 위, 지연보다 위(11/14 결정 ①). 구글 캘린더를 연결했을 때만 보인다
             val eventsCard: @Composable () -> Unit = { TodayEventsCard(eventsRefresh, onReconnect = nav.openMore) }
@@ -467,6 +487,20 @@ fun TodayScreen(nav: TodayNav) {
                 onDelete = if (t.isSubtask) { { deleteSubtask(t) } } else null,
                 calendar = calendarFieldOf(calendar, t.id),
             ) { e, cal -> save(t, e, cal) }
+        }
+    }
+    deciding?.let { batch ->
+        key(batch.map { it.id }) {
+            DecideSheet(
+                queue = batch, allTasks = all,
+                childrenOf = { id -> shownPara?.subtasksOf(id).orEmpty() },
+                placeOf = { t -> placeOf(t)?.name },
+                parentTitleOf = { id -> shownPara?.tasks?.firstOrNull { it.id == id }?.title ?: "상위 할 일" },
+                usedNames = usedNamesOf(all), calendarAsk = calendarAsk, remaining = decideAll.size,
+                onMore = { deciding = decideAll.take(DECIDE_BATCH) },
+                onChanged = { scope.launch { load() } },
+                onDismiss = { deciding = null },
+            )
         }
     }
     CalendarDeleteAskHost(calendarAsk)
@@ -540,6 +574,8 @@ private fun TodayCard(
                         selected = if (selection.active && !t.isSubtask) t.id in selection.ids else null, onSelect = { selection.toggle(t.id) },
                         parentTitle = t.parentId?.let(parentTitleOf),
                         subtasks = subCountOf(kids), subtasksOpen = t.id in open, onSubtasks = { open.toggle(t.id) },
+                        // 다시 정할 일은 차분한 칩, 남은 첫 하위는 '→ 다음'(DEC-111)
+                        calmLate = true, nextStep = kids.firstOrNull { !it.done }?.title?.takeIf { !t.done && t.id !in open },
                         // 길게 눌러 다른 프로젝트·반복실행으로 끈다(DEC-93). 고르는 중에는 끌지 않는다
                         modifier = Modifier.dragSource(drag, if (selection.active || t.isSubtask) null else DragItem.Task(t.id, t.title)),
                     )
@@ -548,7 +584,8 @@ private fun TodayCard(
                     }
                 }
             }
-            if (late.isNotEmpty()) { SubHead("지연 ${late.size}", Wb.colors.crit); rows(late) }
+            // 빨간 '지연' 대신 '다시 정할 일'(DEC-111: 실패로 표시하지 않음, 메모 v1.2 §3)
+            if (late.isNotEmpty()) { SubHead("다시 정할 일 ${late.size}"); rows(late) }
             if (todays.isNotEmpty()) { SubHead("오늘 ${todays.size}"); rows(todays) }
             if (follow.isNotEmpty()) { SubHead("챙길 팔로업 ${follow.size} · 남이 맡은 일"); rows(follow) }
             if (loaded && late.isEmpty() && todays.isEmpty()) {

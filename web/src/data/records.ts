@@ -136,7 +136,6 @@ export interface ProposalRow {
   target_id: string | null
   target_type: string
   snoozed_until: string | null
-  evidence_link: { segment_ref: { idx?: unknown } | null }[] | null
 }
 
 export interface Transcript {
@@ -233,7 +232,7 @@ export async function loadRecordDetail(id: string): Promise<RecordDetail | null>
   // 기록 상세는 할 일 후보·변경만 다룬다. 이 기록으로 만든 현재 상태 제안(FR-09)은 프로젝트 상세·검토함에서 본다
   const proposals = runIds.length
     ? must<ProposalRow[]>(
-        await supabase.from('change_proposal').select('*,evidence_link(segment_ref)').in('analysis_run_id', runIds).eq('target_type', 'task').order('created_at', { ascending: true }),
+        await supabase.from('change_proposal').select('*').in('analysis_run_id', runIds).eq('target_type', 'task').order('created_at', { ascending: true }),
         'load proposals',
       )
     : []

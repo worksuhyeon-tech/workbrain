@@ -14,6 +14,8 @@ const LIVE_IDS = new Set(CONTEXT.items.filter((i) => !i.archived).map((i) => i.i
 const PRIVATE_FILE = join(HERE, "..", "..", "data-private", "eval", "real-holdout.json");
 const SPLITS = {
   dev: load("dev.json"), holdout: load("holdout.json"), security: load("security.json"),
+  // 결정 반영 할 일(DEC-112) 개선용 가상 3건(K*). 보류 판정에는 넣지 않는다
+  decide: load("decide.json"),
   real: existsSync(PRIVATE_FILE) ? JSON.parse(readFileSync(PRIVATE_FILE, "utf8")) : [],
 };
 
@@ -159,7 +161,17 @@ function scoreRecord(rec, output) {
     if (dup) decisionDup++;
     rows.push([rec.id, "", p.title, dup ? "결정 중복" : "초과 추출", `${p.ownerKey} / ${p.dueKey}`]);
   });
-  return { gold: gold.length, pred: preds.length, correct, decisionDup, notes: notesRecall(rec, output), gates, rows };
+  return { gold: gold.length, pred: preds.length, correct, decisionDup, samePairs: sameJobPairs(preds), notes: notesRecall(rec, output), gates, rows };
+}
+
+// 같은 일 두 후보 의심(DEC-112 뒤 사용자 요청): 근거 구간이 겹치고 담당도 같은 후보 쌍.
+// 한 사람이 한 문장에서 서로 다른 일을 둘 말한 경우도 잡히므로 검토표로 사람이 확인한다
+function sameJobPairs(preds) {
+  const out = [];
+  preds.forEach((a, i) => preds.slice(i + 1).forEach((b) => {
+    if (a.ownerKey === b.ownerKey && overlaps(a.segments, b.segments)) out.push(`${a.title} ↔ ${b.title}`);
+  }));
+  return out;
 }
 
 // 결정 후보·미결정 재현율(참고): 정답 항목의 근거 구간을 모델이 같은 칸(decisions / open_questions)에서 짚었는지
@@ -201,13 +213,14 @@ function pct(a, b) { return b ? (100 * a / b).toFixed(1) + "%" : "-"; }
 function scoreRun(path) {
   const run = JSON.parse(readFileSync(path, "utf8"));
   const byId = new Map(run.results.map((r) => [r.id, r]));
-  const all = [...SPLITS.dev, ...SPLITS.holdout, ...SPLITS.real].filter((r) => byId.has(r.id));
+  const all = [...SPLITS.dev, ...SPLITS.holdout, ...SPLITS.real, ...SPLITS.decide].filter((r) => byId.has(r.id));
   const sec = SPLITS.security.filter((r) => byId.has(r.id));
   const agg = {}, rows = [["기록", "정답 할 일", "모델 할 일", "판정", "사유"]];
   const gates = { fabricated: [], sourceMissing: [], parseErrors: [] };
+  const samePairs = [];
   const add = (key, s) => {
-    const a = (agg[key] ??= { gold: 0, pred: 0, correct: 0, decisionDup: 0, notesGold: 0, notesHit: 0 });
-    a.gold += s.gold; a.pred += s.pred; a.correct += s.correct;
+    const a = (agg[key] ??= { gold: 0, pred: 0, correct: 0, decisionDup: 0, samePairs: 0, notesGold: 0, notesHit: 0 });
+    a.gold += s.gold; a.pred += s.pred; a.correct += s.correct; a.samePairs += s.samePairs.length;
     a.decisionDup += s.decisionDup; a.notesGold += s.notes.gold; a.notesHit += s.notes.hit;
   };
   for (const rec of all) {
@@ -215,11 +228,12 @@ function scoreRun(path) {
     if (res.error) gates.parseErrors.push(`${rec.id}: ${res.error}`);
     const s = scoreRecord(rec, res.output);
     // 실사용 회의(R*)는 보류 세트로 판정하되 유형 줄은 따로 낸다
-    const split = rec.id.startsWith("D") ? "dev" : "holdout";
+    const split = rec.id.startsWith("D") ? "dev" : rec.id.startsWith("K") ? "decide" : "holdout";
     add(split, s); add(`${split}/${rec.id.startsWith("R") ? "real" : rec.type}`, s);
     gates.fabricated.push(...s.gates.fabricated.map((x) => `${rec.id} ${x}`));
     gates.sourceMissing.push(...s.gates.sourceMissing.map((x) => `${rec.id} ${x}`));
-    rows.push(...s.rows);
+    rows.push(...s.rows, ...s.samePairs.map((x) => [rec.id, "", x, "같은 일 의심", "근거 겹침·같은 담당"]));
+    samePairs.push(...s.samePairs.map((x) => `${rec.id} ${x}`));
   }
   const secResults = sec.map((rec) => {
     const res = byId.get(rec.id);
@@ -229,7 +243,9 @@ function scoreRun(path) {
   console.log(`\n모델 ${run.model} · 프롬프트 ${run.prompt_version} · ${run.created_at}`);
   for (const [k, a] of Object.entries(agg)) {
     console.log(`${k.padEnd(18)} 정밀도 ${pct(a.correct, a.pred).padStart(6)} (${a.correct}/${a.pred})  재현율 ${pct(a.correct, a.gold).padStart(6)} (${a.correct}/${a.gold})` +
-      `  결정 중복 ${a.decisionDup}  결정·미결 재현율(참고) ${pct(a.notesHit, a.notesGold)} (${a.notesHit}/${a.notesGold})`);
+      `  결정 중복 ${a.decisionDup}  같은 일 의심 ${a.samePairs}쌍  결정·미결 재현율(참고) ${pct(a.notesHit, a.notesGold)} (${a.notesHit}/${a.notesGold})`);
+    // v6(DEC-112)부터 결정을 반영하는 할 일도 뽑는다. 옛 정답은 그걸 할 일로 적지 않아 결정 중복으로 잡히므로, 뺀 정밀도를 함께 본다(검토표로 실제 반영 할 일인지 확인)
+    if (a.decisionDup) console.log(`${"".padEnd(18)} 결정 중복을 뺀 정밀도 ${pct(a.correct, a.pred - a.decisionDup)} (${a.correct}/${a.pred - a.decisionDup})`);
   }
   if (agg.holdout) {
     const h = agg.holdout;
@@ -241,6 +257,7 @@ function scoreRun(path) {
   console.log(`필수 게이트 — 허구 확정 ${gates.fabricated.length}건 · 출처 누락 ${gates.sourceMissing.length}건 · 형식 오류 ${gates.parseErrors.length}건 · 보안 위반 ${secBad.length}/${secResults.length}건`);
   for (const [name, list] of Object.entries(gates)) for (const x of list) console.log(`  [${name}] ${x}`);
   for (const s of secBad) console.log(`  [security] ${s.id}: ${s.violations.join(", ")}`);
+  for (const x of samePairs) console.log(`  [같은 일 의심] ${x}`);
   if (run.usage) console.log(`토큰 입력 ${run.usage.input_tokens} · 출력 ${run.usage.output_tokens} · 비용 약 $${run.usage.usd.toFixed(4)} (₩${Math.round(run.usage.krw)})`);
 
   const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");

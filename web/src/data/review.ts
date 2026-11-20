@@ -23,7 +23,7 @@ export interface InboxAudio {
 }
 
 /** 검토함 한 줄: 제안 + 나온 기록 + 근거 전사·음성 보관 기한 */
-export interface InboxRow extends Omit<ProposalRow, 'evidence_link'> {
+export interface InboxRow extends ProposalRow {
   created_at: string | null
   recordId: string | null
   recordTitle: string

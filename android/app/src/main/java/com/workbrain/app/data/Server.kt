@@ -65,18 +65,12 @@ import kotlinx.serialization.json.put
     /** 기존 할 일 변경 제안이면 대상 할 일 ID와 바뀌기 전 값(제목 포함, DEC-38). 새 할 일 후보면 null */
     @SerialName("target_id") val targetId: String? = null,
     @SerialName("before_json") val before: JsonObject? = null,
-    /** 근거 구간(전사 문장 번호). 결정과 겹치는 후보를 결정 카드 밑에 접을 때 쓴다(DEC-48) */
-    @SerialName("evidence_link") val evidence: List<EvidenceRef> = emptyList(),
     /** 검토 미루기(FR-28): 이 시각이 되면 검토함 '오늘'에 다시 나온다. 미루지 않았으면 null */
     @SerialName("snoozed_until") val snoozedUntil: String? = null,
     /** task(할 일 후보·변경) · project_state(프로젝트 현재 상태 제안, FR-09) */
     @SerialName("target_type") val targetType: String = "task",
 ) {
     val isUpdate get() = targetId != null
-    val segments: Set<Int> get() = evidence.flatMap { it.segments }.toSet()
-}
-@Serializable data class EvidenceRef(@SerialName("segment_ref") val ref: JsonObject? = null) {
-    val segments: List<Int> get() = (ref?.get("idx") as? JsonArray).orEmpty().mapNotNull { it.jsonPrimitive.intOrNull }
 }
 
 // 검토함: 후보와 그 후보가 나온 기록(후보 → 분석 → 전사 → 기록을 한 번에 따라간다)
@@ -460,8 +454,8 @@ object Server {
         auth.importSession(renewed)
     }
 
-    /** 서버 함수 호출. 세션이 만료돼 401이면 다시 로그인한 뒤 한 번 더 부른다 */
-    private suspend fun invokeFunction(name: String, body: JsonObject): HttpResponse {
+    /** 서버 함수 호출. 세션이 만료돼 401이면 다시 로그인한 뒤 한 번 더 부른다(비서 Decide도 씀) */
+    internal suspend fun invokeFunction(name: String, body: JsonObject): HttpResponse {
         ensureSession()
         return try {
             db.functions.invoke(name, body = body)
@@ -638,7 +632,7 @@ object Server {
         val runs = db.from("analysis_run").select { filter { isIn("input_transcript_version_id", tv) } }
             .decodeList<IdRow>().map { it.id }.ifEmpty { return emptyList() }
         // 기록 상세는 할 일 후보·변경만 다룬다. 이 기록으로 만든 현재 상태 제안(FR-09)은 프로젝트 상세·검토함에서 본다
-        return db.from("change_proposal").select(Columns.raw("*,evidence_link(segment_ref)")) {
+        return db.from("change_proposal").select() {
             filter { isIn("analysis_run_id", runs); eq("target_type", "task") }
             order("created_at", Order.ASCENDING)
         }.decodeList<ProposalRow>()
@@ -825,11 +819,13 @@ object Server {
 
     /**
      * 하위 할 일 넣기(FR-23a, DEC-101): 곳은 서버가 상위 것을 넣고, 끝난 상위면 서버가 다시 연다.
-     * 보관된 곳의 할 일·하위 아래에는 서버가 거부한다(WB409·WB422). 빠른 입력은 막 만든 상위의 ID로 부른다(DEC-107)
+     * 보관된 곳의 할 일·하위 아래에는 서버가 거부한다(WB409·WB422). 빠른 입력은 막 만든 상위의 ID로 부른다(DEC-107).
+     * 새 하위 ID를 돌려준다(비서와 결정: 첫 동작을 끝냈다고 하면 그 하위를 체크, DEC-111)
      */
-    suspend fun createSubtask(parentId: String, e: TaskEdit) {
+    suspend fun createSubtask(parentId: String, e: TaskEdit): String {
         val fields = e.copy(projectId = null, areaId = null, priority = null).toNewTaskFields()
-        db.from("task").insert(JsonObject(fields + ("parent_id" to JsonPrimitive(parentId))))
+        return db.from("task").insert(JsonObject(fields + ("parent_id" to JsonPrimitive(parentId)))) { select(Columns.list("id")) }
+            .decodeSingle<IdRow>().id
     }
 
     /**

@@ -8,6 +8,7 @@ import java.time.ZoneId
  * 받아쓴 글 가져오기(DEC-53): 클로바노트·삼성 음성 녹음 txt에서 말한 문장만 꺼낸다.
  * 클로바노트 형식: 1줄 제목, 2줄 "2026.10.08 목 오후 3:06 ・ 53분 38초", 3줄 작성자, 이후 "참석자 1 00:00" 줄 + 말한 문장 줄.
  * 삼성 음성 녹음 형식: 1줄 "AI로 생성된 콘텐츠입니다", 다음 글 줄이 제목, 이후 "발화자 1  (00:03)" 줄 + 말한 문장 줄(날짜·길이 없음).
+ *   화자 분리를 끄고 내보내면 제목 없이 "00:05"처럼 시각만 있는 줄 + 말한 문장 줄이다(DEC-112: 안내 문구·시각이 문장에 섞여 할 일로 뽑혔음).
  * 본문(body)에서는 화자 표시·시각 줄을 뗀다. 익명 화자 번호로 담당을 추정하면 안 되고(NFR-02·DEC-27), 앱 녹음 받아쓰기와 같은 입력이 되게 한다.
  * 화자·시각은 전문 보기 화면에만 쓰도록 turns로 따로 넘긴다(DEC-54).
  */
@@ -23,21 +24,26 @@ object TranscriptText {
         """^(\d{4})\.(\d{1,2})\.(\d{1,2})\s+\S+\s+(오전|오후)\s+(\d{1,2}):(\d{2})""" +
             """(?:\s*[・·]\s*(?:(\d+)시간\s*)?(?:(\d+)분\s*)?(?:(\d+)초)?)?""",
     )
+    // 삼성 화자 분리 끔: 시각만 있는 줄 "00:05", "1:02:03"
+    private val CLOCK_LINE = Regex("""^\(?((?:\d{1,2}:)?\d{1,2}:\d{2})\)?$""")
     private const val SAMSUNG_HEADER = "AI로 생성된 콘텐츠입니다"
 
     fun parse(raw: String): Parsed {
         val lines = raw.removePrefix("﻿").lines().map { it.trim() }
         val firstSpeaker = lines.indexOfFirst { SPEAKER_LINE.matches(it) }
 
-        // 삼성은 안내 문구와 제목 사이에 빈 줄을 두기도 해서, 안내 문구 뒤 첫 글 줄을 제목으로 쓴다
-        if (lines.firstOrNull() == SAMSUNG_HEADER && firstSpeaker > 1) {
-            val title = lines.subList(1, firstSpeaker).firstOrNull { it.isNotEmpty() }
-            return spoken(lines.drop(firstSpeaker), title, null, null)
+        // 삼성은 안내 문구와 제목 사이에 빈 줄을 두기도 해서, 안내 문구 뒤 첫 글 줄을 제목으로 쓴다(화자 분리를 끈 글은 제목 없이 바로 시각 줄)
+        if (lines.firstOrNull() == SAMSUNG_HEADER) {
+            val firstMark = lines.indexOfFirst { SPEAKER_LINE.matches(it) || CLOCK_LINE.matches(it) }
+            if (firstMark > 0) {
+                val title = lines.subList(1, firstMark).firstOrNull { it.isNotEmpty() }
+                return spoken(lines.drop(firstMark), title, null, null)
+            }
         }
 
         val date = lines.getOrNull(1)?.let { DATE_LINE.find(it) }
         val isClova = date != null && firstSpeaker > 0
-        if (!isClova) return Parsed(null, null, null, lines.filter { it.isNotEmpty() }.joinToString("\n"))
+        if (!isClova) return Parsed(null, null, null, lines.filter { it.isNotEmpty() && it != SAMSUNG_HEADER }.joinToString("\n"))
 
         val g = date!!.groupValues
         val hour12 = g[5].toInt() % 12
@@ -49,21 +55,28 @@ object TranscriptText {
         return spoken(lines.drop(firstSpeaker), lines.first().ifEmpty { null }, started, seconds.takeIf { it > 0 }?.times(1000))
     }
 
-    /** 첫 화자 줄부터: 화자 줄마다 차례를 새로 열고, 그 아래 글 줄을 그 차례에 담는다 */
-    private fun spoken(fromFirstSpeaker: List<String>, title: String?, startedAt: Long?, durationMs: Long?): Parsed {
+    /**
+     * 첫 화자(또는 시각) 줄부터: 그 줄마다 차례를 새로 열고, 그 아래 글 줄을 그 차례에 담는다.
+     * 화자가 하나도 없으면(삼성 화자 분리 끔) 차례는 넘기지 않는다: 차례는 전문 보기의 화자 표시용이라(DEC-54) 글만 올린다
+     */
+    private fun spoken(fromFirstMark: List<String>, title: String?, startedAt: Long?, durationMs: Long?): Parsed {
         val turns = mutableListOf<Turn>()
-        for (line in fromFirstSpeaker) {
+        for (line in fromFirstMark) {
             if (line.isEmpty()) continue
             val speaker = SPEAKER_LINE.matchEntire(line)
+            val clock = CLOCK_LINE.matchEntire(line)
             if (speaker != null) {
                 turns += Turn(speaker.groupValues[1].trim(), clockToMs(speaker.groupValues[2]), "")
+            } else if (clock != null) {
+                turns += Turn(null, clockToMs(clock.groupValues[1]), "")
             } else {
                 val last = turns.last()
                 turns[turns.lastIndex] = last.copy(text = if (last.text.isEmpty()) line else last.text + "\n" + line)
             }
         }
         val spokenTurns = turns.filter { it.text.isNotEmpty() }
-        return Parsed(title, startedAt, durationMs, spokenTurns.joinToString("\n") { it.text }, spokenTurns)
+        val body = spokenTurns.joinToString("\n") { it.text }
+        return Parsed(title, startedAt, durationMs, body, if (spokenTurns.any { it.speaker != null }) spokenTurns else emptyList())
     }
 
     // "00:23" → 23초, "1:02:03" → 1시간 2분 3초

@@ -1,6 +1,6 @@
 // AI 계정 문제 가리기(키 만료·맞지 않는 키·크레딧, 11/18) 시험. 실행: npx -y deno@2.1.4 test tests/functions/ai_error_test.ts
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { accountKind, AI_ACCOUNT_MESSAGE, AiAccountError, openAiError } from "../../supabase/functions/process-record/ai-error.ts";
+import { accountKind, aiAccountMessage, AiAccountError, anthropicAccountKind, openAiError } from "../../supabase/functions/process-record/ai-error.ts";
 
 // 11/17~18 실제로 받은 응답 모양(키 만료)
 const expired = { error: { message: "Your API key has expired. Create a new API key to continue.", type: "invalid_request_error", code: "invalid_api_key" } };
@@ -21,11 +21,27 @@ Deno.test("429는 크레딧이 떨어졌을 때만 계정 문제(잠깐 몰린 �
 Deno.test("던질 오류: 계정 문제는 바로 알 수 있는 글, 그 밖은 '단계: 원문'", () => {
   const e = openAiError("용어 교정 실패", 401, expired);
   assert(e instanceof AiAccountError);
-  assertEquals(e.message, "AI API 키 기한이 만료됐어요. 새 키를 넣은 뒤 '이어서 처리'를 누르면 돼요(다시 올리지 않아도 돼요)");
+  assertEquals(e.message, "OpenAI API 키 기한이 만료됐어요. 새 키를 넣은 뒤 '이어서 처리'를 누르면 돼요(다시 올리지 않아도 돼요)");
   const other = openAiError("전사 실패", 400, { error: { message: "Invalid file format." } });
   assert(!(other instanceof AiAccountError));
   assertEquals(other.message, "전사 실패: Invalid file format.");
   assertEquals(openAiError("분석 실패", 502, null).message, "분석 실패: 502");
   // 글은 모두 '다시 올리지 않아도 돼요'로 끝난다(지우고 다시 올리던 것을 막는다)
-  Object.values(AI_ACCOUNT_MESSAGE).forEach((m) => assert(m.endsWith("(다시 올리지 않아도 돼요)")));
+  for (const provider of ["OpenAI", "Anthropic"] as const) {
+    for (const kind of ["key-expired", "key-invalid", "quota"] as const) {
+      const m = aiAccountMessage(kind, provider);
+      assert(m.startsWith(provider) && m.endsWith("(다시 올리지 않아도 돼요)"), m);
+    }
+  }
+});
+
+// 키가 두 곳(DEC-113)이라 Anthropic 응답도 가린다. 모양은 Anthropic 오류 본문({type:"error", error:{type, message}})
+Deno.test("Anthropic: 401·403은 키 문제, 크레딧 부족은 400 글, 몰림·과부하는 계정 문제가 아님", () => {
+  assertEquals(anthropicAccountKind(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }), "key-invalid");
+  assertEquals(anthropicAccountKind(403, { type: "error", error: { type: "permission_error", message: "not allowed" } }), "key-invalid");
+  assertEquals(anthropicAccountKind(400, { type: "error", error: { type: "invalid_request_error", message: "Your credit balance is too low to access the Anthropic API." } }), "quota");
+  assertEquals(anthropicAccountKind(400, { type: "error", error: { type: "invalid_request_error", message: "max_tokens: field required" } }), null);
+  assertEquals(anthropicAccountKind(429, { type: "error", error: { type: "rate_limit_error", message: "rate" } }), null);
+  assertEquals(anthropicAccountKind(529, { type: "error", error: { type: "overloaded_error", message: "Overloaded" } }), null);
+  assert(new AiAccountError("key-invalid", "Anthropic").message.startsWith("Anthropic API 키가 맞지 않아요"));
 });

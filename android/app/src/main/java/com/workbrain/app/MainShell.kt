@@ -53,6 +53,8 @@ import com.workbrain.app.record.RecState
 import com.workbrain.app.record.RecStatus
 import com.workbrain.app.record.RecorderLaunch
 import com.workbrain.app.reminders.ReminderLaunch
+import com.workbrain.app.decide.FocusController
+import com.workbrain.app.decide.FocusHost
 import com.workbrain.app.reminders.ReminderSync
 import com.workbrain.app.tasks.CalendarStore
 import com.workbrain.app.record.RecorderScreen
@@ -120,6 +122,7 @@ fun MainShell() {
     // 앱을 열 때: 결과가 아직 없는 녹음은 백그라운드 처리를 다시 건다(강제 중지 뒤에도 이어 가기, DEC-37)
     val context = LocalContext.current
     LaunchedEffect(Unit) { UploadManager.ensureRunning(context) }
+    LaunchedEffect(Unit) { FocusController.init(context) }
     // 미리 알림(DEC-108): 1시간마다 서버 값과 맞추기를 걸어 두고, 열 때 한 번 맞춘다
     LaunchedEffect(Unit) {
         ReminderSync.schedulePeriodic(context)
@@ -306,6 +309,8 @@ fun MainShell() {
             }
         }
     }
+    // 집중 타이머(DEC-111): 앱 어디에 있든 화면 전체로. 앱을 다시 열면 적어 둔 집중을 이어서
+    FocusHost()
 }
 
 /**

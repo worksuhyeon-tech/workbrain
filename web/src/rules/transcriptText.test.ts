@@ -24,6 +24,15 @@ describe('받아쓴 글 가져오기(앱 TranscriptText)', () => {
     expect(p.turns).toEqual([{ speaker: '발화자 1', offsetMs: 3000, text: '점검 시작합니다.' }])
   })
 
+  it('삼성 화자 분리 끔: 안내 문구·시각 줄을 떼고 말한 문장만, 제목·화자 없음(DEC-112)', () => {
+    const p = parseTranscriptText(['AI로 생성된 콘텐츠입니다', '00:00', '요거는 제가 보내 놓겠습니다.', '00:05', '아 네. 좋습니다.', '', '1:02:03', '감사합니다.'].join('\r\n'))
+    expect(p).toEqual({ title: null, startedAt: null, durationMs: null, body: '요거는 제가 보내 놓겠습니다.\n아 네. 좋습니다.\n감사합니다.', turns: [] })
+  })
+
+  it('안내 문구만 있고 화자·시각 줄이 없으면 안내 문구만 뗀다', () => {
+    expect(parseTranscriptText('AI로 생성된 콘텐츠입니다\n그냥 글').body).toBe('그냥 글')
+  })
+
   it('형식을 모르면 빈 줄만 빼고 글 그대로, 화자 없음', () => {
     const p = parseTranscriptText('﻿그냥 메모\n\n둘째 줄')
     expect(p).toEqual({ title: null, startedAt: null, durationMs: null, body: '그냥 메모\n둘째 줄', turns: [] })

@@ -36,19 +36,15 @@ import type { Place } from '../rules/place'
 import {
   CHANNEL_LABEL,
   CLASS_LABEL,
-  checkedAtFirst,
   clockText,
   decisionTaskEdit,
-  decisionsOf,
   durationText,
   followNamesOf,
   fullTimeText,
   mdOf,
   meetingTimeText,
-  overlappingDecision,
   processStep,
   stuckMessage,
-  proposalSegments,
   recipientsOf,
   snoozeActive,
   snoozeLabel,
@@ -503,14 +499,14 @@ function MinutesTab({ d, act, onEditAttendees }: { d: RecordDetail; act: Act; on
 
 /**
  * 추출 항목 + 할 일 후보 고르기(앱 RecordDetailScreen 'fields'). 고친 값·체크는 추가 전까지 이 화면에만 있다.
- * 체크는 사용자가 누른 것만 저장하고, 누르지 않은 후보는 처음 규칙(결정과 겹침·미룸이면 빼 둠)을 따른다
+ * 체크는 사용자가 누른 것만 저장하고, 누르지 않은 후보는 처음 규칙(미룬 후보만 빼 둠, DEC-63)을 따른다.
+ * 결정과 근거가 겹치는 후보도 다른 후보와 같이 보이고 체크된다: 지시문 v6부터 결정을 반영하는 일도 할 일로 뽑는다(DEC-112, DEC-48 접기 폐지)
  */
 function Fields({ d, act, onEditAttendees }: { d: RecordDetail; act: Act; onEditAttendees: () => void }) {
   const fields = d.meeting?.fields ?? null
-  const decisions = decisionsOf(fields)
+  const decisions = textsOf(fields, 'decisions')
   const questions = textsOf(fields, 'open_questions')
   const tracked = trackedTitlesOf(fields)
-  const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [checked, setChecked] = useState<Record<string, boolean>>({})
   const [edits, setEdits] = useState<Record<string, Json>>({})
   // '추가할 곳'을 사용자가 고르면 그 값, 아니면 연결된 프로젝트가 하나일 때 그 프로젝트(DEC-69)
@@ -522,11 +518,8 @@ function Fields({ d, act, onEditAttendees }: { d: RecordDetail; act: Act; onEdit
   const [leftover, setLeftover] = useState<ProposalRow[] | null>(null)
   const [busy, setBusy] = useState(false)
 
-  // 결정과 겹치는 후보는 그 결정 밑에 접는다(DEC-48)
-  const foldOf = (p: ProposalRow) => overlappingDecision(proposalSegments(p.evidence_link), decisions)
-  const isChecked = (p: ProposalRow) => checked[p.id] ?? checkedAtFirst(foldOf(p) !== null, p.snoozed_until)
+  const isChecked = (p: ProposalRow) => checked[p.id] ?? !snoozeActive(p.snoozed_until)
   const pendingNew = d.proposals.filter((p) => p.status === 'pending' && !p.target_id)
-  const loose = pendingNew.filter((p) => foldOf(p) === null)
   const updates = d.proposals.filter((p) => p.status === 'pending' && p.target_id)
   const done = d.proposals.filter((p) => p.status !== 'pending')
   const selected = pendingNew.filter(isChecked)
@@ -582,16 +575,10 @@ function Fields({ d, act, onEditAttendees }: { d: RecordDetail; act: Act; onEdit
     )
     const fresh = await act.refresh()
     setBusy(false)
-    // 체크하지 않고 남은 후보는 버릴지 묻는다(사용자 요청 11/05). 미룬 후보와 결정 밑에 접힌 후보(DEC-85)는 묻지 않는다
+    // 체크하지 않고 남은 후보는 버릴지 묻는다(사용자 요청 11/05). 미룬 후보는 일부러 미뤄 둔 것이라 묻지 않는다
     if (allAdded && fresh) {
-      const decisionsNow = decisionsOf(fresh.meeting?.fields ?? null)
       const rest = fresh.proposals.filter(
-        (p) =>
-          p.status === 'pending' &&
-          !p.target_id &&
-          checked[p.id] !== true &&
-          !snoozeActive(p.snoozed_until) &&
-          overlappingDecision(proposalSegments(p.evidence_link), decisionsNow) === null,
+        (p) => p.status === 'pending' && !p.target_id && checked[p.id] !== true && !snoozeActive(p.snoozed_until),
       )
       if (rest.length > 0) setLeftover(rest)
     }
@@ -636,38 +623,21 @@ function Fields({ d, act, onEditAttendees }: { d: RecordDetail; act: Act; onEdit
         {decisions.length > 0 && (
           <Field label="결정 후보">
             <ul className="space-y-2.5">
-              {decisions.map((dec, i) => {
-                const overlaps = pendingNew.filter((p) => foldOf(p) === i)
-                const open = expanded.has(i)
-                return (
-                  <li key={i}>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="inline-flex items-start gap-2 rounded-lg border border-warn/30 bg-warn-soft px-3 py-1.5">
-                        <b className="text-xs text-warn">후보</b>
-                        <span className="text-[15px] text-ink">{dec.text}</span>
-                      </span>
-                      {d.openTaskTitles.has(dec.text.trim()) ? (
-                        <span className={cn(CHIP, TONE_CHIP.good)}>할 일 있음</span>
-                      ) : (
-                        <button type="button" onClick={() => setCreating(dec.text)} className="text-[13px] font-semibold text-link">
-                          할 일로 만들기
-                        </button>
-                      )}
-                      {overlaps.length > 0 && (
-                        <button
-                          type="button"
-                          aria-expanded={open}
-                          onClick={() => setExpanded((s) => (s.has(i) ? new Set([...s].filter((x) => x !== i)) : new Set([...s, i])))}
-                          className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-muted"
-                        >
-                          겹치는 할 일 후보 {overlaps.length}개 <Icons.chevron open={open} />
-                        </button>
-                      )}
-                    </div>
-                    {open && <div className="mt-2 rounded-lg border border-border">{overlaps.map(candidate)}</div>}
-                  </li>
-                )
-              })}
+              {decisions.map((dec, i) => (
+                <li key={i} className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-start gap-2 rounded-lg border border-warn/30 bg-warn-soft px-3 py-1.5">
+                    <b className="text-xs text-warn">후보</b>
+                    <span className="text-[15px] text-ink">{dec}</span>
+                  </span>
+                  {d.openTaskTitles.has(dec.trim()) ? (
+                    <span className={cn(CHIP, TONE_CHIP.good)}>할 일 있음</span>
+                  ) : (
+                    <button type="button" onClick={() => setCreating(dec)} className="text-[13px] font-semibold text-link">
+                      할 일로 만들기
+                    </button>
+                  )}
+                </li>
+              ))}
             </ul>
             <p className="mt-2 text-xs text-muted">※ 회의에서 정한 것처럼 들린 말이에요. 확정은 아니에요. 챙길 일이면 할 일로 옮겨요.</p>
           </Field>
@@ -687,15 +657,14 @@ function Fields({ d, act, onEditAttendees }: { d: RecordDetail; act: Act; onEdit
         <p className="mt-4 text-sm text-muted">{d.info.job?.stage_state === 'FAILED' ? '처리하지 못해 회의록·할 일 후보가 없어요.' : '정리가 끝나면 회의록과 할 일 후보가 여기에 나와요.'}</p>
       ) : (
         <>
-          <h3 className="mt-5 mb-1 text-[15px] font-bold">할 일 후보 {loose.length}</h3>
+          <h3 className="mt-5 mb-1 text-[15px] font-bold">할 일 후보 {pendingNew.length}</h3>
           {nothing && <p className="text-sm text-muted">이 기록에서는 할 일을 찾지 못했어요.</p>}
           {pendingNew.length > 0 && (
             <p className="mb-2 text-[13px] text-muted">
               체크한 것만 할 일로 추가돼요. 제목은 그 자리에서 고치고, 담당·기한은 골라요.
-              {loose.length < pendingNew.length ? ' 결정과 겹치는 후보는 결정 밑에 접어 뒀어요.' : ''}
             </p>
           )}
-          {loose.length > 0 && <div className="rounded-lg border border-border">{loose.map(candidate)}</div>}
+          {pendingNew.length > 0 && <div className="rounded-lg border border-border">{pendingNew.map(candidate)}</div>}
           {pendingNew.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-[13px] font-semibold text-muted">

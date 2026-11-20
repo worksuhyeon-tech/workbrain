@@ -1,5 +1,5 @@
 // 기록 처리 (P1 2단계, Design §2.3·§3.1, DEC-28/30)
-// 호출 한 번에 한 단계만 진행한다: STT(gpt-transcribe) → CORRECT(용어 교정, 용어집 있을 때) → EXTRACT(gpt-6-luna) → REVIEWABLE.
+// 호출 한 번에 한 단계만 진행한다: STT(gpt-transcribe) → CORRECT(용어 교정, 용어집 있을 때) → EXTRACT(claude-sonnet-5-5, 안 되면 gpt-6-luna, DEC-113) → REVIEWABLE.
 // 회의록 문서는 사용자가 '회의록 만들기'를 눌렀을 때만 따로 만든다(action: "document", DEC-56).
 // 프로젝트 연결 제안(FR-06, DEC-75)은 EXTRACT 직후에 만들고, 지난 기록·실패분은 앱이 켜질 때 action: "suggest_links"로 채운다.
 // 프로젝트 현재 상태 제안(FR-09, DEC-86)은 사용자가 기록을 프로젝트에 연결한 뒤 앱이 action: "project_state"로 부른다.
@@ -17,17 +17,19 @@ import { buildHeadInput, cleanHeads, PLAN_HEAD_PROMPT, PLAN_HEAD_SCHEMA, PLAN_HE
 import { loadPlanInput } from "./plan-data.ts";
 import { applyHeads, buildWorkPlan, headInputs, type PlanKind, type WorkPlan } from "../_shared/work-plan.ts";
 import { withCors } from "../_shared/cors.ts";
+import { addCost, EXTRACT_MODEL, EXTRACT_USD_PER_1M, LLM_MODEL, LLM_USD_PER_1M, llmUsd, overBudget } from "../_shared/ai-cost.ts";
 import { AI_NO_KEY_MESSAGE, AiAccountError, openAiError } from "./ai-error.ts";
+import {
+  AFTER_EXTRACT_MS, type ClaudeReply, claudeExtractBody, LUNA_EXTRACT_MS, NO_USAGE, readClaudeReply, REQUEST_BUDGET_MS, SONNET_LATE, type Usage,
+} from "./claude.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
+const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 
 const STT_MODEL = "gpt-transcribe";
-const LLM_MODEL = "gpt-6-luna";
 const STT_USD_PER_MIN = 0.0045;        // DEC-19
-const LLM_USD_PER_1M = { input: 0.10, output: 0.50 };
-const KRW_PER_USD = 1400;
 const STT_MAX_BYTES = 25 * 1024 * 1024; // 전사 API 한 번 한도
 
 type Job = { id: string; stage: string; stage_state: string; retry_count: number; last_error: string | null };
@@ -37,6 +39,7 @@ const reply = (status: number, body: unknown) =>
 
 Deno.serve(withCors(async (req) => {
   if (req.method !== "POST") return reply(405, { error: "POST만 받아요" });
+  const deadline = Date.now() + REQUEST_BUDGET_MS;   // 할 일 정리 단계가 시간을 나눠 쓴다(claude.ts)
   const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
   // 호출한 사람 확인(서버 키로 처리하므로 소유자 검사를 코드로 직접 한다, Design §4.7)
@@ -135,7 +138,7 @@ Deno.serve(withCors(async (req) => {
   try {
     if (job.stage === "STT") await runStt(db, uid, recordId, job, cycle);
     else if (job.stage === "CORRECT") await runCorrect(db, uid, recordId, job, cycle);
-    else await runExtract(db, uid, recordId, job, cycle);
+    else await runExtract(db, uid, recordId, job, cycle, deadline);
     const { data: after } = await db.from("processing_job").select("stage,stage_state,last_error").eq("id", job.id).single();
     return reply(200, { stage: after?.stage, state: after?.stage_state, error: after?.last_error ?? undefined });
   } catch (e) {
@@ -153,18 +156,6 @@ Deno.serve(withCors(async (req) => {
     return reply(200, { stage: job.stage, state: "FAILED", error: message });
   }
 }));
-
-/** 이번 달 확정 비용이 예산 대기선(기본 2만4천 원)을 넘었는지(NFR-07) */
-async function overBudget(db: SupabaseClient, uid: string, cycle: string): Promise<boolean> {
-  const { data: setting } = await db.from("settings").select("budget_wait_krw").eq("user_id", uid).single();
-  const { data: spent } = await db.from("cost_ledger").select("confirmed_krw").eq("owner_id", uid).eq("billing_cycle", cycle);
-  const spentKrw = (spent ?? []).reduce((n, r) => n + (r.confirmed_krw ?? 0), 0);
-  return spentKrw >= (setting?.budget_wait_krw ?? 24000);
-}
-
-async function addCost(db: SupabaseClient, uid: string, cycle: string, usd: number) {
-  await db.from("cost_ledger").insert({ owner_id: uid, billing_cycle: cycle, confirmed_krw: Math.max(1, Math.ceil(usd * KRW_PER_USD)) });
-}
 
 // 내 용어집(DEC-33): 용어 교정·회의록·할 일 표기 기준. 없으면 빈 목록
 async function loadVocab(db: SupabaseClient, uid: string): Promise<string[]> {
@@ -409,7 +400,7 @@ function taskChanges(c: Record<string, unknown>, t: OpenTask): { before: Record<
   return { before, after };
 }
 
-async function runExtract(db: SupabaseClient, uid: string, recordId: string, job: Job, cycle: string) {
+async function runExtract(db: SupabaseClient, uid: string, recordId: string, job: Job, cycle: string, deadline: number) {
   const { data: rec } = await db.from("source_record").select("title,record_kind,occurred_at,ingested_at,workspace_id,attendees")
     .eq("id", recordId).eq("owner_id", uid).single();
   const { data: tv } = await db.from("transcript_version").select("id,segments,retention_expires_at")
@@ -436,22 +427,10 @@ async function runExtract(db: SupabaseClient, uid: string, recordId: string, job
     attendees: rec.attendees ?? [], vocab, segments, myNames,
   });
 
-  const r = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: { "content-type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
-    body: JSON.stringify({
-      model: LLM_MODEL, instructions: SYSTEM_PROMPT, input: user,
-      text: { format: { type: "json_schema", name: "record_extraction", schema: OUTPUT_SCHEMA, strict: true } },
-    }),
-  });
-  const d = await r.json();
-  if (!r.ok) throw openAiError("분석 실패", r.status, d);
-  const usage = { input_tokens: d.usage?.input_tokens ?? 0, output_tokens: d.usage?.output_tokens ?? 0 };
-  await addCost(db, uid, cycle, (usage.input_tokens * LLM_USD_PER_1M.input + usage.output_tokens * LLM_USD_PER_1M.output) / 1e6);
-  const raw = d.output_text ?? d.output?.flatMap((o: { content?: unknown[] }) => o.content ?? [])
-    .find((c: { type?: string }) => c.type === "output_text")?.text;
+  const call = await callExtract(db, uid, cycle, user, job.last_error, deadline);
+  const usage = call.usage;
   let out: Record<string, unknown>;
-  try { out = JSON.parse(raw); } catch { throw new Error("분석 결과 형식이 맞지 않아요"); }
+  try { out = JSON.parse(call.text); } catch { throw new Error("분석 결과 형식이 맞지 않아요"); }
 
   // 서버 검증(NFR-08): 근거 구간·프로젝트 ID·담당·기한을 허용 범위로만 받는다. 맞지 않으면 버리거나 '확인 필요'로 낮춘다
   const inRange = (xs: unknown) => (Array.isArray(xs) ? xs : []).filter((i) => Number.isInteger(i) && i >= 0 && i < segments.length) as number[];
@@ -512,8 +491,8 @@ async function runExtract(db: SupabaseClient, uid: string, recordId: string, job
   }
 
   const { data: run, error: runErr } = await db.from("analysis_run").insert({
-    owner_id: uid, input_transcript_version_id: tv.id, model_id: LLM_MODEL, prompt_version: PROMPT_VERSION,
-    config_hash: `${LLM_MODEL}:${PROMPT_VERSION}`, status: "done", provider_request_id: d.id ?? null, usage,
+    owner_id: uid, input_transcript_version_id: tv.id, model_id: call.model, prompt_version: PROMPT_VERSION,
+    config_hash: `${call.model}:${PROMPT_VERSION}`, status: "done", provider_request_id: call.id, usage,
   }).select("id").single();
   if (runErr || !run) throw new Error("분석 기록 저장 실패");
 
@@ -543,8 +522,61 @@ async function runExtract(db: SupabaseClient, uid: string, recordId: string, job
   await db.from("processing_job").update({
     stage: "REVIEWABLE", stage_state: "DONE", retry_count: 0, last_error: null, lease_until: null, updated_at: new Date().toISOString(),
   }).eq("id", job.id);
-  // 프로젝트 연결 제안(FR-06): 실패해도 처리 결과는 그대로 두고, 앱이 켜질 때 밀린 제안으로 다시 만든다
-  await suggestLinks(db, uid, recordId, cycle).catch((e) => console.error("link suggestion failed", String(e)));
+  // 프로젝트 연결 제안(FR-06): 실패해도 처리 결과는 그대로 두고, 앱이 켜질 때 밀린 제안으로 다시 만든다.
+  // 긴 회의라 시간이 빠듯하면 지금은 건너뛴다(함수가 150초에 끊기면 처리 결과까지 답하지 못함)
+  if (deadline - Date.now() < AFTER_EXTRACT_MS) console.log(JSON.stringify({ link_deferred: recordId }));
+  else await suggestLinks(db, uid, recordId, cycle).catch((e) => console.error("link suggestion failed", String(e)));
+}
+
+type Extracted = { text: string; usage: Usage; id: string | null; model: string };
+
+/**
+ * 할 일·결정 후보 뽑기(DEC-113). 소넷 5.5로 부르고, 거절·몰림·서버 문제·시간 초과면 luna로 한 번 더 부른다.
+ * luna를 부를 시간이 이 호출에 없으면 SONNET_LATE로 실패시켜, 앱이 다시 부를 때 luna로 뽑는다(같은 긴 기록을 소넷으로 또 기다리지 않음).
+ * Anthropic 키가 없으면 luna로 뽑는다(서버 비밀값을 지우면 예전 모델로 돌아감). 쓴 비용은 모델 단가대로 원장에 남긴다
+ */
+async function callExtract(db: SupabaseClient, uid: string, cycle: string, user: string, lastError: string | null, deadline: number): Promise<Extracted> {
+  if (ANTHROPIC_KEY && lastError !== SONNET_LATE) {
+    const reply = await askClaude(user, deadline - Date.now() - AFTER_EXTRACT_MS);
+    // 시간 초과로 끊은 호출은 사용량을 못 받아 원장에 남지 않는다(Anthropic 쪽에는 청구될 수 있음)
+    if (reply.usage.input_tokens || reply.usage.output_tokens) await addCost(db, uid, cycle, llmUsd(reply.usage, EXTRACT_USD_PER_1M));
+    if ("text" in reply) return { ...reply, model: EXTRACT_MODEL };
+    console.warn(JSON.stringify({ extract_fallback: reply.retry, to: LLM_MODEL, left_ms: deadline - Date.now() }));
+    if (deadline - Date.now() < LUNA_EXTRACT_MS) throw new Error(SONNET_LATE);
+  }
+  const r = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "content-type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
+    body: JSON.stringify({
+      model: LLM_MODEL, instructions: SYSTEM_PROMPT, input: user,
+      text: { format: { type: "json_schema", name: "record_extraction", schema: OUTPUT_SCHEMA, strict: true } },
+    }),
+  });
+  const d = await r.json();
+  if (!r.ok) throw openAiError("분석 실패", r.status, d);
+  const usage = { input_tokens: d.usage?.input_tokens ?? 0, output_tokens: d.usage?.output_tokens ?? 0 };
+  await addCost(db, uid, cycle, llmUsd(usage));
+  const text = d.output_text ?? d.output?.flatMap((o: { content?: unknown[] }) => o.content ?? [])
+    .find((c: { type?: string }) => c.type === "output_text")?.text;
+  return { text: String(text ?? ""), usage, id: d.id ?? null, model: LLM_MODEL };
+}
+
+/** 소넷 한 번 부르기. 시간 초과(timeoutMs)·연결 끊김·읽을 수 없는 본문은 다시 부를 일로 돌려준다 */
+async function askClaude(user: string, timeoutMs: number): Promise<ClaudeReply> {
+  let status: number, body: unknown;
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": ANTHROPIC_KEY!, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify(claudeExtractBody(SYSTEM_PROMPT, user, OUTPUT_SCHEMA)),
+      signal: AbortSignal.timeout(Math.max(timeoutMs, 1_000)),
+    });
+    status = r.status;
+    body = await r.json();
+  } catch (e) {
+    return { retry: `Anthropic ${(e as Error)?.name ?? "error"}`, usage: NO_USAGE };
+  }
+  return readClaudeReply(status, body);
 }
 
 // ── 프로젝트 연결 제안(FR-06, DEC-75, Design §3.11) ──

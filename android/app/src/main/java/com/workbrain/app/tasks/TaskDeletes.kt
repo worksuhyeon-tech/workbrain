@@ -39,19 +39,25 @@ object TaskDeletes {
 
     /**
      * beforeCommit: 되돌리기가 끝나 서버에서 지우기 바로 전에 할 일(캘린더 일정 지우기, FR-24a).
-     * 할 일을 지우면 일정 연결(task_calendar)이 함께 지워져 그 뒤에는 어느 일정인지 알 수 없어서 먼저 한다. 실패해도 할 일은 지운다
+     * 할 일을 지우면 일정 연결(task_calendar)이 함께 지워져 그 뒤에는 어느 일정인지 알 수 없어서 먼저 한다. 실패해도 할 일은 지운다.
+     * commit·verb: 비서와 결정의 [이제 필요 없어요](DEC-111)는 같은 3초 되돌리기 뒤 '내려놓기'(사본을 남기고 지움)로 보낸다
      */
-    fun delete(t: TaskRow, beforeCommit: (suspend () -> Unit)? = null) {
+    fun delete(
+        t: TaskRow,
+        beforeCommit: (suspend () -> Unit)? = null,
+        verb: String = "지우",
+        commit: suspend (TaskRow) -> Boolean = { Server.deleteTask(it) },
+    ) {
         if (t.id in waiting) return
         _hidden.update { it + t.id }
         waiting[t.id] = scope.launch {
             delay(COMMIT_MS)
             beforeCommit?.let { step -> runCatching { step() }.onFailure { Log.w("WbTaskDeletes", "before delete step failed", it) } }
-            val result = runCatching { Server.deleteTask(t) }
+            val result = runCatching { commit(t) }
             waiting.remove(t.id)
             result
-                .onSuccess { deleted -> if (!deleted) fail(t, "‘${t.title}’은(는) 다른 기기에서 먼저 바뀌어 지우지 않았어요. 새로 불러왔어요") }
-                .onFailure { fail(t, "‘${t.title}’을(를) 지우지 못했어요. 인터넷 연결을 확인해 주세요") }
+                .onSuccess { deleted -> if (!deleted) fail(t, "‘${t.title}’은(는) 다른 기기에서 먼저 바뀌어 ${verb}지 않았어요. 새로 불러왔어요") }
+                .onFailure { fail(t, "‘${t.title}’을(를) ${verb}지 못했어요. 인터넷 연결을 확인해 주세요") }
         }
     }
 

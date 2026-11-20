@@ -205,12 +205,6 @@ export function recordProjectIds(links: { project_id: string; status: string; it
 
 // ── 상세 ──
 
-/** 결정 후보 한 줄과 근거 구간(전사 문장 번호) */
-export interface Decision {
-  text: string
-  segments: Set<number>
-}
-
 type Json = Record<string, unknown>
 const objects = (v: unknown): Json[] => (Array.isArray(v) ? v.filter((x): x is Json => typeof x === 'object' && x !== null) : [])
 const textOf = (o: Json, key: string): string | null => (typeof o[key] === 'string' && (o[key] as string).trim() ? (o[key] as string) : null)
@@ -220,34 +214,9 @@ export function textsOf(fields: Json | null, key: string): string[] {
   return objects(fields?.[key]).flatMap((o) => textOf(o, 'text') ?? [])
 }
 
-export function decisionsOf(fields: Json | null): Decision[] {
-  return objects(fields?.decisions).flatMap((o) => {
-    const text = textOf(o, 'text')
-    if (!text) return []
-    const segs = Array.isArray(o.segments) ? o.segments.filter((n): n is number => Number.isInteger(n)) : []
-    return [{ text, segments: new Set(segs) }]
-  })
-}
-
 /** 이미 있는 할 일이라 새로 만들지 않은 것(DEC-38) */
 export function trackedTitlesOf(fields: Json | null): string[] {
   return objects(fields?.already_tracked).flatMap((o) => textOf(o, 'title') ?? [])
-}
-
-/** 후보 근거 구간: evidence_link[].segment_ref.idx */
-export function proposalSegments(evidence: { segment_ref: { idx?: unknown } | null }[] | null | undefined): Set<number> {
-  const out = new Set<number>()
-  for (const e of evidence ?? []) {
-    const idx = e.segment_ref?.idx
-    if (Array.isArray(idx)) idx.forEach((n) => Number.isInteger(n) && out.add(n as number))
-  }
-  return out
-}
-
-/** 근거가 결정과 겹치는 첫 결정의 번호(DEC-48: 그 결정 밑에 접는다). 없으면 null */
-export function overlappingDecision(segments: Set<number>, decisions: Decision[]): number | null {
-  const i = decisions.findIndex((d) => [...segments].some((s) => d.segments.has(s)))
-  return i >= 0 ? i : null
 }
 
 /** 전사 문장 구간. speaker·offsetMs는 가져온 txt의 화자·시각(DEC-54) */
@@ -420,13 +389,6 @@ export function decisionTaskEdit(edits: Json, place: { type: 'PROJECT' | 'AREA';
 export function followNamesOf(attendees: string[], assignees: unknown[], myNames: string[]): string[] {
   const mine = new Set(myNames.map((n) => n.trim()))
   return [...new Set([...attendees, ...assignees.filter((a): a is string => typeof a === 'string')].map((n) => n.trim()))].filter((n) => n && !mine.has(n))
-}
-
-/**
- * 처음 체크: 결정과 겹치는 후보는 결정과 중복일 가능성이 커서(DEC-48), 검토함에서 미룬 후보는 모르고 추가하지 않게(DEC-63) 빼 둔다
- */
-export function checkedAtFirst(overlaps: boolean, snoozedUntil: string | null, now: Date = new Date()): boolean {
-  return !overlaps && !snoozeActive(snoozedUntil, now)
 }
 
 /** 후보의 받는 사람(DEC-77). 배열이 아니면 빈 목록 */
